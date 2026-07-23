@@ -6,6 +6,7 @@ node_modules/
 dist/
 .next/
 out/
+.open-next/
 .wrangler/
 .dev.vars
 supabase/.temp/

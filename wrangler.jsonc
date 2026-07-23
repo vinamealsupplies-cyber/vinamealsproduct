@@ -1,0 +1,17 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "vinameals",
+  "main": ".open-next/worker.js",
+  "compatibility_date": "2026-07-23",
+  // nodejs_compat: Next.js và supabase-js cần API của Node trên Workers.
+  // global_fetch_strictly_public: fetch trong worker đi ra ngoài như request
+  // công khai, tránh tự gọi vòng lại chính worker.
+  "compatibility_flags": ["nodejs_compat", "global_fetch_strictly_public"],
+  "assets": {
+    "directory": ".open-next/assets",
+    "binding": "ASSETS"
+  },
+  "observability": {
+    "enabled": true
+  }
+}
