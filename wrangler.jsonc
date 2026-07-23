@@ -7,6 +7,16 @@
   // global_fetch_strictly_public: fetch trong worker đi ra ngoài như request
   // công khai, tránh tự gọi vòng lại chính worker.
   "compatibility_flags": ["nodejs_compat", "global_fetch_strictly_public"],
+  // Giữ luôn địa chỉ *.workers.dev làm đường dự phòng để test khi tên miền
+  // chính có sự cố. Khai báo route sẽ tự tắt nó nếu không bật lại ở đây.
+  "workers_dev": true,
+  // Tên miền thật. Dùng route (không phải custom_domain) vì zone đã proxy sẵn
+  // qua Cloudflare — route chặn request trước khi nó đi tiếp tới origin cũ,
+  // nên không cần sửa bản ghi DNS nào.
+  "routes": [
+    { "pattern": "vinamealsupplies.com/*", "zone_name": "vinamealsupplies.com" },
+    { "pattern": "www.vinamealsupplies.com/*", "zone_name": "vinamealsupplies.com" }
+  ],
   "assets": {
     "directory": ".open-next/assets",
     "binding": "ASSETS"
