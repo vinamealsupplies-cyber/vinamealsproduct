@@ -1,0 +1,12 @@
+.DS_Store
+.env
+.env.*
+!.env.example
+node_modules/
+dist/
+.wrangler/
+.dev.vars
+supabase/.temp/
+
+CONNECTIONS.local.md
+*.local.md
