@@ -1,0 +1,22 @@
+flowchart LR
+  Browser[Customer/Admin Browser]
+  Next[Next.js App Router\nServer Components + Route Handlers]
+  SupaAuth[Supabase Auth]
+  Postgres[(Supabase Postgres + RLS)]
+  R2[(Cloudflare R2)]
+  Stream[Cloudflare Stream optional]
+  GitHub[GitHub Repo + Actions]
+  Host[Node-compatible Hosting]
+
+  Browser -->|HTTPS| Next
+  Next -->|Auth cookies / verified claims| SupaAuth
+  Next -->|Server queries / admin actions| Postgres
+  Browser -->|Public catalog under RLS| Postgres
+  Next -->|Create short-lived upload URL| R2
+  Browser -->|Direct image upload| R2
+  Next -->|Create direct upload URL| Stream
+  Browser -->|Direct video upload| Stream
+  R2 -->|CDN media| Browser
+  Stream -->|Adaptive playback| Browser
+  GitHub -->|CI/CD| Host
+  Host --> Next

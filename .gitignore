@@ -4,9 +4,17 @@
 !.env.example
 node_modules/
 dist/
+.next/
+out/
 .wrangler/
 .dev.vars
 supabase/.temp/
+*.log
+coverage/
+tsconfig.tsbuildinfo
+next-env.d.ts
+food-store-blueprint.zip
 
+# Thông tin kết nối tài khoản — chỉ giữ trong máy
 CONNECTIONS.local.md
 *.local.md
