@@ -49,10 +49,12 @@ main { min-height: 65vh; }
 .announcement-inner { min-height: 35px; display: flex; align-items: center; justify-content: center; gap: 12px; }
 .announcement-separator { color: var(--lime); }
 .site-header { position: relative; z-index: 30; background: rgba(255, 253, 247, 0.96); border-bottom: 1px solid var(--line); }
-.header-main { min-height: 86px; display: grid; grid-template-columns: auto minmax(250px, 1fr) auto; gap: 28px; align-items: center; }
+.header-main { min-height: 100px; display: grid; grid-template-columns: auto minmax(250px, 1fr) auto; gap: 28px; align-items: center; }
 .brand { display: inline-flex; align-items: center; gap: 11px; white-space: nowrap; }
 .brand-mark { width: 46px; height: 46px; border-radius: 15px; display: grid; place-items: center; background: var(--green); color: white; font-size: 14px; font-weight: 900; letter-spacing: -0.04em; box-shadow: 5px 5px 0 var(--lime); }
-.brand-logo { height: 50px; width: auto; mix-blend-mode: multiply; }
+/* Logo chiếm gần trọn chiều cao header (100px), chừa 8px trên dưới.
+   PNG đã trong suốt nên không cần mix-blend-mode nữa. */
+.brand-logo { height: 84px; width: auto; }
 .brand-mark-img { width: 46px; height: 46px; border-radius: 15px; object-fit: cover; background: white; }
 .brand > span:last-child { display: flex; flex-direction: column; line-height: 1; }
 .brand strong { font-size: 20px; letter-spacing: -0.04em; }
@@ -501,6 +503,7 @@ textarea { resize: vertical; }
   .shell-wide { width: min(100% - 20px, 1440px); }
   .announcement-inner { justify-content: flex-start; overflow: hidden; white-space: nowrap; }
   .header-main { display: flex; flex-wrap: wrap; gap: 16px; padding-block: 16px; }
+  .brand-logo { height: 60px; }
   .header-search { order: 3; flex: 1 0 100%; }
   .header-actions { margin: 0 0 0 auto; }
   .header-action span:not(.cart-count) { display: none; }

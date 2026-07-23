@@ -18,12 +18,15 @@ export async function SiteHeader() {
       </div>
       <div className="shell header-main">
         <Link className="brand" href="/" aria-label="Vinameals home">
+          {/* PNG nền trong suốt để logo không thành hộp chữ nhật trên nền kem
+              của header. Bản .jpg (có nền) vẫn giữ cho thẻ Open Graph, vì ảnh
+              trong suốt lên mạng xã hội thường bị nền đen. */}
           <Image
             className="brand-logo"
-            src="/logo-vinameals.jpg"
+            src="/logo-vinameals.png"
             alt="Vinameals"
-            width={1000}
-            height={418}
+            width={600}
+            height={251}
             priority
           />
         </Link>
