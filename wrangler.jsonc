@@ -1,6 +1,6 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
-  "name": "vinameals",
+  "name": "vinamealsproduct",
   "main": ".open-next/worker.js",
   "compatibility_date": "2026-07-23",
   // nodejs_compat: Next.js và supabase-js cần API của Node trên Workers.

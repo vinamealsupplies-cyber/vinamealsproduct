@@ -19,3 +19,16 @@ food-store-blueprint.zip
 # Thông tin kết nối tài khoản — chỉ giữ trong máy
 CONNECTIONS.local.md
 *.local.md
+
+# File ghi khoá thủ công — TUYỆT ĐỐI không đẩy lên repo
+key.rtf
+key.txt
+keys.*
+*secret*.rtf
+*secret*.txt
+*.pem
+*.p8
+*.key
+
+# Claude Code — cấu hình quyền cục bộ, chỉ giữ trong máy (không đẩy lên repo)
+.claude/settings.local.json
