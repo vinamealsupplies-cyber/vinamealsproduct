@@ -25,8 +25,8 @@ export async function SiteHeader() {
             className="brand-logo"
             src="/logo-vinameals.png"
             alt="Vinameals"
-            width={600}
-            height={251}
+            width={640}
+            height={350}
             priority
           />
         </Link>
