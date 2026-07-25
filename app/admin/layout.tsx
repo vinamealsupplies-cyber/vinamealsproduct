@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import { AdminNav } from "@/components/admin-nav";
-import { SetupNotice } from "@/components/setup-notice";
+import { AdminScaffoldNotice } from "@/components/admin-scaffold-notice";
+import { TaxExemptionAlert } from "@/components/tax-exemption-alert";
 import { getViewer } from "@/lib/auth";
 
 export default async function AdminLayout({ children }: { children: React.ReactNode }) {
@@ -11,11 +12,8 @@ export default async function AdminLayout({ children }: { children: React.ReactN
     <div className="admin-shell shell-wide">
       <AdminNav />
       <div className="admin-content">
-        <SetupNotice>
-          {viewer.demo
-            ? "Admin demo mode is active. Configure Supabase and disable APP_DEMO_MODE before deployment."
-            : "UI scaffold data is shown on these admin pages until the database query and mutation layer is connected."}
-        </SetupNotice>
+        <AdminScaffoldNotice demo={viewer.demo} />
+        <TaxExemptionAlert />
         {children}
       </div>
     </div>

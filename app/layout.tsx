@@ -4,6 +4,9 @@ import { SiteHeader } from "@/components/site-header";
 import "./globals.css";
 
 export const metadata: Metadata = {
+  // Domain thật để OG/Twitter image resolve đúng khi share link
+  // (thiếu cái này Next fallback về localhost:3000 và cảnh báo mỗi lần build).
+  metadataBase: new URL("https://vinamealsupplies.com"),
   title: {
     default: "Vinameals — Real food make your life",
     template: "%s | Vinameals"

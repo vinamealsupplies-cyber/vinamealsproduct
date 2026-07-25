@@ -2,9 +2,12 @@ import Link from "next/link";
 import { FileSpreadsheet, Plus } from "lucide-react";
 import { AdminPageHeader } from "@/components/admin-page-header";
 import { SearchableTable } from "@/components/searchable-table";
-import { products } from "@/lib/sample-data";
+import { getAdminProducts } from "@/lib/data/products";
 
-export default function AdminProductsPage() {
+export default async function AdminProductsPage() {
+  // Bảng admin cần giá sỉ → đọc bằng service role (anon/authenticated không
+  // còn quyền trên cột wholesale_price sau bản vá bảo mật).
+  const products = await getAdminProducts();
   const rows = products.map((product) => ({ id: product.id, name: product.name, sku: product.sku, category: product.category, retailPrice: product.price, wholesalePrice: product.wholesalePrice, stock: product.stock, status: "Active" }));
   return (
     <>

@@ -1,11 +1,14 @@
 "use client";
 
-import { useState } from "react";
+import { Fragment, useState } from "react";
 import { Save } from "lucide-react";
 import { ProductMediaUploader } from "@/components/product-media-uploader";
-import { categories } from "@/lib/sample-data";
+import type { CategoryNode } from "@/lib/data/categories";
 
-export function ProductForm() {
+// Danh sách category lấy từ Supabase (truyền từ server) — category vừa tạo ở
+// trang Categories xuất hiện ngay ở đây. Category con hiển thị thụt vào dưới
+// category cha.
+export function ProductForm({ categories }: { categories: CategoryNode[] }) {
   const [saved, setSaved] = useState(false);
 
   return (
@@ -21,7 +24,14 @@ export function ProductForm() {
           <label>Category *
             <select required name="category" defaultValue="">
               <option value="" disabled>Select category</option>
-              {categories.map((category) => <option value={category.slug} key={category.slug}>{category.name}</option>)}
+              {categories.map((category) => (
+                <Fragment key={category.id}>
+                  <option value={category.slug}>{category.name}</option>
+                  {category.children.map((child) => (
+                    <option value={child.slug} key={child.id}>&nbsp;&nbsp;— {child.name}</option>
+                  ))}
+                </Fragment>
+              ))}
             </select>
           </label>
           <label>Status *<select required name="status" defaultValue="draft"><option value="draft">Draft</option><option value="active">Active</option><option value="archived">Archived</option></select></label>

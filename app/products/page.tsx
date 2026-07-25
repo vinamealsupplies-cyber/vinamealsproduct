@@ -1,11 +1,11 @@
 import type { Metadata } from "next";
 import { ProductCatalog } from "@/components/product-catalog";
-import { products } from "@/lib/sample-data";
+import { getProducts } from "@/lib/data/products";
 
 export const metadata: Metadata = { title: "Shop all products" };
 
 export default async function ProductsPage({ searchParams }: { searchParams: Promise<{ q?: string; category?: string; sort?: string }> }) {
-  const params = await searchParams;
+  const [params, products] = await Promise.all([searchParams, getProducts()]);
   return (
     <div className="page-shell shell">
       <header className="page-heading">

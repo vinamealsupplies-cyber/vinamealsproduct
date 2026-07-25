@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { SlidersHorizontal, X } from "lucide-react";
+import { Search, SlidersHorizontal, X } from "lucide-react";
 import { ProductCard } from "@/components/product-card";
 import type { Product } from "@/lib/sample-data";
 
@@ -29,6 +29,9 @@ export function ProductCatalog({
   const [query, setQuery] = useState(initialQuery);
   const [category, setCategory] = useState(initialCategory);
   const [sort, setSort] = useState(sortOptions.some((option) => option.value === initialSort) ? initialSort : "featured");
+  // Panel filter (category + sort) ẩn mặc định — mở bằng icon cạnh nút Search.
+  // Nếu vào trang với category/sort sẵn từ URL thì mở luôn cho người dùng thấy.
+  const [showFilters, setShowFilters] = useState(Boolean(initialCategory) || (initialSort !== "" && initialSort !== "featured"));
   const categoryOptions = Array.from(new Set(products.map((product) => product.category))).sort();
 
   // React Compiler (React 19 + Next 16) tự memo hoá — useMemo thủ công ở đây bị
@@ -53,43 +56,67 @@ export function ProductCatalog({
     }
   });
 
+  // Chỉ category + sort mới tính là "đang lọc" — ô search luôn hoạt động bình thường.
+  const activeFilters = (category ? 1 : 0) + (sort !== "featured" ? 1 : 0);
+
   function clearFilters() {
-    setQuery("");
     setCategory("");
     setSort("featured");
   }
 
   return (
-    <div className="catalog-layout">
-      <aside className="catalog-filters" aria-label="Product filters">
-        <div className="filter-heading">
-          <strong><SlidersHorizontal size={18} /> Filters</strong>
-          {(query || category || sort !== "featured") ? (
-            <button type="button" onClick={clearFilters}><X size={15} /> Clear</button>
+    <div className="catalog">
+      <div className="catalog-toolbar">
+        <form className="catalog-search" role="search" onSubmit={(event) => event.preventDefault()}>
+          <Search size={18} aria-hidden="true" />
+          <input
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+            type="search"
+            aria-label="Search products"
+            placeholder="Search by product name or SKU"
+          />
+          <button type="submit">Search</button>
+        </form>
+        <button
+          type="button"
+          className={`catalog-filter-toggle${showFilters ? " active" : ""}`}
+          aria-expanded={showFilters}
+          aria-controls="catalog-filter-panel"
+          aria-label={showFilters ? "Hide filters" : "Show filters"}
+          onClick={() => setShowFilters((current) => !current)}
+        >
+          <SlidersHorizontal size={18} aria-hidden="true" />
+          {activeFilters ? <span className="filter-dot" aria-hidden="true" /> : null}
+        </button>
+      </div>
+
+      {showFilters ? (
+        <div className="catalog-filter-panel" id="catalog-filter-panel">
+          <label>
+            Category
+            <select value={category} onChange={(event) => setCategory(event.target.value)}>
+              <option value="">All categories</option>
+              {categoryOptions.map((name) => (
+                <option key={name} value={name.toLowerCase()}>{name}</option>
+              ))}
+            </select>
+          </label>
+          <label>
+            Sort by
+            <select value={sort} onChange={(event) => setSort(event.target.value)}>
+              {sortOptions.map((option) => (
+                <option key={option.value} value={option.value}>{option.label}</option>
+              ))}
+            </select>
+          </label>
+          {activeFilters ? (
+            <button type="button" className="filter-clear" onClick={clearFilters}>
+              <X size={15} /> Clear filters
+            </button>
           ) : null}
         </div>
-        <label>
-          Search
-          <input value={query} onChange={(event) => setQuery(event.target.value)} type="search" placeholder="Product name or SKU" />
-        </label>
-        <label>
-          Category
-          <select value={category} onChange={(event) => setCategory(event.target.value)}>
-            <option value="">All categories</option>
-            {categoryOptions.map((name) => (
-              <option key={name} value={name.toLowerCase()}>{name}</option>
-            ))}
-          </select>
-        </label>
-        <label>
-          Sort by
-          <select value={sort} onChange={(event) => setSort(event.target.value)}>
-            {sortOptions.map((option) => (
-              <option key={option.value} value={option.value}>{option.label}</option>
-            ))}
-          </select>
-        </label>
-      </aside>
+      ) : null}
 
       <section className="catalog-results" aria-live="polite">
         <div className="catalog-results-head">
@@ -104,7 +131,7 @@ export function ProductCatalog({
           <div className="empty-state">
             <h2>No products found</h2>
             <p>Try a different product name, SKU, or category.</p>
-            <button className="button secondary" type="button" onClick={clearFilters}>Reset filters</button>
+            <button className="button secondary" type="button" onClick={() => { setQuery(""); clearFilters(); }}>Reset search</button>
           </div>
         )}
       </section>

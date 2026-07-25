@@ -2,9 +2,11 @@ import Image from "next/image";
 import Link from "next/link";
 import { ArrowRight, Building2, PackageCheck, Search, Sparkles } from "lucide-react";
 import { ProductCard } from "@/components/product-card";
-import { categories, products } from "@/lib/sample-data";
+import { getStorefrontCategories } from "@/lib/data/categories";
+import { getProducts } from "@/lib/data/products";
 
-export default function HomePage() {
+export default async function HomePage() {
+  const [products, categories] = await Promise.all([getProducts(), getStorefrontCategories()]);
   const featured = products.filter((product) => product.featured).slice(0, 3);
   return (
     <>
@@ -48,9 +50,13 @@ export default function HomePage() {
         </div>
         <div className="category-card-grid">
           {categories.map((category, index) => (
-            <Link className={`category-card category-tone-${index + 1}`} href={`/products?category=${category.slug}`} key={category.slug}>
-              <span className="category-card-number">0{index + 1}</span>
-              <div><h3>{category.name}</h3><p>{category.children.join(" · ")}</p></div>
+            // Chỉ có 5 tone màu nên xoay vòng khi danh mục nhiều hơn 5.
+            <Link className={`category-card category-tone-${(index % 5) + 1}`} href={`/products?category=${category.slug}`} key={category.id}>
+              <span className="category-card-number">{String(index + 1).padStart(2, "0")}</span>
+              <div>
+                <h3>{category.name}</h3>
+                <p>{category.children.length ? category.children.map((child) => child.name).join(" · ") : "Browse products"}</p>
+              </div>
               <ArrowRight size={20} />
             </Link>
           ))}
@@ -75,20 +81,6 @@ export default function HomePage() {
           <h2>Wholesale ordering without the spreadsheet shuffle.</h2>
           <p>Separate wholesale pricing, approved tax-exempt status, invoices, balances, and customer history in one account.</p>
           <Link className="button light" href="/wholesale">Open a business account <ArrowRight size={17} /></Link>
-        </div>
-        <div className="wholesale-stats">
-          <article><strong>2</strong><span>customer price levels</span></article>
-          <article><strong>10</strong><span>images per product</span></article>
-          <article><strong>1</strong><span>inventory source of truth</span></article>
-        </div>
-      </section>
-
-      <section className="section shell process-section">
-        <div className="section-heading centered"><span className="kicker">Simple by design</span><h2>Find it, order it, track it.</h2></div>
-        <div className="process-grid">
-          <article><span>01</span><h3>Discover</h3><p>Search product names, browse categories, and sort the catalog your way.</p></article>
-          <article><span>02</span><h3>Choose</h3><p>Review a rich product gallery with up to 10 images and an optional video.</p></article>
-          <article><span>03</span><h3>Manage</h3><p>Account and admin tools keep customers, invoices, products, and inventory connected.</p></article>
         </div>
       </section>
     </>

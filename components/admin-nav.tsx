@@ -14,6 +14,7 @@ import {
   Percent,
   ReceiptText,
   Settings,
+  ShieldCheck,
   ShoppingBasket,
   UsersRound
 } from "lucide-react";
@@ -35,6 +36,7 @@ const groups = [
       { href: "/admin/orders", label: "Orders", icon: PackagePlus },
       { href: "/admin/invoices", label: "Invoices", icon: FileText },
       { href: "/admin/customers", label: "Customers", icon: UsersRound },
+      { href: "/admin/tax-exemptions", label: "Tax exemptions", icon: ShieldCheck },
       { href: "/admin/payments", label: "Payments", icon: CircleDollarSign }
     ]
   },

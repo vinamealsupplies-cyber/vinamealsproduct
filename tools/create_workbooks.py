@@ -5,14 +5,15 @@ from pathlib import Path
 import csv
 
 from openpyxl import Workbook, load_workbook
-from openpyxl.comments import Comment
 from openpyxl.formatting.rule import FormulaRule
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.worksheet.datavalidation import DataValidation
 
 ROOT = Path(__file__).resolve().parents[1]
 OUT = ROOT / "import-templates"
-PUBLIC = ROOT / "starter" / "public" / "templates"
+# Thư mục public thật của app Next (trước đây trỏ nhầm vào "starter/public",
+# nên bản template tải về từ web không bao giờ được cập nhật).
+PUBLIC = ROOT / "public" / "templates"
 OUT.mkdir(parents=True, exist_ok=True)
 PUBLIC.mkdir(parents=True, exist_ok=True)
 
@@ -161,6 +162,20 @@ def create_import_template(path: Path) -> None:
         instructions.merge_cells(start_row=row_idx, start_column=2, end_row=row_idx, end_column=8)
         instructions[f"B{row_idx}"].font = Font(color=MUTED)
 
+    # Mô tả từng cột — thay cho chú thích ô ở hàng tiêu đề sheet Products.
+    guide_start = 23 + len(allowed) + 2
+    instructions[f"A{guide_start - 1}"] = "Field guide"
+    title_style(instructions[f"A{guide_start - 1}"], fill=INK, size=12)
+    instructions.merge_cells(f"A{guide_start - 1}:H{guide_start - 1}")
+    for offset, header in enumerate(HEADERS):
+        row_idx = guide_start + offset
+        instructions[f"A{row_idx}"] = header
+        instructions[f"A{row_idx}"].font = Font(bold=True, color=GREEN_DARK, size=9)
+        instructions[f"B{row_idx}"] = DESCRIPTIONS.get(header, "Import field.")
+        instructions.merge_cells(start_row=row_idx, start_column=2, end_row=row_idx, end_column=8)
+        instructions[f"B{row_idx}"].alignment = Alignment(wrap_text=True, vertical="top")
+        instructions[f"B{row_idx}"].font = Font(color=MUTED, size=9)
+
     for col in range(1, 9):
         instructions.column_dimensions[chr(64 + col)].width = 18 if col == 1 else 15
     instructions.freeze_panes = "A4"
@@ -177,7 +192,12 @@ def create_import_template(path: Path) -> None:
         cell.font = Font(color=INK, bold=True, size=9)
         cell.alignment = Alignment(text_rotation=0, wrap_text=True, vertical="center")
         cell.border = Border(bottom=thin_bottom)
-        cell.comment = Comment(DESCRIPTIONS.get(header, "Import field."), "OpenAI")
+        # KHÔNG dùng cell.comment: openpyxl ghi chú thích ra
+        # `xl/comments/comment1.xml`, còn exceljs (thư viện đọc file của app)
+        # chỉ nhận `xl/commentsN.xml` theo cách Excel ghi. Lệch quy ước này làm
+        # exceljs ném "Cannot read properties of undefined (reading 'comments')"
+        # và toàn bộ chức năng import không đọc nổi chính file mẫu.
+        # Mô tả từng cột được đưa xuống bảng "Field guide" ở sheet Instructions.
     for row_idx, values in enumerate(SAMPLE_ROWS, start=2):
         for col_idx, value in enumerate(values, start=1):
             cell = products.cell(row=row_idx, column=col_idx, value=value)

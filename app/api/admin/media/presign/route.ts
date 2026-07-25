@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { requireStaffApi } from "@/lib/auth";
 import { isR2Configured } from "@/lib/env";
+import { callerKey, checkRateLimit, RATE_LIMITS } from "@/lib/rate-limit";
 import { createImageUpload } from "@/lib/r2";
 
 const allowedTypes = new Set(["image/jpeg", "image/png", "image/webp", "image/avif"]);
@@ -15,6 +16,16 @@ const schema = z.object({
 export async function POST(request: Request) {
   const access = await requireStaffApi("manager");
   if (!access.ok) return access.response;
+
+  // Mỗi lượt gọi phát hành một URL upload đã ký — giới hạn để tài khoản bị
+  // chiếm dụng không thể bơm dữ liệu vào R2 hoặc đội chi phí lưu trữ.
+  if (!(await checkRateLimit(await callerKey("presign", access.viewer.id), RATE_LIMITS.upload))) {
+    return NextResponse.json(
+      { error: { code: "RATE_LIMITED", message: "Too many upload requests. Wait a minute and try again." } },
+      { status: 429 }
+    );
+  }
+
   if (!isR2Configured()) return NextResponse.json({ error: { code: "R2_NOT_CONFIGURED", message: "Cloudflare R2 is not configured." } }, { status: 503 });
 
   const parsed = schema.safeParse(await request.json().catch(() => null));

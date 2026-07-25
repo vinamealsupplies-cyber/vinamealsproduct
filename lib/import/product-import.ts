@@ -82,7 +82,21 @@ export async function parseProductWorkbook(buffer: Buffer) {
   const workbook = new ExcelJS.Workbook();
   // exceljs khai báo `interface Buffer extends ArrayBuffer` riêng trong index.d.ts,
   // xung đột với Buffer của @types/node. Cast tại đúng một điểm tiếp xúc.
-  await workbook.xlsx.load(buffer as unknown as Parameters<typeof workbook.xlsx.load>[0]);
+  try {
+    await workbook.xlsx.load(buffer as unknown as Parameters<typeof workbook.xlsx.load>[0]);
+  } catch (error) {
+    // exceljs chỉ đọc được chú thích ô đặt ở `xl/commentsN.xml` (cách Excel
+    // ghi). File sinh bằng openpyxl đặt ở `xl/comments/commentN.xml` nên
+    // exceljs vỡ với thông báo khó hiểu về 'comments'. Đổi thành hướng dẫn
+    // hành động được thay vì để lộ lỗi nội bộ của thư viện.
+    const message = error instanceof Error ? error.message : String(error);
+    if (message.includes("'comments'") || message.includes("comments")) {
+      throw new Error(
+        "This workbook stores cell comments in a layout the importer cannot read. Open it in Excel, remove the cell comments (or re-save as .xlsx), then upload again."
+      );
+    }
+    throw new Error("The workbook could not be opened. Make sure it is a valid .xlsx file.");
+  }
   const worksheet = workbook.getWorksheet("Products") ?? workbook.worksheets[0];
   if (!worksheet) throw new Error("The workbook does not contain a worksheet.");
 

@@ -1,11 +1,14 @@
 import Image from "next/image";
 import Link from "next/link";
-import { ChevronDown, Search, ShieldCheck, ShoppingBag, UserRound } from "lucide-react";
+import { ShieldCheck, UserRound } from "lucide-react";
+import { CartLink } from "@/components/cart-link";
+import { CategoryMenu } from "@/components/category-menu";
+import { HeaderSearch } from "@/components/header-search";
 import { getViewer } from "@/lib/auth";
-import { categories } from "@/lib/sample-data";
+import { getStorefrontCategories } from "@/lib/data/categories";
 
 export async function SiteHeader() {
-  const viewer = await getViewer();
+  const [viewer, categories] = await Promise.all([getViewer(), getStorefrontCategories()]);
 
   return (
     <header className="site-header">
@@ -31,11 +34,7 @@ export async function SiteHeader() {
           />
         </Link>
 
-        <form className="header-search" action="/products" method="get" role="search">
-          <Search size={18} aria-hidden="true" />
-          <input name="q" type="search" placeholder="Search products" aria-label="Search products" />
-          <button type="submit">Search</button>
-        </form>
+        <HeaderSearch />
 
         <nav className="header-actions" aria-label="Account navigation">
           {viewer?.isStaff ? (
@@ -48,41 +47,14 @@ export async function SiteHeader() {
             <UserRound size={19} aria-hidden="true" />
             <span>{viewer ? "Account" : "Sign in"}</span>
           </Link>
-          <Link className="header-action" href="/cart" aria-label="Cart with zero items">
-            <ShoppingBag size={19} aria-hidden="true" />
-            <span>Cart</span>
-            <span className="cart-count">0</span>
-          </Link>
+          <CartLink />
         </nav>
       </div>
 
       <div className="category-strip">
         <div className="shell category-strip-inner">
           <Link href="/products">Shop all</Link>
-          <details className="category-menu">
-            <summary>
-              Categories <ChevronDown size={16} aria-hidden="true" />
-            </summary>
-            <div className="category-dropdown">
-              {categories.map((category) => (
-                <div className="category-group" key={category.slug}>
-                  <Link className="category-parent" href={`/products?category=${category.slug}`}>
-                    {category.name}
-                  </Link>
-                  {category.children.map((child) => (
-                    <Link key={child} href={`/products?q=${encodeURIComponent(child)}`}>
-                      {child}
-                    </Link>
-                  ))}
-                </div>
-              ))}
-              <div className="category-promo">
-                <span>For cafés and markets</span>
-                <strong>Wholesale pricing</strong>
-                <Link href="/wholesale">Learn more</Link>
-              </div>
-            </div>
-          </details>
+          <CategoryMenu categories={categories} />
           <Link href="/products?sort=newest">New arrivals</Link>
           <Link href="/products?category=frozen">Frozen favorites</Link>
           <Link href="/products?category=snacks">Snacks</Link>
