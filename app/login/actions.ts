@@ -100,3 +100,50 @@ export async function signUp(formData: FormData) {
   if (error) redirect(loginUrl(error.message, next));
   redirect(loginUrl("Check your email to confirm your account.", next));
 }
+
+type OAuthProvider = "google" | "apple";
+
+/**
+ * Đăng nhập / tạo tài khoản bằng Google hoặc Apple (Supabase OAuth + PKCE).
+ * Provider phải bật trong Supabase Dashboard → Authentication → Providers.
+ * Redirect URL app: {origin}/auth/callback
+ */
+async function signInWithOAuthProvider(provider: OAuthProvider, formData: FormData) {
+  const next = destination(formData);
+  if (!isSupabaseConfigured()) {
+    redirect(loginUrl("Connect Supabase before using Google or Apple sign-in.", next));
+  }
+  if (!(await checkRateLimit(await callerKey(`oauth-${provider}`), RATE_LIMITS.auth))) {
+    redirect(loginUrl(TOO_MANY_ATTEMPTS, next));
+  }
+
+  const supabase = await createClient();
+  const origin = await requestOrigin();
+  const { data, error } = await supabase.auth.signInWithOAuth({
+    provider,
+    options: {
+      redirectTo: `${origin}/auth/callback?next=${encodeURIComponent(next)}`,
+      // Apple: yêu cầu name + email lần đầu; Google mặc định đủ openid email profile.
+      scopes: provider === "apple" ? "name email" : undefined,
+      queryParams:
+        provider === "google"
+          ? {
+              // Gợi ý chọn lại account mỗi lần (hữu ích khi test nhiều email).
+              prompt: "select_account"
+            }
+          : undefined
+    }
+  });
+
+  if (error) redirect(loginUrl(error.message, next));
+  if (!data.url) redirect(loginUrl(`${provider} sign-in is not available right now.`, next));
+  redirect(data.url);
+}
+
+export async function signInWithGoogle(formData: FormData) {
+  await signInWithOAuthProvider("google", formData);
+}
+
+export async function signInWithApple(formData: FormData) {
+  await signInWithOAuthProvider("apple", formData);
+}

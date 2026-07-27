@@ -346,12 +346,60 @@ textarea { resize: vertical; }
 .legal-callout p { margin: 0; color: #775247; }
 
 .auth-page { display: grid; grid-template-columns: .8fr 1.2fr; gap: 60px; align-items: start; }
+.auth-forms .auth-card-wide { grid-column: 1 / -1; }
+.oauth-block { margin-top: 4px; }
+.oauth-divider {
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  align-items: center;
+  gap: 12px;
+  margin: 4px 0 14px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+}
+.oauth-divider::before,
+.oauth-divider::after {
+  content: "";
+  height: 1px;
+  background: var(--line);
+}
+.oauth-buttons {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+.oauth-buttons form { margin: 0; }
+.oauth-button {
+  width: 100%;
+  min-height: 44px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: white;
+  font-size: 14px;
+  font-weight: 800;
+}
+.oauth-button:hover { border-color: #b7cfc4; background: #fbfdfc; }
+.oauth-apple {
+  background: #111;
+  border-color: #111;
+  color: white;
+}
+.oauth-apple:hover { background: #000; border-color: #000; color: white; }
+@media (max-width: 560px) {
+  .oauth-buttons { grid-template-columns: 1fr; }
+}
 .auth-intro { position: sticky; top: 25px; padding-top: 30px; }
 .auth-intro h1 { margin: 14px 0; font-size: clamp(44px, 5vw, 65px); line-height: 1; letter-spacing: -.06em; }
 .auth-intro > p { color: var(--muted); font-size: 18px; }
 .auth-feature-list { display: grid; gap: 12px; margin-top: 30px; }
 .auth-feature-list span { padding: 13px 16px; border-radius: 13px; background: var(--mint); color: var(--green-dark); font-weight: 750; }
 .auth-forms { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+.auth-forms .auth-message { grid-column: 1 / -1; }
 .auth-message { grid-column: 1 / -1; padding: 14px 16px; border-radius: 13px; background: var(--yellow); font-weight: 700; }
 .auth-card { padding: 25px; border: 1px solid var(--line); border-radius: 24px; background: white; box-shadow: var(--shadow-small); }
 .secondary-auth-card { background: #f5fbf7; }
