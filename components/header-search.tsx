@@ -85,6 +85,7 @@ export function HeaderSearch() {
           aria-label="Search products"
           // role="combobox" để aria-expanded hợp lệ (input mặc định là textbox).
           role="combobox"
+          aria-controls="header-search-history"
           aria-autocomplete="list"
           aria-expanded={openHistory && history.length > 0}
         />
@@ -92,6 +93,7 @@ export function HeaderSearch() {
       </form>
       {openHistory ? (
         <SearchHistoryPanel
+          id="header-search-history"
           items={history}
           onPick={(item) => {
             setQuery(item);

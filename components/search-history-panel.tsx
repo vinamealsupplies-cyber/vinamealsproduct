@@ -4,11 +4,14 @@ import { Clock3, X } from "lucide-react";
 
 /** Danh sách search gần đây — mỗi dòng có nút X xoá. */
 export function SearchHistoryPanel({
+  id,
   items,
   onPick,
   onRemove,
   onClearAll
 }: {
+  /** Để ô search trỏ tới bằng aria-controls (yêu cầu của role="combobox"). */
+  id: string;
   items: string[];
   onPick: (query: string) => void;
   onRemove: (query: string) => void;
@@ -17,7 +20,7 @@ export function SearchHistoryPanel({
   if (!items.length) return null;
 
   return (
-    <div className="search-history-panel" role="listbox" aria-label="Recent searches">
+    <div id={id} className="search-history-panel" role="listbox" aria-label="Recent searches">
       <div className="search-history-head">
         <span>
           <Clock3 size={14} aria-hidden="true" /> Recent searches

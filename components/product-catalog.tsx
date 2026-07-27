@@ -251,6 +251,7 @@ export function ProductCatalog({
               aria-label="Search products"
               // role="combobox" để aria-expanded hợp lệ (input mặc định là textbox).
               role="combobox"
+              aria-controls="catalog-search-history"
               aria-autocomplete="list"
               aria-expanded={openHistory && searchHistory.length > 0}
               placeholder="Search by product name or SKU"
@@ -259,6 +260,7 @@ export function ProductCatalog({
           </form>
           {openHistory ? (
             <SearchHistoryPanel
+              id="catalog-search-history"
               items={searchHistory}
               onPick={(item) => {
                 setQuery(item);
