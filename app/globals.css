@@ -71,12 +71,38 @@ main { min-height: 65vh; }
 .cart-count { display: inline-grid; place-items: center; min-width: 19px; height: 19px; padding: 0 5px; border-radius: 20px; background: var(--orange); color: white; font-size: 11px; }
 .category-strip { border-top: 1px solid var(--line); background: white; }
 .category-strip-inner { min-height: 46px; display: flex; align-items: center; gap: 28px; font-size: 14px; font-weight: 700; }
-.category-strip-inner > a:hover, .category-menu > summary:hover { color: var(--green); }
+.category-strip-inner > a:hover, .category-menu-trigger:hover { color: var(--green); }
 .category-menu { position: relative; }
-.category-menu summary { list-style: none; display: flex; align-items: center; gap: 5px; }
-.category-menu summary::-webkit-details-marker { display: none; }
-.category-menu[open] summary { color: var(--green); }
-.category-dropdown { position: absolute; top: 34px; left: -18px; width: min(820px, calc(100vw - 40px)); display: grid; grid-template-columns: repeat(3, minmax(140px, 1fr)); gap: 25px; padding: 26px; background: white; border: 1px solid var(--line); border-radius: 20px; box-shadow: var(--shadow); }
+.category-menu-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  border: 0;
+  background: transparent;
+  padding: 0;
+  color: inherit;
+  font: inherit;
+  font-weight: 700;
+}
+.category-menu.is-open .category-menu-trigger { color: var(--green); }
+.category-menu.is-open .category-menu-trigger svg { transform: rotate(180deg); }
+.category-menu-trigger svg { transition: transform 0.15s ease; }
+.category-dropdown {
+  position: absolute;
+  top: 34px;
+  left: -18px;
+  z-index: 40;
+  width: min(820px, calc(100vw - 40px));
+  display: grid;
+  grid-template-columns: repeat(3, minmax(140px, 1fr));
+  gap: 25px;
+  padding: 26px;
+  background: white;
+  border: 1px solid var(--line);
+  border-radius: 20px;
+  box-shadow: var(--shadow);
+}
+.category-empty { grid-column: 1 / -1; margin: 0; }
 .category-group { display: flex; flex-direction: column; gap: 8px; color: var(--muted); font-weight: 550; }
 .category-group a:hover { color: var(--green); }
 .category-parent { color: var(--ink); font-weight: 800; font-size: 16px; margin-bottom: 3px; }

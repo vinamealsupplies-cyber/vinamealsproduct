@@ -1,16 +1,15 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import Link from "next/link";
 import { ChevronDown } from "lucide-react";
 import type { CategoryNode } from "@/lib/data/categories";
 
-// Dropdown Categories trên thanh nav. Dùng <details> để vẫn hoạt động khi
-// chưa hydrate (progressive enhancement), nhưng thêm xử lý client để tự đóng
-// khi bấm ra ngoài hoặc nhấn Escape — điều mà <details> thuần không có.
-// Dữ liệu lấy từ Supabase nên category thêm ở admin hiện ra ngay.
+// Dropdown Categories. Dùng button + panel (không dùng <details controlled>)
+// vì open={state} trên <details> hay xung đột với toggle native → bấm không mở.
 export function CategoryMenu({ categories }: { categories: CategoryNode[] }) {
-  const ref = useRef<HTMLDetailsElement>(null);
+  const ref = useRef<HTMLDivElement>(null);
+  const panelId = useId();
   const [open, setOpen] = useState(false);
 
   useEffect(() => {
@@ -30,34 +29,53 @@ export function CategoryMenu({ categories }: { categories: CategoryNode[] }) {
   }, [open]);
 
   return (
-    <details
-      className="category-menu"
-      ref={ref}
-      open={open}
-      onToggle={(event) => setOpen(event.currentTarget.open)}
-    >
-      <summary>
+    <div className={`category-menu${open ? " is-open" : ""}`} ref={ref}>
+      <button
+        type="button"
+        className="category-menu-trigger"
+        aria-expanded={open}
+        aria-controls={panelId}
+        onClick={() => setOpen((value) => !value)}
+      >
         Categories <ChevronDown size={16} aria-hidden="true" />
-      </summary>
-      <div className="category-dropdown">
-        {categories.map((category) => (
-          <div className="category-group" key={category.id}>
-            <Link className="category-parent" href={`/products?category=${category.slug}`} onClick={() => setOpen(false)}>
-              {category.name}
+      </button>
+      {open ? (
+        <div className="category-dropdown" id={panelId} role="menu">
+          {categories.length ? (
+            categories.map((category) => (
+              <div className="category-group" key={category.id}>
+                <Link
+                  className="category-parent"
+                  href={`/products?category=${category.slug}`}
+                  role="menuitem"
+                  onClick={() => setOpen(false)}
+                >
+                  {category.name}
+                </Link>
+                {category.children.map((child) => (
+                  <Link
+                    key={child.id}
+                    href={`/products?category=${child.slug}`}
+                    role="menuitem"
+                    onClick={() => setOpen(false)}
+                  >
+                    {child.name}
+                  </Link>
+                ))}
+              </div>
+            ))
+          ) : (
+            <p className="category-empty field-hint">No categories yet. Add them in Admin → Categories.</p>
+          )}
+          <div className="category-promo">
+            <span>For cafés and markets</span>
+            <strong>Wholesale pricing</strong>
+            <Link href="/wholesale" onClick={() => setOpen(false)}>
+              Learn more
             </Link>
-            {category.children.map((child) => (
-              <Link key={child.id} href={`/products?category=${child.slug}`} onClick={() => setOpen(false)}>
-                {child.name}
-              </Link>
-            ))}
           </div>
-        ))}
-        <div className="category-promo">
-          <span>For cafés and markets</span>
-          <strong>Wholesale pricing</strong>
-          <Link href="/wholesale" onClick={() => setOpen(false)}>Learn more</Link>
         </div>
-      </div>
-    </details>
+      ) : null}
+    </div>
   );
 }

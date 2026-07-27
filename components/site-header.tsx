@@ -56,8 +56,6 @@ export async function SiteHeader() {
           <Link href="/products">Shop all</Link>
           <CategoryMenu categories={categories} />
           <Link href="/products?sort=newest">New arrivals</Link>
-          <Link href="/products?category=frozen">Frozen favorites</Link>
-          <Link href="/products?category=snacks">Snacks</Link>
           <Link href="/wholesale">Business customers</Link>
         </div>
       </div>
