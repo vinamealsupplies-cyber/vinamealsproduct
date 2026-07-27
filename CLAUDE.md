@@ -10,13 +10,40 @@ Hướng dẫn cho Claude Code khi làm việc trong repo này.
 
 ## Tổng quan
 - **Vinameals** — storefront Next.js (App Router) + Supabase (Postgres/Auth) + Cloudflare (Workers qua OpenNext, R2 cho ảnh, Stream cho video).
-- Deploy: `npx wrangler deploy` (OpenNext). Cần đăng ký **workers.dev subdomain** hoặc thêm `routes` trong `wrangler.jsonc` thì deploy mới ra link.
+- Production domain: `vinamealsupplies.com` (+ `www`) → Worker `vinamealsproduct` (routes trong `wrangler.jsonc`).
+- Workers.dev: `https://vinamealsproduct.vinameals.workers.dev`
 - Supabase project ref: `zoegstxkzdetcckgjqkj`. Migrations ở `supabase/migrations/`.
+- GitHub: `https://github.com/vinamealsupplies-cyber/vinamealsproduct` (account `vinamealsupplies-cyber` qua `gh`).
+
+## Deploy Cloudflare (OpenNext)
+```bash
+# 1) Login nếu wrangler whoami báo chưa auth
+npx wrangler login
+
+# 2) Build sạch (BẮT BUỘC — `cf:deploy` có thể tái dùng .open-next cũ)
+rm -rf .open-next .next
+set -a && source .env.local && set +a
+export NEXT_PUBLIC_SITE_ORIGIN="https://vinamealsupplies.com"
+export APP_DEMO_MODE="false"
+npm run cf:build
+
+# 3) Deploy
+npx opennextjs-cloudflare deploy
+# hoặc: npm run cf:deploy  (sau khi đã build sạch)
+```
+- Secrets Worker (đã set): `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`, `SUPABASE_SERVICE_ROLE_KEY`, `APP_DEMO_MODE`, `NEXT_PUBLIC_SITE_ORIGIN`, R2 keys, `R2_DOCUMENTS_BUCKET`, `CLOUDFLARE_ACCOUNT_ID`.
+- **Không** commit `.env.local`. Không dùng `wrangler deploy` thuần nếu chưa có bundle OpenNext.
 
 ## Chế độ DEMO vs THẬT
-- `lib/env.ts`: `isLocalDemoMode()` = `NODE_ENV!=='production' && APP_DEMO_MODE==='true'`; `isSupabaseConfigured()` cần `NEXT_PUBLIC_SUPABASE_URL` + `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`.
-- Hiện tại `.env.local` để `APP_DEMO_MODE=true` và các key Supabase/Cloudflare **đang rỗng** → app chạy **demo**: dữ liệu mẫu (`lib/admin-sample-data.ts`) + **admin giả** (`getViewer()` trả Demo Admin role=admin). Không có backend thật.
-- Để chạy **THẬT**: điền `.env.local` (URL + publishable key + service role key + Cloudflare/R2), đặt `APP_DEMO_MODE=false`, rồi push migrations.
+- `lib/env.ts`: `isLocalDemoMode()` = `NODE_ENV!=='production' && APP_DEMO_MODE==='true'`; `isSupabaseConfigured()` cần URL + publishable key.
+- **Production / local thật**: `APP_DEMO_MODE=false` + keys Supabase/R2 trong `.env.local` → admin đọc/ghi Supabase (service role qua `createAdminClient()`).
+- Sample data `lib/admin-sample-data.ts` **đã xoá** — admin products/inventory/customers/expenses/reporting lấy từ DB.
+
+## Admin — hành vi cần nhớ
+- **Inventory** (`/admin/inventory`): chỉnh số lượng (ledger `inventory_movements`), **giá nhập** (`cost_price`) + **giá bán** (`retail_price`) trên `product_variants`. **Không** còn UI reorder point (cột DB vẫn default 0).
+- **Products** (`/admin/products`): tab filter **Catalog | Active | Draft | Archived | All**. Archive **không xoá** — ẩn storefront, tìm lại ở tab **Archived** (Edit / Restore). Archive xong UI tự mở tab Archived.
+- **Thuế giỏ hàng**: app **không** tự tính sales tax; fulfillment hiện "Calculated at checkout" (Stripe Tax khi cài). Bảng tax admin chỉ tham chiếu.
+- Xoá vĩnh viễn product: chỉ manager/admin; nếu đã có inventory movements thì DB chặn delete → giữ archived.
 
 ## Phân quyền admin (đã đúng theo yêu cầu)
 - Enum `public.app_role`: `customer | staff | manager | admin`.
@@ -36,3 +63,6 @@ Hướng dẫn cho Claude Code khi làm việc trong repo này.
 - `rtk` KHÔNG được cài (dù CLAUDE.md global có nhắc RTK) — mọi lệnh chạy trực tiếp, không qua proxy.
 - Supabase CLI: profile mặc định `~/.supabase/profile` từng bị hỏng (bare string) gây lỗi `Unsupported Config Type`; đã đổi tên thành `~/.supabase/profile.disabled`. Với `db push` nên dùng `--db-url` thay vì `--linked` để tránh lỗi profile.
 - Supabase CLI ghi secret `sb_secret_*` dạng plaintext vào `~/.supabase/traces/*.ndjson` — cân nhắc dọn định kỳ.
+- GitHub push: remote HTTPS + `gh auth login` (account `vinamealsupplies-cyber`). Token hết hạn → `gh auth login -h github.com -p https -w`. SSH user `trannguyen86` **không** có quyền repo này.
+- Cloudflare: OAuth token trong `~/.wrangler/config/default.enc` (macOS Keychain). Hết hạn → `npx wrangler login`.
+- Schema inventory pricing (`cost_price`, `retail_price`, view `v_inventory_detail`) **đã có sẵn** — feature chỉnh giá inventory **không** cần migration mới.
