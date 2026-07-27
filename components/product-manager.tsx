@@ -126,10 +126,8 @@ export function ProductManager({
               <div className="legal-callout compact">
                 <h2>Delete {confirming.product.name} forever?</h2>
                 <p>
-                  This permanently removes the product, its SKU, images, and stock balance. It cannot be undone.
-                  {confirming.product.hasMovements
-                    ? " This product has inventory movement history, so the database will refuse the delete — keep it archived instead."
-                    : ""}
+                  This permanently removes the product, SKU, images, stock balance, and inventory movement
+                  history. Sales/invoice line snapshots stay for past orders. It cannot be undone.
                 </p>
               </div>
               <div className="button-row">

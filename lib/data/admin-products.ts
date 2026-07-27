@@ -30,9 +30,9 @@ export type AdminProduct = {
   taxable: boolean;
   trackInventory: boolean;
   onHand: number;
-  /** Đã từng phát sinh tồn kho → không xoá cứng được (FK on delete restrict). */
+  /** Còn lịch sử movement — delete forever sẽ xoá luôn ledger (RPC). */
   hasMovements: boolean;
-};
+}
 
 type DbVariant = {
   id: string;

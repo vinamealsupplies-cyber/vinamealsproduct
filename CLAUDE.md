@@ -42,6 +42,7 @@ npx opennextjs-cloudflare deploy
 ## Admin — hành vi cần nhớ
 - **Inventory** (`/admin/inventory`): chỉnh số lượng (ledger `inventory_movements`), **giá nhập** (`cost_price`) + **giá bán** (`retail_price`) trên `product_variants`. **Không** còn UI reorder point (cột DB vẫn default 0).
 - **Products** (`/admin/products`): tab filter **Catalog | Active | Draft | Archived | All**. Archive **không xoá** — ẩn storefront, tìm lại ở tab **Archived** (Edit / Restore). Archive xong UI tự mở tab Archived.
+- **Delete forever** (manager, chỉ khi đã archived): RPC `admin_delete_product_forever` xoá `inventory_movements` + `inventory_balances` + product (cascade variants/media). Migration `20260727120000_admin_delete_product_forever.sql`.
 - **Thuế giỏ hàng**: app **không** tự tính sales tax; fulfillment hiện "Calculated at checkout" (Stripe Tax khi cài). Bảng tax admin chỉ tham chiếu.
 - Xoá vĩnh viễn product: chỉ manager/admin; nếu đã có inventory movements thì DB chặn delete → giữ archived.
 

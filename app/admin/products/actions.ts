@@ -10,10 +10,9 @@ import type { AdminFormState } from "@/lib/data/admin-form";
 // CRUD sản phẩm. Ghi bằng service role nên quyền phải kiểm tra tường minh ở
 // đây — không có RLS đỡ phía sau.
 //
-// Vòng đời: draft/active → archived (ẩn khỏi storefront, giữ nguyên lịch sử)
-// → xoá vĩnh viễn (chỉ cho hàng đã ngừng bán). `inventory_movements` tham chiếu
-// variant với `on delete restrict`, nên hàng từng phát sinh tồn kho sẽ bị DB
-// chặn xoá cứng; ta báo lý do rõ ràng thay vì để lộ lỗi Postgres.
+// Vòng đời: draft/active → archived (ẩn storefront, giữ lịch sử)
+// → xoá vĩnh viễn (manager): RPC admin_delete_product_forever xoá luôn
+// inventory_movements + inventory_balances rồi product (cascade variants).
 
 const STATUSES = new Set(["draft", "active", "archived"]);
 
@@ -296,9 +295,10 @@ export async function restoreProductAction(_prev: AdminFormState, formData: Form
 }
 
 /**
- * Xoá vĩnh viễn — chỉ dành cho hàng đã ngừng bán hẳn.
- * Chỉ manager, và chỉ khi sản phẩm đã ở trạng thái archived (tránh xoá nhầm
- * hàng đang bán). Variant/ảnh/liên kết danh mục/tồn kho sẽ bị cascade theo.
+ * Xoá vĩnh viễn — chỉ manager, chỉ khi đã archived.
+ * Gọi RPC `admin_delete_product_forever`: xoá inventory movements + balances
+ * của mọi variant, rồi xoá product (cascade variant/media/category).
+ * Đơn hàng/invoice cũ giữ snapshot (product_id/variant_id set null).
  */
 export async function deleteProductForeverAction(
   _prev: AdminFormState,
@@ -317,18 +317,27 @@ export async function deleteProductForeverAction(
     return fail("Archive the product first, then delete it forever.");
   }
 
-  const { error } = await supabase.from("products").delete().eq("id", id);
+  const { error } = await supabase.rpc("admin_delete_product_forever", {
+    p_product_id: id
+  });
 
   if (error) {
-    // inventory_movements giữ variant lại (on delete restrict) để sổ cái không thủng.
-    if (error.code === "23503") {
+    const msg = error.message ?? "";
+    if (msg.includes("Archive the product first")) {
+      return fail("Archive the product first, then delete it forever.");
+    }
+    if (msg.includes("Product not found")) return fail("Product not found.");
+    if (msg.includes("Could not find the function") || error.code === "PGRST202") {
       return fail(
-        "Cannot delete forever: this product has inventory movement history. Keep it archived so stock records stay auditable."
+        "Database is missing admin_delete_product_forever. Apply migration 20260727120000_admin_delete_product_forever.sql."
       );
     }
-    return fail(error.message);
+    return fail(msg);
   }
 
   revalidate();
-  return { status: "success", message: `Deleted ${product.name} permanently.` };
+  return {
+    status: "success",
+    message: `Deleted ${product.name} permanently (including inventory).`
+  };
 }
