@@ -35,9 +35,10 @@ RED = "FDE7E4"
 
 HEADERS = [
     "operation", "product_handle", "product_name", "slug", "short_description", "description",
-    "category_path", "variant_name", "sku", "barcode", "attributes_json", "retail_price",
-    "wholesale_price", "cost_price", "track_inventory", "opening_quantity", "reorder_point",
-    "location_code", "taxable", "unit", "weight_oz", "active",
+    "category_path", "variant_name", "sku", "barcode", "attributes_json",
+    "retail_price", "sale_price", "wholesale_price", "cost_price",
+    "track_inventory", "opening_quantity", "location_code",
+    "taxable", "unit", "weight_oz", "status", "featured",
     *[f"image_url_{index}" for index in range(1, 11)], "video_url"
 ]
 REQUIRED = {"operation", "product_handle", "product_name", "sku", "retail_price", "cost_price"}
@@ -46,9 +47,9 @@ HEADER_GROUPS = {
     "product_handle": MINT, "product_name": MINT, "slug": MINT, "short_description": MINT,
     "description": MINT, "category_path": MINT,
     "variant_name": LAVENDER, "sku": LAVENDER, "barcode": LAVENDER, "attributes_json": LAVENDER,
-    "retail_price": YELLOW, "wholesale_price": YELLOW, "cost_price": YELLOW,
-    "track_inventory": PINK, "opening_quantity": PINK, "reorder_point": PINK, "location_code": PINK,
-    "taxable": ORANGE, "unit": ORANGE, "weight_oz": ORANGE, "active": ORANGE,
+    "retail_price": YELLOW, "sale_price": YELLOW, "wholesale_price": YELLOW, "cost_price": YELLOW,
+    "track_inventory": PINK, "opening_quantity": PINK, "location_code": PINK,
+    "taxable": ORANGE, "unit": ORANGE, "weight_oz": ORANGE, "status": ORANGE, "featured": ORANGE,
     **{f"image_url_{index}": BLUE for index in range(1, 11)}, "video_url": BLUE,
 }
 DESCRIPTIONS = {
@@ -63,27 +64,30 @@ DESCRIPTIONS = {
     "sku": "Unique stock keeping unit. Case-insensitive uniqueness is enforced.",
     "barcode": "Optional UPC/EAN/GTIN. Must be unique when present.",
     "attributes_json": 'Optional JSON object, for example {"size":"8 oz","flavor":"mango"}.',
-    "retail_price": "Retail price in USD, 0 or greater.",
+    "retail_price": "Retail (list) price in USD, 0 or greater.",
+    "sale_price": "Optional promotional price. Leave blank for no sale. When set, must be lower than retail_price; storefront strikes through retail.",
     "wholesale_price": "Optional wholesale price in USD. Wholesale pricing does not automatically make the customer tax exempt.",
-    "cost_price": "Current unit cost in USD, 0 or greater.",
+    "cost_price": "Unit cost / giá nhập in USD, 0 or greater.",
     "track_inventory": "TRUE or FALSE.",
     "opening_quantity": "Opening on-hand quantity. Use only when creating a new SKU; later changes should use inventory movements.",
-    "reorder_point": "Low-stock threshold, 0 or greater.",
     "location_code": "Inventory location code, for example MAIN.",
     "taxable": "TRUE or FALSE. Final tax treatment also depends on customer and jurisdiction.",
     "unit": "Each, bag, box, case, bottle, jar, pack, pound, ounce, or custom unit.",
     "weight_oz": "Optional shipping weight in ounces.",
-    "active": "TRUE or FALSE. Use FALSE to import as inactive/draft.",
+    "status": "draft, active, or archived. Prefer this over legacy active TRUE/FALSE.",
+    "featured": "TRUE or FALSE. Featured products appear first in the catalog.",
     "video_url": "Optional existing video URL. For new uploads, use Cloudflare Stream through the admin UI.",
 }
 for index in range(1, 11):
     DESCRIPTIONS[f"image_url_{index}"] = f"Optional image URL {index}. A product may have no more than 10 images. image_url_1 becomes the cover image."
 
+# Columns: op, handle, name, slug, short, desc, cat, variant, sku, barcode, attrs,
+# retail, sale, wholesale, cost, track, opening, location, taxable, unit, weight, status, featured, images×10, video
 SAMPLE_ROWS = [
-    ["UPSERT", "tropical-mango-slices", "Tropical Mango Slices", "tropical-mango-slices", "Sweet, sunny mango slices ready to enjoy.", "Bright tropical mango slices with a soft bite and naturally sweet flavor.", "Snacks > Fruit", "8 oz bag", "MANGO-8OZ", "", '{"size":"8 oz"}', 8.99, 6.25, 3.40, True, 42, 10, "MAIN", True, "bag", 8, True, "https://media.example.com/products/mango-1.webp", "https://media.example.com/products/mango-2.webp", "", "", "", "", "", "", "", "", ""],
-    ["UPSERT", "garden-veggie-dumplings", "Garden Veggie Dumplings", "garden-veggie-dumplings", "Tender dumplings filled with colorful vegetables.", "Freezer-friendly vegetable dumplings for quick lunches and family meals.", "Frozen > Dumplings", "20 count", "DUMP-VEG-20", "", '{"count":20}', 12.99, 9.40, 5.20, True, 18, 8, "MAIN", True, "bag", 24, True, "https://media.example.com/products/dumplings-1.webp", "", "", "", "", "", "", "", "", "", ""],
-    ["UPSERT", "golden-chili-crisp", "Golden Chili Crisp", "golden-chili-crisp", "Crunchy, savory, and gently spicy.", "A spoonable chili crisp for noodles, rice, eggs, and vegetables.", "Sauces > Chili", "6 oz jar", "CHILI-6OZ", "", '{"size":"6 oz"}', 10.50, 7.60, 3.85, True, 27, 8, "MAIN", True, "jar", 11, True, "https://media.example.com/products/chili-1.webp", "", "", "", "", "", "", "", "", "", ""],
-    ["UPSERT", "pure-coconut-water", "Pure Coconut Water", "pure-coconut-water", "Clean, refreshing coconut water.", "Serve chilled for a crisp and refreshing drink.", "Beverages > Coconut Water", "16.9 fl oz bottle", "COCO-169", "", '{"volume":"16.9 fl oz"}', 3.99, 2.65, 1.35, True, 64, 15, "MAIN", True, "bottle", 18, True, "https://media.example.com/products/coconut-1.webp", "", "", "", "", "", "", "", "", "", ""],
+    ["UPSERT", "tropical-mango-slices", "Tropical Mango Slices", "tropical-mango-slices", "Sweet, sunny mango slices ready to enjoy.", "Bright tropical mango slices with a soft bite and naturally sweet flavor.", "Snacks > Fruit", "8 oz bag", "MANGO-8OZ", "", '{"size":"8 oz"}', 8.99, 6.99, 6.25, 3.40, True, 42, "MAIN", True, "bag", 8, "active", True, "https://media.example.com/products/mango-1.webp", "https://media.example.com/products/mango-2.webp", "", "", "", "", "", "", "", "", ""],
+    ["UPSERT", "garden-veggie-dumplings", "Garden Veggie Dumplings", "garden-veggie-dumplings", "Tender dumplings filled with colorful vegetables.", "Freezer-friendly vegetable dumplings for quick lunches and family meals.", "Frozen > Dumplings", "20 count", "DUMP-VEG-20", "", '{"count":20}', 12.99, "", 9.40, 5.20, True, 18, "MAIN", True, "bag", 24, "active", True, "https://media.example.com/products/dumplings-1.webp", "", "", "", "", "", "", "", "", "", ""],
+    ["UPSERT", "golden-chili-crisp", "Golden Chili Crisp", "golden-chili-crisp", "Crunchy, savory, and gently spicy.", "A spoonable chili crisp for noodles, rice, eggs, and vegetables.", "Sauces > Chili", "6 oz jar", "CHILI-6OZ", "", '{"size":"6 oz"}', 10.50, 8.50, 7.60, 3.85, True, 27, "MAIN", True, "jar", 11, "active", False, "https://media.example.com/products/chili-1.webp", "", "", "", "", "", "", "", "", "", ""],
+    ["UPSERT", "pure-coconut-water", "Pure Coconut Water", "pure-coconut-water", "Clean, refreshing coconut water.", "Serve chilled for a crisp and refreshing drink.", "Beverages > Coconut Water", "16.9 fl oz bottle", "COCO-169", "", '{"volume":"16.9 fl oz"}', 3.99, "", 2.65, 1.35, True, 64, "MAIN", True, "bottle", 18, "draft", False, "https://media.example.com/products/coconut-1.webp", "", "", "", "", "", "", "", "", "", ""],
 ]
 
 
@@ -114,13 +118,13 @@ def create_import_template(path: Path) -> None:
     instructions["A5"].font = Font(color=MUTED, size=11)
 
     steps = [
-        ("1", "Keep the header row unchanged. Required headers are operation, product_handle, product_name, sku, retail_price, and cost_price."),
+        ("1", "Keep the header row unchanged. Required: operation, product_handle, product_name, sku, retail_price, cost_price."),
         ("2", "Use one row per SKU. Repeat product_handle and product_name when a product has multiple variants."),
         ("3", "Use UPSERT unless you intentionally need CREATE-only or UPDATE-only behavior."),
-        ("4", "Provide up to 10 image URLs per product. image_url_1 is the cover. New direct uploads should use the admin media manager."),
-        ("5", "Run Preview Import in Admin. Fix every error, review warnings, then commit the validated batch."),
-        ("6", "Do not use an opening quantity to correct live stock. After launch, all changes must use inventory movements."),
-        ("7", "Wholesale price and tax-exempt status are separate. A business customer is not automatically tax exempt."),
+        ("4", "sale_price is optional. When set it must be lower than retail_price (storefront shows sale + struck retail)."),
+        ("5", "status is draft, active, or archived. featured is TRUE/FALSE. Provide up to 10 image URLs; image_url_1 is the cover."),
+        ("6", "Run Preview Import in Admin. Fix every error, review warnings, then commit the validated batch."),
+        ("7", "Do not use opening_quantity to correct live stock — use Inventory adjustments. Wholesale price ≠ tax exempt."),
     ]
     instructions["A8"] = "Workflow"
     title_style(instructions["A8"], fill=INK, size=12)
@@ -150,10 +154,12 @@ def create_import_template(path: Path) -> None:
     instructions.merge_cells("A22:H22")
     allowed = [
         ("operation", "CREATE, UPDATE, UPSERT"),
-        ("Boolean fields", "TRUE, FALSE"),
+        ("status", "draft, active, archived"),
+        ("Boolean fields", "TRUE, FALSE (track_inventory, taxable, featured)"),
         ("unit", "each, bag, box, case, bottle, jar, pack, pound, ounce"),
         ("category_path", "Parent > Child > Grandchild"),
         ("attributes_json", '{"key":"value"}'),
+        ("sale_price", "Blank or number strictly less than retail_price"),
     ]
     for row_idx, (field, values) in enumerate(allowed, start=23):
         instructions[f"A{row_idx}"] = field
@@ -203,9 +209,9 @@ def create_import_template(path: Path) -> None:
             cell = products.cell(row=row_idx, column=col_idx, value=value)
             cell.font = Font(color="0000FF", size=9)
             cell.alignment = Alignment(vertical="top", wrap_text=col_idx in (5, 6, 11))
-            if HEADERS[col_idx - 1] in {"retail_price", "wholesale_price", "cost_price"}:
+            if HEADERS[col_idx - 1] in {"retail_price", "sale_price", "wholesale_price", "cost_price"}:
                 cell.number_format = '$#,##0.00;[Red]($#,##0.00);-'
-            elif HEADERS[col_idx - 1] in {"opening_quantity", "reorder_point", "weight_oz"}:
+            elif HEADERS[col_idx - 1] in {"opening_quantity", "weight_oz"}:
                 cell.number_format = '#,##0.00;[Red](#,##0.00);-'
     products.row_dimensions[2].height = 42
     products.row_dimensions[3].height = 42
@@ -216,9 +222,9 @@ def create_import_template(path: Path) -> None:
         "operation": 12, "product_handle": 25, "product_name": 28, "slug": 27,
         "short_description": 38, "description": 55, "category_path": 27,
         "variant_name": 21, "sku": 19, "barcode": 18, "attributes_json": 30,
-        "retail_price": 14, "wholesale_price": 16, "cost_price": 14,
-        "track_inventory": 16, "opening_quantity": 16, "reorder_point": 14,
-        "location_code": 14, "taxable": 11, "unit": 12, "weight_oz": 12, "active": 10,
+        "retail_price": 14, "sale_price": 12, "wholesale_price": 16, "cost_price": 14,
+        "track_inventory": 16, "opening_quantity": 16,
+        "location_code": 14, "taxable": 11, "unit": 12, "weight_oz": 12, "status": 12, "featured": 11,
         **{f"image_url_{index}": 34 for index in range(1, 11)}, "video_url": 34,
     }
     for idx, header in enumerate(HEADERS, start=1):
@@ -230,6 +236,7 @@ def create_import_template(path: Path) -> None:
         "B": ["Booleans", "TRUE", "FALSE"],
         "C": ["Units", "each", "bag", "box", "case", "bottle", "jar", "pack", "pound", "ounce"],
         "D": ["Locations", "MAIN", "FREEZER", "BACKROOM"],
+        "E": ["Statuses", "draft", "active", "archived"],
     }
     for column, values in lists_data.items():
         for row, value in enumerate(values, start=1):
@@ -241,9 +248,10 @@ def create_import_template(path: Path) -> None:
         ("operation", "'Lists'!$A$2:$A$4"),
         ("track_inventory", "'Lists'!$B$2:$B$3"),
         ("taxable", "'Lists'!$B$2:$B$3"),
-        ("active", "'Lists'!$B$2:$B$3"),
+        ("featured", "'Lists'!$B$2:$B$3"),
         ("unit", "'Lists'!$C$2:$C$10"),
         ("location_code", "'Lists'!$D$2:$D$4"),
+        ("status", "'Lists'!$E$2:$E$4"),
     ]
     for header, formula in validation_specs:
         dv = DataValidation(type="list", formula1=formula, allow_blank=header not in {"operation"})
@@ -258,7 +266,7 @@ def create_import_template(path: Path) -> None:
     decimal_validation = DataValidation(type="decimal", operator="greaterThanOrEqual", formula1="0", allow_blank=True)
     decimal_validation.error = "Enter a number greater than or equal to 0."
     products.add_data_validation(decimal_validation)
-    for header in ("retail_price", "wholesale_price", "cost_price", "opening_quantity", "reorder_point", "weight_oz"):
+    for header in ("retail_price", "sale_price", "wholesale_price", "cost_price", "opening_quantity", "weight_oz"):
         col_letter = products.cell(1, header_index[header]).column_letter
         decimal_validation.add(f"{col_letter}2:{col_letter}2000")
 

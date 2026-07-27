@@ -1,5 +1,11 @@
 import ExcelJS from "exceljs";
 
+/**
+ * Headers khớp product_variants / products hiện tại:
+ * - sale_price (khuyến mãi, optional, phải < retail_price)
+ * - status: draft | active | archived (ưu tiên hơn active TRUE/FALSE)
+ * - reorder_point: legacy, chấp nhận nhưng bỏ qua (cột không còn dùng trên UI)
+ */
 export const productImportHeaders = [
   "operation",
   "product_handle",
@@ -13,16 +19,18 @@ export const productImportHeaders = [
   "barcode",
   "attributes_json",
   "retail_price",
+  "sale_price",
   "wholesale_price",
   "cost_price",
   "track_inventory",
   "opening_quantity",
-  "reorder_point",
   "location_code",
   "taxable",
   "unit",
   "weight_oz",
+  "status",
   "active",
+  "featured",
   "image_url_1",
   "image_url_2",
   "image_url_3",
@@ -35,6 +43,11 @@ export const productImportHeaders = [
   "image_url_10",
   "video_url"
 ] as const;
+
+/** Cột cũ vẫn đọc được để file mẫu trước đây không bị “unknown header”. */
+const LEGACY_HEADERS = new Set(["reorder_point"]);
+
+const STATUSES = new Set(["draft", "active", "archived"]);
 
 export type ImportPreviewRow = {
   rowNumber: number;
@@ -78,17 +91,34 @@ function validateHttpsUrl(value: string, label: string, errors: string[]) {
   }
 }
 
+function resolveStatus(rawStatus: string, rawActive: string): {
+  status: string | null;
+  error?: string;
+  warning?: string;
+} {
+  if (rawStatus) {
+    const status = rawStatus.toLowerCase();
+    if (!STATUSES.has(status)) {
+      return { status: null, error: "status must be draft, active, or archived" };
+    }
+    return { status };
+  }
+  if (rawActive) {
+    const active = parseBoolean(rawActive);
+    if (active === null) return { status: null, error: "active must be TRUE or FALSE when status is blank" };
+    return {
+      status: active ? "active" : "draft",
+      warning: "active is legacy — prefer status (draft|active|archived)"
+    };
+  }
+  return { status: "active" };
+}
+
 export async function parseProductWorkbook(buffer: Buffer) {
   const workbook = new ExcelJS.Workbook();
-  // exceljs khai báo `interface Buffer extends ArrayBuffer` riêng trong index.d.ts,
-  // xung đột với Buffer của @types/node. Cast tại đúng một điểm tiếp xúc.
   try {
     await workbook.xlsx.load(buffer as unknown as Parameters<typeof workbook.xlsx.load>[0]);
   } catch (error) {
-    // exceljs chỉ đọc được chú thích ô đặt ở `xl/commentsN.xml` (cách Excel
-    // ghi). File sinh bằng openpyxl đặt ở `xl/comments/commentN.xml` nên
-    // exceljs vỡ với thông báo khó hiểu về 'comments'. Đổi thành hướng dẫn
-    // hành động được thay vì để lộ lỗi nội bộ của thư viện.
     const message = error instanceof Error ? error.message : String(error);
     if (message.includes("'comments'") || message.includes("comments")) {
       throw new Error(
@@ -120,10 +150,13 @@ export async function parseProductWorkbook(buffer: Buffer) {
     throw new Error(`A product supports at most 10 image columns. Remove: ${oversizedImageHeaders.join(", ")}`);
   }
 
-  const allowedHeaders = new Set<string>(productImportHeaders);
-  const unknownHeaders = Array.from(headerMap.keys()).filter((header) => !allowedHeaders.has(header)).sort();
-  const missingHeaders = ["operation", "product_handle", "product_name", "sku", "retail_price", "cost_price"]
-    .filter((header) => !headerMap.has(header));
+  const allowedHeaders = new Set<string>([...productImportHeaders, ...LEGACY_HEADERS]);
+  const unknownHeaders = Array.from(headerMap.keys())
+    .filter((header) => !allowedHeaders.has(header))
+    .sort();
+  const missingHeaders = ["operation", "product_handle", "product_name", "sku", "retail_price", "cost_price"].filter(
+    (header) => !headerMap.has(header)
+  );
 
   if (missingHeaders.length) {
     throw new Error(`Missing required headers: ${missingHeaders.join(", ")}`);
@@ -137,11 +170,20 @@ export async function parseProductWorkbook(buffer: Buffer) {
   const seenBarcodes = new Set<string>();
   const productDefinitions = new Map<string, { name: string; slug: string; categoryPath: string }>();
   const rows: ImportPreviewRow[] = [];
+  const fileWarnings: string[] = [];
+  if (headerMap.has("reorder_point")) {
+    fileWarnings.push("Column reorder_point is ignored (no longer used). Remove it from new templates.");
+  }
+
+  // Include every header found so legacy columns can still be read for warnings.
+  const readHeaders = Array.from(
+    new Set([...productImportHeaders, ...Array.from(headerMap.keys())])
+  );
 
   for (let rowNumber = 2; rowNumber <= worksheet.rowCount; rowNumber += 1) {
     const row = worksheet.getRow(rowNumber);
     const raw: Record<string, string> = {};
-    for (const header of productImportHeaders) {
+    for (const header of readHeaders) {
       const column = headerMap.get(header);
       raw[header] = column ? cellText(row.getCell(column).value) : "";
     }
@@ -149,7 +191,7 @@ export async function parseProductWorkbook(buffer: Buffer) {
     if (!raw.product_handle && !raw.product_name && !raw.sku) continue;
 
     const errors: string[] = [];
-    const warnings: string[] = [];
+    const warnings: string[] = [...fileWarnings];
     const operation = raw.operation.toUpperCase();
     if (!["CREATE", "UPDATE", "UPSERT"].includes(operation)) {
       errors.push("operation must be CREATE, UPDATE, or UPSERT");
@@ -202,13 +244,20 @@ export async function parseProductWorkbook(buffer: Buffer) {
     }
 
     const retailPrice = parseNumber(raw.retail_price);
+    const salePrice = parseNumber(raw.sale_price ?? "");
     const wholesalePrice = parseNumber(raw.wholesale_price);
     const costPrice = parseNumber(raw.cost_price);
     const openingQuantity = parseNumber(raw.opening_quantity);
-    const reorderPoint = parseNumber(raw.reorder_point);
     const weightOz = parseNumber(raw.weight_oz);
 
     if (retailPrice === null || retailPrice < 0) errors.push("retail_price must be a number greater than or equal to 0");
+    if (raw.sale_price) {
+      if (salePrice === null || salePrice < 0) {
+        errors.push("sale_price must be blank or greater than or equal to 0");
+      } else if (retailPrice !== null && salePrice >= retailPrice) {
+        errors.push("sale_price must be lower than retail_price");
+      }
+    }
     if (raw.wholesale_price && (wholesalePrice === null || wholesalePrice < 0)) {
       errors.push("wholesale_price must be blank or greater than or equal to 0");
     }
@@ -216,14 +265,14 @@ export async function parseProductWorkbook(buffer: Buffer) {
     if (raw.opening_quantity && (openingQuantity === null || openingQuantity < 0)) {
       errors.push("opening_quantity must be blank or greater than or equal to 0");
     }
-    if (raw.reorder_point && (reorderPoint === null || reorderPoint < 0)) {
-      errors.push("reorder_point must be blank or greater than or equal to 0");
-    }
     if (raw.weight_oz && (weightOz === null || weightOz < 0)) {
       errors.push("weight_oz must be blank or greater than or equal to 0");
     }
     if (retailPrice !== null && costPrice !== null && retailPrice < costPrice) {
       warnings.push("retail_price is below cost_price");
+    }
+    if (salePrice !== null && costPrice !== null && salePrice < costPrice) {
+      warnings.push("sale_price is below cost_price");
     }
     if (wholesalePrice !== null && costPrice !== null && wholesalePrice < costPrice) {
       warnings.push("wholesale_price is below cost_price");
@@ -231,13 +280,21 @@ export async function parseProductWorkbook(buffer: Buffer) {
     if (wholesalePrice !== null && retailPrice !== null && wholesalePrice > retailPrice) {
       warnings.push("wholesale_price is greater than retail_price");
     }
+    if (raw.reorder_point) {
+      warnings.push("reorder_point is ignored and not imported");
+    }
 
     const trackInventory = parseBoolean(raw.track_inventory || "true");
     const taxable = parseBoolean(raw.taxable || "true");
-    const active = parseBoolean(raw.active || "true");
+    const featured = raw.featured ? parseBoolean(raw.featured) : false;
     if (trackInventory === null) errors.push("track_inventory must be TRUE or FALSE");
     if (taxable === null) errors.push("taxable must be TRUE or FALSE");
-    if (active === null) errors.push("active must be TRUE or FALSE");
+    if (raw.featured && featured === null) errors.push("featured must be TRUE or FALSE when provided");
+
+    const statusResult = resolveStatus(raw.status ?? "", raw.active ?? "");
+    if (statusResult.error) errors.push(statusResult.error);
+    if (statusResult.warning) warnings.push(statusResult.warning);
+
     if (trackInventory === false && (openingQuantity ?? 0) > 0) {
       errors.push("opening_quantity must be 0 when track_inventory is FALSE");
     }
@@ -275,14 +332,15 @@ export async function parseProductWorkbook(buffer: Buffer) {
         ...raw,
         operation,
         retail_price: retailPrice,
+        sale_price: raw.sale_price ? salePrice : null,
         wholesale_price: wholesalePrice,
         cost_price: costPrice,
         opening_quantity: openingQuantity ?? 0,
-        reorder_point: reorderPoint ?? 0,
         weight_oz: weightOz,
         track_inventory: trackInventory,
         taxable,
-        active,
+        featured: featured ?? false,
+        status: statusResult.status,
         attributes_json: attributes
       },
       errors,

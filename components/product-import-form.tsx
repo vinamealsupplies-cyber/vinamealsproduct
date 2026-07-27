@@ -46,7 +46,11 @@ export function ProductImportForm() {
         <div className="import-icon"><FileSpreadsheet size={30} /></div>
         <div>
           <h2>Upload product workbook</h2>
-          <p>Use the included template. The preview checks required headers, data types, duplicate SKUs, image count, and row-level validation before any database write.</p>
+          <p>
+            Use the included template (includes <strong>sale_price</strong>, <strong>status</strong>,{" "}
+            <strong>featured</strong>). Preview checks headers, pricing rules, duplicate SKUs, image count, and
+            row-level validation before any database write.
+          </p>
           <div className="import-actions">
             <label className="button secondary">
               <Upload size={17} /> Choose .xlsx file
