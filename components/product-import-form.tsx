@@ -76,10 +76,10 @@ export function ProductImportForm() {
         <div>
           <h2>Upload product workbook</h2>
           <p>
-            Only <strong>3 columns</strong> are required:{" "}
-            <code>product_name</code>, <code>retail_price</code>, <code>inventory</code>. Each row gets a new product
-            ID, handle, and SKU automatically. Leave category empty — items show under <strong>Shop all</strong> until
-            you assign a category. Add photos later in Products.
+            Template is <strong>horizontal</strong>: one header row across the top (
+            <code>product_name</code> | <code>retail_price</code> | <code>inventory</code>), then one product per
+            row. Each row gets a new ID/SKU automatically. No category → only <strong>Shop all</strong>. Photos later
+            in Products.
           </p>
           <div className="import-actions">
             <label className="button secondary">

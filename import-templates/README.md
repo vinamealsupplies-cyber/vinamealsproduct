@@ -1,5 +1,16 @@
 # Product import (simple)
 
+## Layout: horizontal (not vertical)
+
+```
+product_name          | retail_price | inventory
+Tropical Mango Slices | 8.99         | 42
+Garden Veggie Dumplings| 12.99       | 18
+```
+
+- **Row 1** = column headers (left → right)
+- **Each following row** = one product (not one field per row)
+
 ## Required columns only
 
 | Column | Meaning |
