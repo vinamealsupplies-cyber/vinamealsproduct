@@ -1,40 +1,27 @@
-# Product import files
+# Product import (simple)
+
+## Required columns only
+
+| Column | Meaning |
+|---|---|
+| `product_name` | Tên sản phẩm |
+| `retail_price` | Giá bán (USD) |
+| `inventory` | Số lượng tồn ban đầu (số nguyên ≥ 0) |
+
+## What the system creates automatically
+
+- Product UUID (database)
+- `product_handle` + `slug` from the name + random suffix
+- `sku` (e.g. `SKU-A1B2C3`) unless you pass an optional `sku` column
+- Status `active`, no category, no images
+
+Products **without a category** only show under **Shop all**. Assign a category later in Admin → Products if you want them in the Categories menu.
+
+## Optional columns
+
+`sale_price`, `cost_price`, `sku`, `short_description`, `status` (`draft`|`active`|`archived`)
 
 ## Files
 
-- `product-import-template.xlsx`: primary workbook with Instructions, Products, and hidden Lists sheets.
-- `product-import-example.csv`: the same sample rows in CSV form for mapping/reference. The starter preview endpoint accepts `.xlsx` only.
-- `implementation-backlog.xlsx`: editable project backlog with phases, priorities, dependencies, owners, estimates, and status dropdowns.
-
-Regenerate workbooks after header changes:
-
-```bash
-python3 tools/create_workbooks.py
-```
-
-This updates both `import-templates/` and `public/templates/product-import-template.xlsx` (download link in Admin).
-
-## Required product headers
-
-`operation`, `product_handle`, `product_name`, `sku`, `retail_price`, `cost_price`.
-
-## Current column layout (matches app data)
-
-| Group | Columns |
-|---|---|
-| Identity | `operation`, `product_handle`, `product_name`, `slug`, `short_description`, `description`, `category_path` |
-| Variant | `variant_name`, `sku`, `barcode`, `attributes_json` |
-| Pricing | `retail_price`, **`sale_price`**, `wholesale_price`, `cost_price` |
-| Inventory | `track_inventory`, `opening_quantity`, `location_code` |
-| Status | `taxable`, `unit`, `weight_oz`, **`status`** (`draft`/`active`/`archived`), **`featured`** |
-| Media | `image_url_1`…`image_url_10`, `video_url` |
-
-### Notes
-
-- **`sale_price`**: optional. When set must be **lower than** `retail_price`. Storefront shows retail struck through and charges sale.
-- **`status`**: prefer this over legacy `active` TRUE/FALSE (still accepted in preview for old files).
-- **`reorder_point`**: removed from the template. Still accepted as a legacy column but **ignored** (not imported).
-- Do not rename headers. One row per sellable SKU. Repeat `product_handle` for variants of the same product.
-- At most 10 image URL columns. `image_url_1` is the cover.
-
-The app currently implements **validation preview** only. Commit should go through a transaction/RPC, audit log, and opening inventory as an inventory movement (not a direct balance write).
+- `product-import-template.xlsx` — also copied to `public/templates/` for Admin download
+- `product-import-example.csv` — same sample data as CSV
