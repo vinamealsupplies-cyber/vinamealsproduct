@@ -1,11 +1,18 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { Search, SlidersHorizontal, X } from "lucide-react";
 import { ProductCard } from "@/components/product-card";
+import { SearchHistoryPanel } from "@/components/search-history-panel";
 import type { CategoryNode } from "@/lib/data/categories";
 import type { Product } from "@/lib/sample-data";
+import {
+  clearSearchHistory,
+  pushSearchHistory,
+  readSearchHistory,
+  removeSearchHistoryItem
+} from "@/lib/search-history";
 
 const sortOptions = [
   { value: "featured", label: "Featured" },
@@ -69,6 +76,7 @@ export function ProductCatalog({
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
+  const searchWrapRef = useRef<HTMLDivElement>(null);
 
   const [query, setQuery] = useState(initialQuery);
   const [category, setCategory] = useState(initialCategory);
@@ -76,6 +84,23 @@ export function ProductCatalog({
   const [sort, setSort] = useState(
     sortOptions.some((option) => option.value === initialSort) ? initialSort : "featured"
   );
+  const [searchHistory, setSearchHistory] = useState<string[]>([]);
+  const [openHistory, setOpenHistory] = useState(false);
+
+  useEffect(() => {
+    setSearchHistory(readSearchHistory());
+  }, []);
+
+  useEffect(() => {
+    if (!openHistory) return;
+    function onPointerDown(event: PointerEvent) {
+      if (searchWrapRef.current && !searchWrapRef.current.contains(event.target as Node)) {
+        setOpenHistory(false);
+      }
+    }
+    document.addEventListener("pointerdown", onPointerDown);
+    return () => document.removeEventListener("pointerdown", onPointerDown);
+  }, [openHistory]);
   // Panel filter: mở khi URL có category/sort khác mặc định.
   const [showFilters, setShowFilters] = useState(
     Boolean(initialCategory) ||
@@ -110,6 +135,8 @@ export function ProductCatalog({
     category?: string;
     sort?: string;
     saleOnly?: boolean;
+    /** Ghi lịch sử search khi submit / chọn history (không ghi khi chỉ đổi filter). */
+    recordSearch?: boolean;
   }) {
     const params = new URLSearchParams();
     const q = (next.q ?? query).trim();
@@ -120,6 +147,10 @@ export function ProductCatalog({
     if (cat) params.set("category", cat);
     if (sale) params.set("sale", "1");
     if (s && s !== "featured") params.set("sort", s);
+    if (next.recordSearch && q) {
+      setSearchHistory(pushSearchHistory(q));
+      setOpenHistory(false);
+    }
     const qs = params.toString();
     router.push(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
   }
@@ -201,24 +232,44 @@ export function ProductCatalog({
   return (
     <div className="catalog">
       <div className="catalog-toolbar">
-        <form
-          className="catalog-search"
-          role="search"
-          onSubmit={(event) => {
-            event.preventDefault();
-            pushCatalogParams({ q: query });
-          }}
-        >
-          <Search size={18} aria-hidden="true" />
-          <input
-            value={query}
-            onChange={(event) => setQuery(event.target.value)}
-            type="search"
-            aria-label="Search products"
-            placeholder="Search by product name or SKU"
-          />
-          <button type="submit">Search</button>
-        </form>
+        <div className="catalog-search-wrap" ref={searchWrapRef}>
+          <form
+            className="catalog-search"
+            role="search"
+            onSubmit={(event) => {
+              event.preventDefault();
+              pushCatalogParams({ q: query, recordSearch: true });
+            }}
+          >
+            <Search size={18} aria-hidden="true" />
+            <input
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+              onFocus={() => {
+                setSearchHistory(readSearchHistory());
+                setOpenHistory(true);
+              }}
+              type="search"
+              autoComplete="off"
+              aria-label="Search products"
+              aria-autocomplete="list"
+              aria-expanded={openHistory && searchHistory.length > 0}
+              placeholder="Search by product name or SKU"
+            />
+            <button type="submit">Search</button>
+          </form>
+          {openHistory ? (
+            <SearchHistoryPanel
+              items={searchHistory}
+              onPick={(item) => {
+                setQuery(item);
+                pushCatalogParams({ q: item, recordSearch: true });
+              }}
+              onRemove={(item) => setSearchHistory(removeSearchHistoryItem(item))}
+              onClearAll={() => setSearchHistory(clearSearchHistory())}
+            />
+          ) : null}
+        </div>
         <button
           type="button"
           className={`catalog-filter-toggle${showFilters ? " active" : ""}`}

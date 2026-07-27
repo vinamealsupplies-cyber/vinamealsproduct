@@ -59,10 +59,89 @@ main { min-height: 65vh; }
 .brand > span:last-child { display: flex; flex-direction: column; line-height: 1; }
 .brand strong { font-size: 20px; letter-spacing: -0.04em; }
 .brand small { margin-top: 5px; font-size: 9px; letter-spacing: 0.28em; font-weight: 800; color: var(--green); }
-.header-search { width: 300px; max-width: 100%; height: 44px; display: flex; align-items: center; gap: 8px; background: white; border: 1px solid var(--line); border-radius: 999px; padding-left: 15px; box-shadow: 0 7px 20px rgba(24, 49, 44, 0.04); }
+.header-search-wrap,
+.catalog-search-wrap { position: relative; }
+.header-search-wrap { width: 300px; max-width: 100%; }
+.catalog-search-wrap { flex: 1; min-width: 0; }
+.header-search { width: 100%; height: 44px; display: flex; align-items: center; gap: 8px; background: white; border: 1px solid var(--line); border-radius: 999px; padding-left: 15px; box-shadow: 0 7px 20px rgba(24, 49, 44, 0.04); }
 .header-search:focus-within { border-color: var(--green); box-shadow: 0 0 0 4px rgba(11, 122, 85, 0.09); }
 .header-search input { flex: 1; min-width: 0; border: 0; outline: 0; background: transparent; font-size: 14px; }
 .header-search button { height: 100%; border: 0; border-radius: 999px; background: var(--green); color: white; font-weight: 750; padding: 0 18px; }
+
+/* Lịch sử search (header + catalog) */
+.search-history-panel {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  right: 0;
+  z-index: 50;
+  max-height: min(320px, 50vh);
+  overflow: auto;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: white;
+  box-shadow: var(--shadow);
+}
+.search-history-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 10px 12px 6px;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.search-history-head > span { display: inline-flex; align-items: center; gap: 6px; }
+.search-history-clear {
+  border: 0;
+  background: transparent;
+  color: var(--green);
+  font-size: 11px;
+  font-weight: 800;
+  text-transform: none;
+  letter-spacing: 0;
+  padding: 0;
+}
+.search-history-clear:hover { text-decoration: underline; }
+.search-history-list { list-style: none; margin: 0; padding: 0 0 6px; }
+.search-history-list li {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0 6px;
+}
+.search-history-item {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  background: transparent;
+  text-align: left;
+  padding: 9px 10px;
+  border-radius: 10px;
+  font-size: 13px;
+  font-weight: 650;
+  color: var(--ink);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.search-history-item:hover { background: #f4f8f6; }
+.search-history-remove {
+  flex-shrink: 0;
+  width: 30px;
+  height: 30px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--muted);
+}
+.search-history-remove:hover { background: #fff0ef; color: var(--red); }
 .header-actions { display: flex; align-items: center; justify-content: flex-end; gap: 7px; }
 .header-action { display: flex; align-items: center; gap: 7px; padding: 10px 9px; border-radius: 12px; font-size: 14px; font-weight: 700; }
 .header-action:hover { background: var(--mint); color: var(--green-dark); }
@@ -255,7 +334,7 @@ main { min-height: 65vh; }
 .page-heading h1 { font-size: clamp(42px, 5vw, 64px); }
 .catalog { display: grid; gap: 18px; }
 .catalog-toolbar { display: flex; align-items: center; gap: 12px; }
-.catalog-search { flex: 1; min-width: 0; height: 50px; display: flex; align-items: center; gap: 10px; background: white; border: 1px solid var(--line); border-radius: 999px; padding-left: 18px; box-shadow: 0 7px 20px rgba(24, 49, 44, 0.04); }
+.catalog-search { width: 100%; height: 50px; display: flex; align-items: center; gap: 10px; background: white; border: 1px solid var(--line); border-radius: 999px; padding-left: 18px; box-shadow: 0 7px 20px rgba(24, 49, 44, 0.04); }
 .catalog-search:focus-within { border-color: var(--green); box-shadow: 0 0 0 4px rgba(11, 122, 85, 0.09); }
 .catalog-search > svg { color: var(--muted); flex-shrink: 0; }
 .catalog-search input { flex: 1; min-width: 0; height: 100%; border: 0; outline: 0; background: transparent; padding: 0; }
@@ -796,7 +875,8 @@ textarea { resize: vertical; }
   .header-main { display: flex; flex-wrap: wrap; gap: 14px 16px; padding-block: 16px; }
   .brand-logo { height: 60px; }
   /* Mobile: đưa ô search lên hàng đầu tiên của header (trên cả logo + icon). */
-  .header-search { order: -1; width: 100%; flex: 1 0 100%; height: 46px; }
+  .header-search-wrap { order: -1; width: 100%; flex: 1 0 100%; }
+  .header-search { width: 100%; height: 46px; }
   .header-actions { margin: 0 0 0 auto; }
   .header-action span:not(.cart-count) { display: none; }
   .category-strip-inner { overflow-x: auto; white-space: nowrap; padding-block: 13px; min-height: auto; }
