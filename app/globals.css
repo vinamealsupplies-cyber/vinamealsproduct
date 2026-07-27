@@ -409,6 +409,16 @@ textarea { resize: vertical; }
 
 .data-table-card { overflow: hidden; border: 1px solid var(--line); border-radius: 18px; background: white; }
 .table-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 20px; padding: 13px 15px; border-bottom: 1px solid var(--line); }
+/* Inventory search sits inside form-card (không bọc data-table-card). */
+.inventory-table-toolbar {
+  margin: 0 0 0;
+  padding: 0 0 14px;
+  border-bottom: 1px solid var(--line);
+  margin-bottom: 0;
+}
+.form-card > .inventory-table-toolbar + .table-scroll { margin-top: 0; }
+.form-card > .table-scroll .data-table thead th:first-child button,
+.form-card > .table-scroll .data-table tbody td:first-child { padding-left: 13px; }
 .table-toolbar > span { color: var(--muted); font-size: 12px; }
 .toolbar-side { display: flex; align-items: center; gap: 14px; white-space: nowrap; }
 .toolbar-side > span { color: var(--muted); font-size: 12px; }

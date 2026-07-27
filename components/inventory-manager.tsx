@@ -1,7 +1,17 @@
 "use client";
 
-import { useActionState, useEffect, useState } from "react";
-import { Boxes, DollarSign, History, Save, SlidersHorizontal, X } from "lucide-react";
+import { useActionState, useEffect, useMemo, useState } from "react";
+import {
+  ArrowDownAZ,
+  ArrowUpDown,
+  Boxes,
+  DollarSign,
+  History,
+  Save,
+  Search,
+  SlidersHorizontal,
+  X
+} from "lucide-react";
 import {
   adjustInventoryAction,
   fetchVariantHistory,
@@ -17,6 +27,44 @@ const STATUS_COPY: Record<string, string> = {
   out_of_stock: "Out of stock"
 };
 
+type SortKey =
+  | "productName"
+  | "sku"
+  | "locationCode"
+  | "onHand"
+  | "available"
+  | "costPrice"
+  | "retailPrice"
+  | "inventoryValue"
+  | "stockStatus";
+
+const SORT_COLUMNS: { key: SortKey; label: string; align?: "right" }[] = [
+  { key: "productName", label: "Product" },
+  { key: "sku", label: "SKU" },
+  { key: "locationCode", label: "Location" },
+  { key: "onHand", label: "On hand", align: "right" },
+  { key: "available", label: "Available", align: "right" },
+  { key: "costPrice", label: "Cost", align: "right" },
+  { key: "retailPrice", label: "Retail", align: "right" },
+  { key: "inventoryValue", label: "Value", align: "right" },
+  { key: "stockStatus", label: "Status" }
+];
+
+function sortValue(row: InventoryRow, key: SortKey): string | number {
+  switch (key) {
+    case "productName":
+      return `${row.productName} ${row.variantName}`.toLowerCase();
+    case "sku":
+      return row.sku.toLowerCase();
+    case "locationCode":
+      return row.locationCode.toLowerCase();
+    case "stockStatus":
+      return row.stockStatus;
+    default:
+      return row[key];
+  }
+}
+
 export function InventoryManager({
   rows,
   movements
@@ -30,6 +78,9 @@ export function InventoryManager({
   // Lịch sử của riêng món đang chọn, tải khi bấm chọn dòng.
   const [history, setHistory] = useState<MovementRow[] | null>(null);
   const [loadingHistory, setLoadingHistory] = useState(false);
+  const [query, setQuery] = useState("");
+  const [sortKey, setSortKey] = useState<SortKey>("productName");
+  const [ascending, setAscending] = useState(true);
 
   // Sau khi server revalidate (đổi giá / số lượng), đồng bộ panel với dữ liệu
   // mới để form và bảng không lệch nhau.
@@ -81,6 +132,35 @@ export function InventoryManager({
   const totalValue = rows.reduce((sum, row) => sum + row.inventoryValue, 0);
   const lowStock = rows.filter((row) => row.stockStatus !== "in_stock").length;
 
+  const visibleRows = useMemo(() => {
+    const needle = query.trim().toLowerCase();
+    const filtered = needle
+      ? rows.filter((row) =>
+          [row.productName, row.variantName, row.sku, row.locationCode, row.categoryName, row.stockStatus]
+            .filter(Boolean)
+            .some((value) => String(value).toLowerCase().includes(needle))
+        )
+      : rows;
+
+    return [...filtered].sort((a, b) => {
+      const left = sortValue(a, sortKey);
+      const right = sortValue(b, sortKey);
+      if (typeof left === "number" && typeof right === "number") {
+        return ascending ? left - right : right - left;
+      }
+      const result = String(left).localeCompare(String(right), undefined, { numeric: true });
+      return ascending ? result : -result;
+    });
+  }, [ascending, query, rows, sortKey]);
+
+  function changeSort(key: SortKey) {
+    if (key === sortKey) setAscending((value) => !value);
+    else {
+      setSortKey(key);
+      setAscending(true);
+    }
+  }
+
   return (
     <div className="category-admin-layout">
       <section className="form-card">
@@ -93,24 +173,44 @@ export function InventoryManager({
             </p>
           </div>
         </div>
+
+        <div className="table-toolbar inventory-table-toolbar">
+          <label className="table-search">
+            <Search size={17} aria-hidden="true" />
+            <input
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+              type="search"
+              placeholder="Search product, SKU, location, category…"
+            />
+          </label>
+          <span className="toolbar-side">
+            {visibleRows.length} shown
+            {query.trim() ? ` of ${rows.length}` : ""}
+          </span>
+        </div>
+
         <div className="table-scroll">
           <table className="data-table">
             <thead>
               <tr>
-                <th>Product</th>
-                <th>SKU</th>
-                <th>Location</th>
-                <th className="numeric">On hand</th>
-                <th className="numeric">Available</th>
-                <th className="numeric">Cost</th>
-                <th className="numeric">Retail</th>
-                <th className="numeric">Value</th>
-                <th>Status</th>
+                {SORT_COLUMNS.map((column) => (
+                  <th className={column.align === "right" ? "numeric" : ""} key={column.key}>
+                    <button type="button" onClick={() => changeSort(column.key)}>
+                      {column.label}
+                      {sortKey === column.key ? (
+                        <ArrowDownAZ className={ascending ? "" : "sort-desc"} size={15} aria-hidden="true" />
+                      ) : (
+                        <ArrowUpDown size={14} aria-hidden="true" />
+                      )}
+                    </button>
+                  </th>
+                ))}
                 <th />
               </tr>
             </thead>
             <tbody>
-              {rows.map((row) => (
+              {visibleRows.map((row) => (
                 <tr
                   key={`${row.variantId}-${row.locationId}`}
                   className={[
@@ -153,6 +253,13 @@ export function InventoryManager({
                 <tr>
                   <td className="empty-table" colSpan={10}>
                     No inventory records yet. Add a product with an opening quantity first.
+                  </td>
+                </tr>
+              ) : null}
+              {rows.length && !visibleRows.length ? (
+                <tr>
+                  <td className="empty-table" colSpan={10}>
+                    No products match “{query.trim()}”.
                   </td>
                 </tr>
               ) : null}
