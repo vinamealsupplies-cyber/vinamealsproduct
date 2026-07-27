@@ -9,7 +9,7 @@ export const metadata: Metadata = { title: "Shop all products" };
 export default async function ProductsPage({
   searchParams
 }: {
-  searchParams: Promise<{ q?: string; category?: string; sort?: string }>;
+  searchParams: Promise<{ q?: string; category?: string; sort?: string; sale?: string }>;
 }) {
   const [params, products, categories] = await Promise.all([
     searchParams,
@@ -17,8 +17,11 @@ export default async function ProductsPage({
     getStorefrontCategories()
   ]);
 
-  const heading =
-    params.category && !params.q
+  const saleOnly = params.sale === "1" || params.sale === "true";
+
+  const heading = saleOnly
+    ? "Sale"
+    : params.category && !params.q
       ? "Shop by category"
       : params.q
         ? "Search results"
@@ -27,9 +30,13 @@ export default async function ProductsPage({
   return (
     <div className="page-shell shell">
       <header className="page-heading">
-        <span className="kicker">The full collection</span>
+        <span className="kicker">{saleOnly ? "Limited-time deals" : "The full collection"}</span>
         <h1>{heading}</h1>
-        <p>Search by product name or SKU, filter by category, and sort the catalog.</p>
+        <p>
+          {saleOnly
+            ? "Products with an active sale price — retail is struck through on each card."
+            : "Search by product name or SKU, filter by category, and sort the catalog."}
+        </p>
       </header>
       {/* Suspense: useSearchParams trong ProductCatalog cần boundary. */}
       <Suspense fallback={<p className="field-hint">Loading catalog…</p>}>
@@ -39,6 +46,7 @@ export default async function ProductsPage({
           initialQuery={params.q ?? ""}
           initialCategory={params.category ?? ""}
           initialSort={params.sort ?? "featured"}
+          initialSaleOnly={saleOnly}
         />
       </Suspense>
     </div>

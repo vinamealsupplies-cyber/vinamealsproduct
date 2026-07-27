@@ -1,7 +1,7 @@
 import { Suspense } from "react";
 import Image from "next/image";
 import Link from "next/link";
-import { ShieldCheck, UserRound } from "lucide-react";
+import { ShieldCheck, Star, UserRound } from "lucide-react";
 import { CartLink } from "@/components/cart-link";
 import { CategoryMenu } from "@/components/category-menu";
 import { HeaderSearch } from "@/components/header-search";
@@ -62,6 +62,10 @@ export async function SiteHeader() {
           </Link>
           <CategoryMenu categories={categories} />
           <Link href="/products?sort=newest">New arrivals</Link>
+          <Link className="nav-sale-link" href="/products?sale=1" prefetch={false}>
+            <Star className="sale-star-blink" size={15} aria-hidden="true" fill="currentColor" />
+            Sale
+          </Link>
           <Link href="/wholesale">Business customers</Link>
         </div>
       </div>

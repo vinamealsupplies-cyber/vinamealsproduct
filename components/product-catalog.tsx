@@ -47,18 +47,24 @@ function productInCategory(product: Product, keys: Set<string>) {
   return keys.has(product.categorySlug.toLowerCase()) || keys.has(product.category.toLowerCase());
 }
 
+function isOnSale(product: Product) {
+  return product.compareAtPrice != null && product.compareAtPrice > product.price;
+}
+
 export function ProductCatalog({
   products,
   categories = [],
   initialQuery = "",
   initialCategory = "",
-  initialSort = "featured"
+  initialSort = "featured",
+  initialSaleOnly = false
 }: {
   products: Product[];
   categories?: CategoryNode[];
   initialQuery?: string;
   initialCategory?: string;
   initialSort?: string;
+  initialSaleOnly?: boolean;
 }) {
   const router = useRouter();
   const pathname = usePathname();
@@ -66,40 +72,53 @@ export function ProductCatalog({
 
   const [query, setQuery] = useState(initialQuery);
   const [category, setCategory] = useState(initialCategory);
+  const [saleOnly, setSaleOnly] = useState(initialSaleOnly);
   const [sort, setSort] = useState(
     sortOptions.some((option) => option.value === initialSort) ? initialSort : "featured"
   );
   // Panel filter: mở khi URL có category/sort khác mặc định.
   const [showFilters, setShowFilters] = useState(
-    Boolean(initialCategory) || (initialSort !== "" && initialSort !== "featured")
+    Boolean(initialCategory) ||
+      initialSaleOnly ||
+      (initialSort !== "" && initialSort !== "featured")
   );
 
-  // Đồng bộ khi bấm Shop all / Categories / New arrivals (URL đổi, component không remount).
+  // Đồng bộ khi bấm Shop all / Categories / Sale / New arrivals (URL đổi).
   useEffect(() => {
     const q = searchParams.get("q") ?? "";
     const cat = searchParams.get("category") ?? "";
     const s = searchParams.get("sort") ?? "featured";
+    const sale = searchParams.get("sale") === "1" || searchParams.get("sale") === "true";
     setQuery(q);
     setCategory(cat);
+    setSaleOnly(sale);
     setSort(sortOptions.some((option) => option.value === s) ? s : "featured");
-    if (cat || (s && s !== "featured")) setShowFilters(true);
-    if (!cat && (!s || s === "featured") && !q) setShowFilters(false);
+    if (cat || sale || (s && s !== "featured")) setShowFilters(true);
+    if (!cat && !sale && (!s || s === "featured") && !q) setShowFilters(false);
   }, [searchParams]);
 
   // Cũng nhận props server lần đầu / soft refresh.
   useEffect(() => {
     setQuery(initialQuery);
     setCategory(initialCategory);
+    setSaleOnly(initialSaleOnly);
     setSort(sortOptions.some((option) => option.value === initialSort) ? initialSort : "featured");
-  }, [initialQuery, initialCategory, initialSort]);
+  }, [initialQuery, initialCategory, initialSort, initialSaleOnly]);
 
-  function pushCatalogParams(next: { q?: string; category?: string; sort?: string }) {
+  function pushCatalogParams(next: {
+    q?: string;
+    category?: string;
+    sort?: string;
+    saleOnly?: boolean;
+  }) {
     const params = new URLSearchParams();
     const q = (next.q ?? query).trim();
     const cat = next.category ?? category;
     const s = next.sort ?? sort;
+    const sale = next.saleOnly ?? saleOnly;
     if (q) params.set("q", q);
     if (cat) params.set("category", cat);
+    if (sale) params.set("sale", "1");
     if (s && s !== "featured") params.set("sort", s);
     const qs = params.toString();
     router.push(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
@@ -115,7 +134,8 @@ export function ProductCatalog({
         value.toLowerCase().includes(normalizedQuery)
       );
     const matchesCategory = productInCategory(product, categoryKeys);
-    return matchesQuery && matchesCategory;
+    const matchesSale = !saleOnly || isOnSale(product);
+    return matchesQuery && matchesCategory && matchesSale;
   });
 
   const visibleProducts = [...matchingProducts].sort((a, b) => {
@@ -137,7 +157,8 @@ export function ProductCatalog({
     }
   });
 
-  const activeFilters = (category ? 1 : 0) + (sort !== "featured" ? 1 : 0);
+  const activeFilters =
+    (category ? 1 : 0) + (saleOnly ? 1 : 0) + (sort !== "featured" ? 1 : 0);
 
   // Options từ cây category (slug) — khớp link header dropdown.
   const categoryOptions: { value: string; label: string }[] = [];
@@ -157,13 +178,15 @@ export function ProductCatalog({
 
   function clearFilters() {
     setCategory("");
+    setSaleOnly(false);
     setSort("featured");
-    pushCatalogParams({ category: "", sort: "featured" });
+    pushCatalogParams({ category: "", saleOnly: false, sort: "featured" });
   }
 
   function clearAll() {
     setQuery("");
     setCategory("");
+    setSaleOnly(false);
     setSort("featured");
     setShowFilters(false);
     router.push(pathname, { scroll: false });
@@ -172,6 +195,8 @@ export function ProductCatalog({
   const categoryLabel =
     categoryOptions.find((option) => option.value === category)?.label.replace(/^—\s*/, "") ||
     category;
+
+  const hasActiveContext = Boolean(query || category || saleOnly);
 
   return (
     <div className="catalog">
@@ -244,6 +269,18 @@ export function ProductCatalog({
               ))}
             </select>
           </label>
+          <label className="catalog-sale-toggle">
+            <input
+              type="checkbox"
+              checked={saleOnly}
+              onChange={(event) => {
+                const next = event.target.checked;
+                setSaleOnly(next);
+                pushCatalogParams({ saleOnly: next });
+              }}
+            />
+            On sale only
+          </label>
           {activeFilters ? (
             <button type="button" className="filter-clear" onClick={clearFilters}>
               <X size={15} /> Clear filters
@@ -256,9 +293,12 @@ export function ProductCatalog({
         <div className="catalog-results-head">
           <p>
             <strong>{visibleProducts.length}</strong> product{visibleProducts.length === 1 ? "" : "s"}
+            {saleOnly ? " on sale" : ""}
           </p>
-          {query || category ? (
+          {hasActiveContext ? (
             <span>
+              {saleOnly ? <>Sale items</> : null}
+              {saleOnly && (query || category) ? " · " : null}
               {query ? <>Matching “{query}”</> : null}
               {query && category ? " · " : null}
               {category ? <>Category: {categoryLabel}</> : null}
@@ -279,8 +319,12 @@ export function ProductCatalog({
           </div>
         ) : (
           <div className="empty-state">
-            <h2>No products found</h2>
-            <p>Try a different product name, SKU, or category.</p>
+            <h2>{saleOnly ? "No sale products right now" : "No products found"}</h2>
+            <p>
+              {saleOnly
+                ? "Set a sale price on products in Admin to list them here."
+                : "Try a different product name, SKU, or category."}
+            </p>
             <button className="button secondary" type="button" onClick={clearAll}>
               Show all products
             </button>
