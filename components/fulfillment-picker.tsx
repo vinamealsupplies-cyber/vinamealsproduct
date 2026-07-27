@@ -2,6 +2,8 @@
 
 import { useState } from "react";
 import { Receipt, Store, Truck } from "lucide-react";
+import { ShippingAddressPicker } from "@/components/shipping-address-picker";
+import type { CustomerAddress } from "@/lib/data/address-types";
 import { usd } from "@/lib/format";
 
 type FulfillmentMethod = "pickup" | "ship";
@@ -15,18 +17,20 @@ const STORE = { city: "Garden Grove", state: "CA", label: "Vinameals store picku
  * Chọn nhận tại cửa hàng hay giao hàng, kèm tạm tính.
  *
  * THUẾ: cố ý KHÔNG tính ở đây. Cửa hàng thanh toán qua Stripe và dùng
- * Stripe Tax, nên thuế được xác định ở bước checkout dựa trên địa chỉ thật mà
- * khách nhập trên Stripe. Nếu app tự tính một con số rồi Stripe tính ra số
- * khác thì khách sẽ thấy hai mức thuế lệch nhau — nên ở đây chỉ hiển thị
- * "tính khi thanh toán". Vì vậy phần chọn bang/thành phố (trước đây chỉ tồn
- * tại để tính thuế) cũng được bỏ; Stripe Checkout sẽ thu địa chỉ.
+ * Stripe Tax, nên thuế được xác định ở bước checkout dựa trên địa chỉ thật.
+ * Shipping address đã lưu dùng để prefill / chọn nơi giao — Stripe Checkout
+ * vẫn là nơi xác nhận thuế cuối cùng.
  */
 export function FulfillmentPicker({
   retailSubtotal,
-  wholesaleSubtotal
+  wholesaleSubtotal,
+  shippingAddresses = [],
+  signedIn = false
 }: {
   retailSubtotal: number;
   wholesaleSubtotal: number;
+  shippingAddresses?: CustomerAddress[];
+  signedIn?: boolean;
 }) {
   const [customerKind, setCustomerKind] = useState<CustomerKind>("retail");
   const [method, setMethod] = useState<FulfillmentMethod>("ship");
@@ -70,7 +74,9 @@ export function FulfillmentPicker({
             <strong>
               <Store size={15} aria-hidden="true" /> Store pickup
             </strong>
-            <small>No shipping fee. Collect at {STORE.city}, {STORE.state}.</small>
+            <small>
+              No shipping fee. Collect at {STORE.city}, {STORE.state}.
+            </small>
           </span>
         </label>
 
@@ -96,7 +102,7 @@ export function FulfillmentPicker({
           Pick up at <strong>{STORE.label}</strong> — bring your order number and a photo ID.
         </p>
       ) : (
-        <p className="field-hint">Your delivery address is collected securely at checkout.</p>
+        <ShippingAddressPicker addresses={shippingAddresses} signedIn={signedIn} />
       )}
 
       <div className="tax-result">
@@ -117,8 +123,8 @@ export function FulfillmentPicker({
           <strong>{usd.format(beforeTax)}</strong>
         </div>
         <p className="field-hint">
-          <Receipt size={14} aria-hidden="true" /> Sales tax is calculated at checkout from your delivery or
-          pickup address. Approved tax-exempt accounts are charged no sales tax.
+          <Receipt size={14} aria-hidden="true" /> Sales tax is calculated at checkout from your
+          delivery or pickup address. Approved tax-exempt accounts are charged no sales tax.
         </p>
       </div>
     </section>

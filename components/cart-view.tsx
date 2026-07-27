@@ -5,6 +5,7 @@ import Link from "next/link";
 import { Minus, Plus, ShoppingBag, Trash2, X } from "lucide-react";
 import { FulfillmentPicker } from "@/components/fulfillment-picker";
 import { SetupNotice } from "@/components/setup-notice";
+import type { CustomerAddress } from "@/lib/data/address-types";
 import { useCart } from "@/lib/cart";
 import type { Product } from "@/lib/sample-data";
 import { usd } from "@/lib/format";
@@ -12,7 +13,15 @@ import { usd } from "@/lib/format";
 // Trang giỏ hàng thật: liệt kê món đã thêm, sửa số lượng, xoá, và nối
 // subtotal thật (retail + wholesale) vào FulfillmentPicker. Catalog lấy từ DB
 // và truyền từ server (app/cart/page.tsx) để giá/tồn kho luôn khớp DB.
-export function CartView({ catalog }: { catalog: Product[] }) {
+export function CartView({
+  catalog,
+  shippingAddresses = [],
+  signedIn = false
+}: {
+  catalog: Product[];
+  shippingAddresses?: CustomerAddress[];
+  signedIn?: boolean;
+}) {
   const { items, setQuantity, remove, clear, ready } = useCart();
   const byId = new Map(catalog.map((product) => [product.id, product]));
 
@@ -123,7 +132,12 @@ export function CartView({ catalog }: { catalog: Product[] }) {
         delivery or pickup address, so the totals below are shown before tax.
       </SetupNotice>
 
-      <FulfillmentPicker retailSubtotal={retailSubtotal} wholesaleSubtotal={wholesaleSubtotal} />
+      <FulfillmentPicker
+        retailSubtotal={retailSubtotal}
+        wholesaleSubtotal={wholesaleSubtotal}
+        shippingAddresses={shippingAddresses}
+        signedIn={signedIn}
+      />
     </div>
   );
 }
