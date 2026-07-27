@@ -111,10 +111,16 @@ export function InventoryManager({
             </thead>
             <tbody>
               {rows.map((row) => (
-                <tr key={`${row.variantId}-${row.locationId}`}>
+                <tr
+                  key={`${row.variantId}-${row.locationId}`}
+                  className={row.productStatus === "archived" ? "row-archived" : undefined}
+                >
                   <td>
                     {row.productName}
-                    <span className="field-hint">{row.variantName}</span>
+                    <span className="field-hint">
+                      {row.variantName}
+                      {row.productStatus === "archived" ? " · Archived" : ""}
+                    </span>
                   </td>
                   <td>{row.sku}</td>
                   <td>{row.locationCode}</td>
@@ -127,6 +133,9 @@ export function InventoryManager({
                     <span className={`status-pill status-${row.stockStatus.replaceAll("_", "-")}`}>
                       {STATUS_COPY[row.stockStatus] ?? row.stockStatus}
                     </span>
+                    {row.productStatus === "archived" ? (
+                      <span className="field-hint">Product archived</span>
+                    ) : null}
                   </td>
                   <td className="row-actions">
                     <button type="button" onClick={() => selectRow(row)}>

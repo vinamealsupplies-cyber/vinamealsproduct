@@ -22,6 +22,8 @@ export type InventoryRow = {
   retailPrice: number;
   inventoryValue: number;
   stockStatus: string;
+  /** Trạng thái product (active/draft/archived). Archived → stockStatus out_of_stock. */
+  productStatus: string;
 };
 
 type DbRow = {
@@ -39,6 +41,7 @@ type DbRow = {
   retail_price: number | string;
   inventory_value: number | string;
   stock_status: string;
+  product_status: string | null;
 };
 
 function num(value: number | string | null | undefined) {
@@ -51,28 +54,36 @@ export async function getInventoryForStaff(): Promise<InventoryRow[]> {
   const { data, error } = await supabase
     .from("v_inventory_detail")
     .select(
-      "variant_id, location_id, product_name, variant_name, sku, location_code, primary_category_name, quantity_on_hand, quantity_reserved, available_quantity, cost_price, retail_price, inventory_value, stock_status"
+      "variant_id, location_id, product_name, variant_name, sku, location_code, primary_category_name, quantity_on_hand, quantity_reserved, available_quantity, cost_price, retail_price, inventory_value, stock_status, product_status"
     )
     .order("product_name");
 
   if (error) throw new Error(`Failed to load inventory: ${error.message}`);
 
-  return ((data ?? []) as DbRow[]).map((row) => ({
-    variantId: row.variant_id,
-    locationId: row.location_id,
-    productName: row.product_name,
-    variantName: row.variant_name,
-    sku: row.sku,
-    locationCode: row.location_code,
-    categoryName: row.primary_category_name,
-    onHand: num(row.quantity_on_hand),
-    reserved: num(row.quantity_reserved),
-    available: num(row.available_quantity),
-    costPrice: num(row.cost_price),
-    retailPrice: num(row.retail_price),
-    inventoryValue: num(row.inventory_value),
-    stockStatus: row.stock_status
-  }));
+  return ((data ?? []) as DbRow[]).map((row) => {
+    const productStatus = row.product_status ?? "active";
+    // Product archived → luôn Out of stock trên inventory (không bán trên storefront).
+    const stockStatus =
+      productStatus === "archived" ? "out_of_stock" : row.stock_status;
+
+    return {
+      variantId: row.variant_id,
+      locationId: row.location_id,
+      productName: row.product_name,
+      variantName: row.variant_name,
+      sku: row.sku,
+      locationCode: row.location_code,
+      categoryName: row.primary_category_name,
+      onHand: num(row.quantity_on_hand),
+      reserved: num(row.quantity_reserved),
+      available: num(row.available_quantity),
+      costPrice: num(row.cost_price),
+      retailPrice: num(row.retail_price),
+      inventoryValue: num(row.inventory_value),
+      stockStatus,
+      productStatus
+    };
+  });
 }
 
 export type MovementRow = {
