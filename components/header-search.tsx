@@ -1,20 +1,29 @@
 "use client";
 
-import { useState } from "react";
-import { useRouter } from "next/navigation";
+import { useEffect, useState } from "react";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { Search } from "lucide-react";
 
-// Ô search trên header. Trước đây là <form action="/products"> thuần: submit
-// gốc vẫn chạy nhưng phải full reload, và trên vài bàn phím mobile phím
-// Enter/"Search" không luôn kích hoạt submit. Chuyển sang client + router.push
-// để Enter và nút bấm đều search ngay, điều hướng client-side (nhanh hơn).
+// Ô search trên header — đồng bộ với ?q= trên URL (Shop all / clear filter).
 export function HeaderSearch() {
   const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
   const [query, setQuery] = useState("");
+
+  useEffect(() => {
+    if (pathname === "/products") {
+      setQuery(searchParams.get("q") ?? "");
+    } else if (!pathname.startsWith("/products")) {
+      // Rời catalog → không giữ chữ search cũ trên header.
+      setQuery("");
+    }
+  }, [pathname, searchParams]);
 
   function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const q = query.trim();
+    // Search all: chỉ ?q=, không giữ category/sort cũ.
     router.push(q ? `/products?q=${encodeURIComponent(q)}` : "/products");
   }
 

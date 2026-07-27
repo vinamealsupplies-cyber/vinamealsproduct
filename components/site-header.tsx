@@ -1,3 +1,4 @@
+import { Suspense } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import { ShieldCheck, UserRound } from "lucide-react";
@@ -34,7 +35,9 @@ export async function SiteHeader() {
           />
         </Link>
 
-        <HeaderSearch />
+        <Suspense fallback={<div className="header-search" aria-hidden="true" />}>
+          <HeaderSearch />
+        </Suspense>
 
         <nav className="header-actions" aria-label="Account navigation">
           {viewer?.isStaff ? (
@@ -53,7 +56,10 @@ export async function SiteHeader() {
 
       <div className="category-strip">
         <div className="shell category-strip-inner">
-          <Link href="/products">Shop all</Link>
+          {/* Shop all: URL sạch — catalog clear search/category/sort. */}
+          <Link href="/products" prefetch={false}>
+            Shop all
+          </Link>
           <CategoryMenu categories={categories} />
           <Link href="/products?sort=newest">New arrivals</Link>
           <Link href="/wholesale">Business customers</Link>
