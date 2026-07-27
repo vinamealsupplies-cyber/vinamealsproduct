@@ -52,12 +52,31 @@ npx opennextjs-cloudflare deploy
 - **Bắt buộc cấu hình Supabase Dashboard** (Authentication → Providers):
   1. **Google**: bật provider, dán Client ID + Client Secret từ Google Cloud Console (OAuth 2.0 Web client). Authorized redirect URI của Google = `https://<project-ref>.supabase.co/auth/v1/callback`.
   2. **Apple**: bật provider, Services ID, Team ID, Key ID, private key (.p8). Return URL Apple = `https://<project-ref>.supabase.co/auth/v1/callback`.
-  3. Authentication → URL Configuration → **Redirect URLs** thêm:
-     - `https://vinamealsupplies.com/auth/callback`
-     - `https://www.vinamealsupplies.com/auth/callback`
-     - `https://vinamealsproduct.vinameals.workers.dev/auth/callback`
-     - `http://localhost:3000/auth/callback` (dev)
+  3. ~~Redirect URLs~~ — **ĐÃ XONG**, khai báo trong `supabase/config.toml`
+     (`[auth] site_url` + `additional_redirect_urls`) và đã push lên project.
 - Profile: trigger `on_auth_user_created` vẫn tạo `profiles` (role customer) cho user OAuth mới.
+
+## `supabase config push` — CẨN THẬN
+`supabase/config.toml` giờ là **nguồn sự thật cho auth config production**. Chạy
+`supabase config push --project-ref zoegstxkzdetcckgjqkj` sẽ ghi đè remote bằng
+**toàn bộ** file, không chỉ phần bạn vừa sửa.
+
+File gốc do `supabase init` sinh ra là template **dành cho local dev**, nên nhiều
+mặc định của nó sẽ *kéo tụt* production nếu push nguyên si. Các giá trị đã được
+chỉnh lại cho khớp production — **đừng revert về mặc định**:
+
+| Khoá | Mặc định template | Production (đúng) |
+|---|---|---|
+| `[auth] site_url` | `http://127.0.0.1:3000` | `https://vinamealsupplies.com` |
+| `[auth] additional_redirect_urls` | `["https://127.0.0.1:3000"]` | 4 URL `/auth/callback` |
+| `[auth.email] enable_confirmations` | `false` | `true` (app gửi link `/auth/confirm`) |
+| `[auth.email] max_frequency` | `1s` | `60s` (chống bơm email) |
+| `[auth.email] otp_length` | `6` | `8` |
+| `[auth.mfa.totp] enroll/verify_enabled` | `false` | `true` |
+
+Quy trình an toàn: chạy push → **đọc kỹ diff CLI in ra** → nếu thấy dòng `-` nào
+là thứ production đang bật thì sửa `config.toml` cho khớp rồi push lại, đến khi
+CLI báo `Remote Auth config is up to date`.
 
 ## Phân quyền admin (đã đúng theo yêu cầu)
 - Enum `public.app_role`: `customer | staff | manager | admin`.
