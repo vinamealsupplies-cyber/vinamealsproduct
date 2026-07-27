@@ -17,21 +17,31 @@ export function HeaderSearch() {
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const wrapRef = useRef<HTMLDivElement>(null);
-  const [query, setQuery] = useState("");
+  // URL là nguồn sự thật cho ô search.
+  //   /products        -> lấy ?q
+  //   /products/<slug> -> null: giữ nguyên chữ người dùng đang gõ
+  //   trang khác       -> xoá trắng
+  const urlQuery =
+    pathname === "/products"
+      ? searchParams.get("q") ?? ""
+      : pathname.startsWith("/products")
+        ? null
+        : "";
+
+  const [query, setQuery] = useState(urlQuery ?? "");
   const [history, setHistory] = useState<string[]>([]);
   const [openHistory, setOpenHistory] = useState(false);
+  const [syncedQuery, setSyncedQuery] = useState(urlQuery);
 
-  useEffect(() => {
-    setHistory(readSearchHistory());
-  }, []);
+  // Đồng bộ ngay trong render thay vì trong effect: setState trong effect gây
+  // cascading render (rule react-hooks/set-state-in-effect). Đây là cách React
+  // khuyến nghị khi cần chỉnh state lúc props/URL đổi.
+  if (urlQuery !== null && urlQuery !== syncedQuery) {
+    setSyncedQuery(urlQuery);
+    setQuery(urlQuery);
+  }
 
-  useEffect(() => {
-    if (pathname === "/products") {
-      setQuery(searchParams.get("q") ?? "");
-    } else if (!pathname.startsWith("/products")) {
-      setQuery("");
-    }
-  }, [pathname, searchParams]);
+  // Lịch sử được nạp lúc focus (xem onFocus bên dưới) nên không cần effect mount.
 
   useEffect(() => {
     if (!openHistory) return;
@@ -73,6 +83,8 @@ export function HeaderSearch() {
           }}
           placeholder="Search products"
           aria-label="Search products"
+          // role="combobox" để aria-expanded hợp lệ (input mặc định là textbox).
+          role="combobox"
           aria-autocomplete="list"
           aria-expanded={openHistory && history.length > 0}
         />

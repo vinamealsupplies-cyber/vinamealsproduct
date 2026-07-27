@@ -35,6 +35,9 @@ export function SearchHistoryPanel({
               type="button"
               className="search-history-item"
               role="option"
+              // role="option" bắt buộc phải khai báo aria-selected. Danh sách
+              // lịch sử không có mục nào "đang chọn" nên luôn là false.
+              aria-selected={false}
               onMouseDown={(event) => {
                 // mousedown trước blur input → vẫn kịp pick
                 event.preventDefault();

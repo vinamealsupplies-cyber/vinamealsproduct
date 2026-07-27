@@ -72,7 +72,12 @@ export function InventoryManager({
   rows: InventoryRow[];
   movements: MovementRow[];
 }) {
-  const [selected, setSelected] = useState<InventoryRow | null>(null);
+  // Chỉ giữ KHOÁ của dòng đang chọn rồi suy ra dữ liệu từ `rows`. Nhờ vậy panel
+  // luôn khớp dữ liệu server mới nhất sau revalidate mà không cần effect đồng bộ
+  // (setState trong effect gây cascading render).
+  const [selectedKey, setSelectedKey] = useState<string | null>(null);
+  const rowKey = (row: InventoryRow) => `${row.variantId}:${row.locationId}`;
+  const selected = selectedKey ? rows.find((row) => rowKey(row) === selectedKey) ?? null : null;
   const [notice, setNotice] = useState<AdminFormState>(initialAdminFormState);
   const [mode, setMode] = useState<"delta" | "set">("delta");
   // Lịch sử của riêng món đang chọn, tải khi bấm chọn dòng.
@@ -82,20 +87,10 @@ export function InventoryManager({
   const [sortKey, setSortKey] = useState<SortKey>("productName");
   const [ascending, setAscending] = useState(true);
 
-  // Sau khi server revalidate (đổi giá / số lượng), đồng bộ panel với dữ liệu
-  // mới để form và bảng không lệch nhau.
-  useEffect(() => {
-    if (!selected) return;
-    const fresh = rows.find(
-      (row) => row.variantId === selected.variantId && row.locationId === selected.locationId
-    );
-    if (fresh) setSelected(fresh);
-  }, [rows]); // eslint-disable-line react-hooks/exhaustive-deps -- only re-sync when server rows refresh
-
   async function selectRow(row: InventoryRow) {
     setNotice(initialAdminFormState);
     setMode("delta");
-    setSelected(row);
+    setSelectedKey(rowKey(row));
     setHistory(null);
     setLoadingHistory(true);
     const result = await fetchVariantHistory(row.variantId, row.locationId);
@@ -327,7 +322,7 @@ export function InventoryManager({
                 <button className="button primary" type="submit" disabled={adjusting}>
                   <Boxes size={17} aria-hidden="true" /> {adjusting ? "Posting…" : "Post adjustment"}
                 </button>
-                <button className="button secondary" type="button" onClick={() => setSelected(null)}>
+                <button className="button secondary" type="button" onClick={() => setSelectedKey(null)}>
                   <X size={16} aria-hidden="true" /> Cancel
                 </button>
               </div>

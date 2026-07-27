@@ -32,3 +32,6 @@ keys.*
 
 # Claude Code — cấu hình quyền cục bộ, chỉ giữ trong máy (không đẩy lên repo)
 .claude/settings.local.json
+
+# Python bytecode cache (tools/)
+__pycache__/

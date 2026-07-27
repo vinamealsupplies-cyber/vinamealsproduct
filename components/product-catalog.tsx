@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { Search, SlidersHorizontal, X } from "lucide-react";
 import { ProductCard } from "@/components/product-card";
 import { SearchHistoryPanel } from "@/components/search-history-panel";
@@ -75,7 +75,6 @@ export function ProductCatalog({
 }) {
   const router = useRouter();
   const pathname = usePathname();
-  const searchParams = useSearchParams();
   const searchWrapRef = useRef<HTMLDivElement>(null);
 
   const [query, setQuery] = useState(initialQuery);
@@ -87,9 +86,7 @@ export function ProductCatalog({
   const [searchHistory, setSearchHistory] = useState<string[]>([]);
   const [openHistory, setOpenHistory] = useState(false);
 
-  useEffect(() => {
-    setSearchHistory(readSearchHistory());
-  }, []);
+  // Lịch sử được nạp lúc focus (xem onFocus của ô search) nên không cần effect mount.
 
   useEffect(() => {
     if (!openHistory) return;
@@ -101,34 +98,34 @@ export function ProductCatalog({
     document.addEventListener("pointerdown", onPointerDown);
     return () => document.removeEventListener("pointerdown", onPointerDown);
   }, [openHistory]);
-  // Panel filter: mở khi URL có category/sort khác mặc định.
+  // Panel filter: mở khi URL có category/sort/sale khác mặc định.
   const [showFilters, setShowFilters] = useState(
     Boolean(initialCategory) ||
       initialSaleOnly ||
       (initialSort !== "" && initialSort !== "featured")
   );
 
-  // Đồng bộ khi bấm Shop all / Categories / Sale / New arrivals (URL đổi).
-  useEffect(() => {
-    const q = searchParams.get("q") ?? "";
-    const cat = searchParams.get("category") ?? "";
-    const s = searchParams.get("sort") ?? "featured";
-    const sale = searchParams.get("sale") === "1" || searchParams.get("sale") === "true";
-    setQuery(q);
-    setCategory(cat);
-    setSaleOnly(sale);
-    setSort(sortOptions.some((option) => option.value === s) ? s : "featured");
-    if (cat || sale || (s && s !== "featured")) setShowFilters(true);
-    if (!cat && !sale && (!s || s === "featured") && !q) setShowFilters(false);
-  }, [searchParams]);
+  // Đồng bộ khi URL đổi (bấm Shop all / Categories / Sale / New arrivals).
+  //
+  // Trang là server component đọc searchParams rồi truyền xuống qua props, nên
+  // props CHÍNH LÀ trạng thái URL — trước đây có hai effect làm cùng một việc
+  // (một đọc searchParams, một đọc props). Giờ gộp lại và chỉnh state ngay
+  // trong render: setState trong effect gây cascading render.
+  const urlSignature = `${initialQuery}|${initialCategory}|${initialSort}|${initialSaleOnly}`;
+  const [syncedSignature, setSyncedSignature] = useState(urlSignature);
 
-  // Cũng nhận props server lần đầu / soft refresh.
-  useEffect(() => {
+  if (urlSignature !== syncedSignature) {
+    setSyncedSignature(urlSignature);
     setQuery(initialQuery);
     setCategory(initialCategory);
     setSaleOnly(initialSaleOnly);
     setSort(sortOptions.some((option) => option.value === initialSort) ? initialSort : "featured");
-  }, [initialQuery, initialCategory, initialSort, initialSaleOnly]);
+
+    const hasFilter =
+      Boolean(initialCategory) || initialSaleOnly || (initialSort !== "" && initialSort !== "featured");
+    if (hasFilter) setShowFilters(true);
+    else if (!initialQuery) setShowFilters(false);
+  }
 
   function pushCatalogParams(next: {
     q?: string;
@@ -252,6 +249,8 @@ export function ProductCatalog({
               type="search"
               autoComplete="off"
               aria-label="Search products"
+              // role="combobox" để aria-expanded hợp lệ (input mặc định là textbox).
+              role="combobox"
               aria-autocomplete="list"
               aria-expanded={openHistory && searchHistory.length > 0}
               placeholder="Search by product name or SKU"

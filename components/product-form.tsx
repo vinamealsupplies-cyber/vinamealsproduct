@@ -52,28 +52,29 @@ export function ProductForm({
   const [state, formAction, pending] = useActionState(
     async (prev: AdminFormState, formData: FormData) => {
       const action = isEdit ? updateProductAction : createProductAction;
-      return action(prev, formData);
+      const result = await action(prev, formData);
+      // Save xong → chốt baseline mới và khoá nút "Saved" cho tới khi user sửa
+      // tiếp. Đặt ngay trong action (không dùng effect) vì setState trong effect
+      // gây cascading render.
+      if (result.status === "success") {
+        const form = formRef.current;
+        if (form) baselineRef.current = serializeForm(form);
+        setDirty(false);
+        setSaved(true);
+      }
+      return result;
     },
     initialAdminFormState
   );
 
-  // Baseline sau mount / khi đổi product đang sửa.
+  // Chốt baseline sau khi form đã render (chỉ ghi vào ref, không setState).
+  // `dirty`/`saved` đã đúng sẵn từ giá trị khởi tạo, và mỗi product là một route
+  // riêng nên component luôn mount lại khi đổi sản phẩm.
   useEffect(() => {
     const form = formRef.current;
     if (!form) return;
     baselineRef.current = serializeForm(form);
-    setDirty(!isEdit);
-    setSaved(false);
   }, [isEdit, product?.id]);
-
-  // Save thành công → khóa nút Saved cho đến khi user sửa lại.
-  useEffect(() => {
-    if (state.status !== "success") return;
-    const form = formRef.current;
-    if (form) baselineRef.current = serializeForm(form);
-    setDirty(false);
-    setSaved(true);
-  }, [state]);
 
   function recomputeDirty() {
     const form = formRef.current;
