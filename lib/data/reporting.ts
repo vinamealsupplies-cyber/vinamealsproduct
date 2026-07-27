@@ -24,16 +24,54 @@ function num(value: unknown) {
   return typeof parsed === "number" && Number.isFinite(parsed) ? parsed : 0;
 }
 
-const MONTH_FORMAT = new Intl.DateTimeFormat("en-US", { month: "long", timeZone: "UTC" });
+const MONTH_FORMAT = new Intl.DateTimeFormat("en-US", {
+  month: "short",
+  year: "numeric",
+  timeZone: "UTC"
+});
 
-export async function getMonthlyPerformance(limit = 6): Promise<MonthlyPerformance[]> {
+export type PerformanceRange = {
+  /** Inclusive month start YYYY-MM-01 */
+  from?: string | null;
+  /** Inclusive month start YYYY-MM-01 */
+  to?: string | null;
+  /** Max rows when no date filter (dashboard default). */
+  limit?: number;
+};
+
+/** Chuẩn hoá thành ngày đầu tháng UTC (YYYY-MM-01). */
+export function toMonthStart(value: string | null | undefined): string | null {
+  if (!value) return null;
+  const trimmed = value.trim();
+  // type=month → YYYY-MM
+  const monthOnly = /^(\d{4})-(\d{2})$/.exec(trimmed);
+  if (monthOnly) return `${monthOnly[1]}-${monthOnly[2]}-01`;
+  const full = /^(\d{4})-(\d{2})-(\d{2})/.exec(trimmed);
+  if (full) return `${full[1]}-${full[2]}-01`;
+  return null;
+}
+
+export async function getMonthlyPerformance(
+  limitOrRange: number | PerformanceRange = 6
+): Promise<MonthlyPerformance[]> {
+  const range: PerformanceRange =
+    typeof limitOrRange === "number" ? { limit: limitOrRange } : limitOrRange;
+
+  const from = toMonthStart(range.from);
+  const to = toMonthStart(range.to);
+  const limit = range.limit ?? (from || to ? 120 : 6);
+
   const supabase = createAdminClient();
-  const { data, error } = await supabase
+  let query = supabase
     .from("v_monthly_business_performance")
     .select("*")
-    .order("month_start", { ascending: false })
-    .limit(limit);
+    .order("month_start", { ascending: false });
 
+  if (from) query = query.gte("month_start", from);
+  if (to) query = query.lte("month_start", to);
+  query = query.limit(limit);
+
+  const { data, error } = await query;
   if (error) return [];
 
   return ((data ?? []) as Record<string, unknown>[])

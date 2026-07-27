@@ -551,6 +551,53 @@ textarea { resize: vertical; }
 .spin { animation: spin 1s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
 
+/* Bộ chọn khoảng thời gian Performance reports */
+.report-period-bar {
+  display: grid;
+  gap: 12px;
+  margin-bottom: 16px;
+  padding: 14px 16px;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: white;
+}
+.report-period-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--ink);
+  font-size: 14px;
+}
+.report-period-label strong { letter-spacing: -0.02em; }
+.report-period-tabs { justify-content: flex-start; }
+.report-period-custom {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: 12px;
+  padding-top: 4px;
+}
+.report-period-custom label {
+  display: grid;
+  gap: 4px;
+  font-size: 11px;
+  font-weight: 800;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.report-period-custom input[type="month"] {
+  min-height: 36px;
+  min-width: 150px;
+  padding: 0 10px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: #fbfdfc;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--ink);
+}
+
 .report-kpi-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 11px; margin-bottom: 18px; }
 .report-kpi-grid article { min-width: 0; padding: 17px; border: 1px solid var(--line); border-radius: 16px; background: white; }
 .report-kpi-grid span, .report-kpi-grid strong, .report-kpi-grid small { display: block; }

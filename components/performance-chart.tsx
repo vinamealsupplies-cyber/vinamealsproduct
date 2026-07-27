@@ -14,7 +14,7 @@ export function PerformanceChart({ data }: { data: Point[] }) {
               <div className="chart-bar sales" style={{ height: `${Math.max(8, point.netSales / max * 100)}%` }} title={`Net sales ${usd.format(point.netSales)}`} />
               <div className="chart-bar received" style={{ height: `${Math.max(8, point.received / max * 100)}%` }} title={`Received ${usd.format(point.received)}`} />
             </div>
-            <strong>{point.month.slice(0, 3)}</strong>
+            <strong title={point.month}>{point.month}</strong>
           </div>
         ))}
       </div>
