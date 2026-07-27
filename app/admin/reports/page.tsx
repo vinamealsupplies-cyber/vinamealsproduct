@@ -1,8 +1,10 @@
+import Link from "next/link";
 import { Download } from "lucide-react";
 import { AdminPageHeader } from "@/components/admin-page-header";
 import { PerformanceChart } from "@/components/performance-chart";
-import { ReportPeriodPicker, resolveReportPeriod } from "@/components/report-period-picker";
+import { ReportPeriodPicker } from "@/components/report-period-picker";
 import { SearchableTable } from "@/components/searchable-table";
+import { resolveReportPeriod } from "@/lib/data/report-period";
 import { getMonthlyPerformance, toMonthStart } from "@/lib/data/reporting";
 import { usd } from "@/lib/format";
 
@@ -16,10 +18,16 @@ export default async function ReportsPage({
   const params = await searchParams;
   const period = resolveReportPeriod(params.preset, params.from, params.to);
 
-  const monthlyPerformance = await getMonthlyPerformance({
-    from: toMonthStart(period.from),
-    to: toMonthStart(period.to)
-  });
+  let monthlyPerformance: Awaited<ReturnType<typeof getMonthlyPerformance>> = [];
+  let loadError: string | null = null;
+  try {
+    monthlyPerformance = await getMonthlyPerformance({
+      from: toMonthStart(period.from),
+      to: toMonthStart(period.to)
+    });
+  } catch (error) {
+    loadError = error instanceof Error ? error.message : "Could not load performance data.";
+  }
 
   const rows = monthlyPerformance.map((row, index) => ({
     id: index,
@@ -61,6 +69,13 @@ export default async function ReportsPage({
     }
   );
 
+  const exportParams = new URLSearchParams({ preset: period.preset });
+  if (period.preset === "custom") {
+    exportParams.set("from", period.from);
+    exportParams.set("to", period.to);
+  }
+  const exportHref = `/api/admin/reports/export?${exportParams.toString()}`;
+
   return (
     <>
       <AdminPageHeader
@@ -69,14 +84,20 @@ export default async function ReportsPage({
         description="Review sales, shipping, tax collected, cash received, cost, expenses, profit, and open balances by month. Choose a period below."
         action={
           <div className="button-row">
-            <button className="button primary" type="button" disabled title="Export coming soon">
+            <Link className="button primary" href={exportHref} prefetch={false}>
               <Download size={17} /> Export report
-            </button>
+            </Link>
           </div>
         }
       />
 
       <ReportPeriodPicker period={period} />
+
+      {loadError ? (
+        <div className="form-error" role="alert">
+          {loadError}
+        </div>
+      ) : null}
 
       <section className="report-kpi-grid">
         <article>
@@ -130,9 +151,7 @@ export default async function ReportsPage({
         <div className="panel-heading">
           <div>
             <h2>Monthly trend</h2>
-            <p>
-              Net sales compared with amount received · {period.label}
-            </p>
+            <p>Net sales compared with amount received · {period.label}</p>
           </div>
         </div>
         {monthlyPerformance.length ? (
@@ -174,7 +193,7 @@ export default async function ReportsPage({
           Net sales, shipping revenue, tax collected, amount invoiced, cash received, and current balance due are
           deliberately separate. Cash received is grouped by payment date, while balance due comes directly from open
           invoices. Payment refunds reduce cash received; production returns or credit notes must also reverse sales and
-          COGS.
+          COGS. Export downloads an Excel workbook for the selected period.
         </p>
       </div>
     </>
