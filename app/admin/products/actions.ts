@@ -62,6 +62,12 @@ function readForm(formData: FormData) {
     sku: text("sku", 60),
     barcode: text("barcode", 60) || null,
     retailPrice: number("retailPrice"),
+    // Ô trống → null (tắt sale). 0 vẫn là giá hợp lệ nếu < retail.
+    salePrice: (() => {
+      const raw = String(formData.get("salePrice") ?? "").trim();
+      if (!raw) return null;
+      return number("salePrice");
+    })(),
     wholesalePrice: number("wholesalePrice"),
     costPrice: number("costPrice"),
     openingQuantity: number("openingQuantity") ?? 0,
@@ -79,6 +85,10 @@ function validate(input: ReturnType<typeof readForm>) {
   if (input.retailPrice === null || input.retailPrice < 0) return "Enter a retail price of 0 or more.";
   if (input.costPrice === null || input.costPrice < 0) return "Enter a unit cost of 0 or more.";
   if (input.wholesalePrice !== null && input.wholesalePrice < 0) return "Wholesale price cannot be negative.";
+  if (input.salePrice !== null) {
+    if (input.salePrice < 0) return "Sale price cannot be negative.";
+    if (input.salePrice >= input.retailPrice) return "Sale price must be lower than the retail price.";
+  }
   if (input.openingQuantity < 0) return "Opening quantity cannot be negative.";
   return null;
 }
@@ -143,6 +153,7 @@ export async function createProductAction(_prev: AdminFormState, formData: FormD
         sku: input.sku,
         barcode: input.barcode,
         retail_price: input.retailPrice,
+        sale_price: input.salePrice,
         wholesale_price: input.wholesalePrice,
         cost_price: input.costPrice,
         taxable: input.taxable,
@@ -227,6 +238,7 @@ export async function updateProductAction(_prev: AdminFormState, formData: FormD
         sku: input.sku,
         barcode: input.barcode,
         retail_price: input.retailPrice,
+        sale_price: input.salePrice,
         wholesale_price: input.wholesalePrice,
         cost_price: input.costPrice,
         taxable: input.taxable,

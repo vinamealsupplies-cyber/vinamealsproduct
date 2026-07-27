@@ -186,6 +186,7 @@ export function ProductManager({
                 <th>SKU</th>
                 <th>Category</th>
                 <th className="numeric">Retail</th>
+                <th className="numeric">Sale</th>
                 <th className="numeric">Wholesale</th>
                 <th className="numeric">On hand</th>
                 <th>Status</th>
@@ -202,6 +203,13 @@ export function ProductManager({
                   <td>{product.sku || "—"}</td>
                   <td>{product.categoryName}</td>
                   <td className="numeric">{usd.format(product.retailPrice)}</td>
+                  <td className="numeric">
+                    {product.salePrice == null ? (
+                      "—"
+                    ) : (
+                      <span className="price-sale">{usd.format(product.salePrice)}</span>
+                    )}
+                  </td>
                   <td className="numeric">
                     {product.wholesalePrice == null ? "—" : usd.format(product.wholesalePrice)}
                   </td>
@@ -253,7 +261,7 @@ export function ProductManager({
               ))}
               {!visible.length ? (
                 <tr>
-                  <td className="empty-table" colSpan={8}>
+                  <td className="empty-table" colSpan={9}>
                     {products.length
                       ? statusFilter === "archived"
                         ? "No archived products."

@@ -11,6 +11,7 @@ import type { Product, ProductMedia } from "@/lib/sample-data";
 type VariantRow = {
   sku: string;
   retail_price: number | string;
+  sale_price: number | string | null;
   wholesale_price: number | string | null;
   is_default: boolean;
   is_active: boolean;
@@ -71,6 +72,15 @@ function mapProduct(row: ProductRow, stockByProduct: Map<string, number>): Produ
     (row.product_categories ?? [])[0]?.categories ??
     null;
 
+  const retail = num(variant?.retail_price);
+  const rawSale =
+    variant?.sale_price == null || variant.sale_price === ""
+      ? null
+      : num(variant.sale_price);
+  // Sale chỉ áp dụng khi có giá và thấp hơn retail.
+  const onSale = rawSale !== null && rawSale >= 0 && rawSale < retail;
+  const price = onSale ? rawSale : retail;
+
   return {
     id: row.id,
     slug: row.slug,
@@ -78,7 +88,8 @@ function mapProduct(row: ProductRow, stockByProduct: Map<string, number>): Produ
     sku: variant?.sku ?? "",
     category: primaryCategory?.name ?? "Uncategorized",
     categorySlug: primaryCategory?.slug ?? "",
-    price: num(variant?.retail_price),
+    price,
+    compareAtPrice: onSale ? retail : null,
     wholesalePrice: num(variant?.wholesale_price ?? variant?.retail_price),
     stock: Math.max(0, Math.round(stockByProduct.get(row.id) ?? 0)),
     featured: row.featured,
@@ -93,14 +104,15 @@ function mapProduct(row: ProductRow, stockByProduct: Map<string, number>): Produ
 // Cột giá vốn/giá sỉ KHÔNG được cấp cho anon (xem migration 20260724120000),
 // nên truy vấn công khai không được đụng tới `wholesale_price` — hỏi tới là
 // PostgREST trả 42501 và cả trang chết. Giá sỉ chỉ đọc ở luồng admin bên dưới.
+// sale_price là giá khuyến mãi công khai — được grant cho anon.
 const PUBLIC_SELECT = `id, slug, name, short_description, description, featured, published_at,
-         product_variants ( sku, retail_price, is_default, is_active ),
+         product_variants ( sku, retail_price, sale_price, is_default, is_active ),
          product_categories ( is_primary, categories ( name, slug ) ),
          product_media ( media_type, public_url, playback_url, poster_url, alt_text, position, is_primary, status )`;
 
 const ADMIN_SELECT = PUBLIC_SELECT.replace(
-  "product_variants ( sku, retail_price, is_default, is_active )",
-  "product_variants ( sku, retail_price, wholesale_price, is_default, is_active )"
+  "product_variants ( sku, retail_price, sale_price, is_default, is_active )",
+  "product_variants ( sku, retail_price, sale_price, wholesale_price, is_default, is_active )"
 );
 
 async function loadProducts(

@@ -25,6 +25,8 @@ export type AdminProduct = {
   sku: string;
   barcode: string;
   retailPrice: number;
+  /** Giá sale tùy chọn — null = không sale. */
+  salePrice: number | null;
   wholesalePrice: number | null;
   costPrice: number;
   taxable: boolean;
@@ -40,6 +42,7 @@ type DbVariant = {
   sku: string;
   barcode: string | null;
   retail_price: number | string;
+  sale_price: number | string | null;
   wholesale_price: number | string | null;
   cost_price: number | string;
   taxable: boolean;
@@ -67,7 +70,7 @@ function num(value: number | string | null | undefined) {
 }
 
 const SELECT = `id, slug, product_handle, name, short_description, description, status, featured,
-   product_variants ( id, variant_name, sku, barcode, retail_price, wholesale_price, cost_price, taxable, track_inventory, is_default, is_active ),
+   product_variants ( id, variant_name, sku, barcode, retail_price, sale_price, wholesale_price, cost_price, taxable, track_inventory, is_default, is_active ),
    product_categories ( is_primary, categories ( id, name ) )`;
 
 function pickVariant(row: DbRow) {
@@ -101,6 +104,7 @@ function mapRow(
     sku: variant?.sku ?? "",
     barcode: variant?.barcode ?? "",
     retailPrice: num(variant?.retail_price),
+    salePrice: variant?.sale_price == null || variant.sale_price === "" ? null : num(variant.sale_price),
     wholesalePrice: variant?.wholesale_price == null ? null : num(variant.wholesale_price),
     costPrice: num(variant?.cost_price),
     taxable: variant?.taxable ?? true,

@@ -30,7 +30,17 @@ export function ProductCard({ product }: { product: Product }) {
         <h3><Link href={`/products/${product.slug}`}>{product.name}</Link></h3>
         <p>{product.shortDescription}</p>
         <div className="product-price-row">
-          <strong>{usd.format(product.price)}</strong>
+          <div className="price-stack">
+            {product.compareAtPrice != null ? (
+              <>
+                <span className="price-compare">{usd.format(product.compareAtPrice)}</span>
+                <strong className="price-sale">{usd.format(product.price)}</strong>
+                <span className="sale-badge">Sale</span>
+              </>
+            ) : (
+              <strong>{usd.format(product.price)}</strong>
+            )}
+          </div>
           <Link href={`/products/${product.slug}`}>Details</Link>
         </div>
       </div>

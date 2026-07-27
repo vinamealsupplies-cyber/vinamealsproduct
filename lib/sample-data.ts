@@ -13,7 +13,10 @@ export type Product = {
   sku: string;
   category: string;
   categorySlug: string;
+  /** Giá khách trả (sale nếu có, không thì retail). */
   price: number;
+  /** Giá gốc khi đang sale — hiển thị gạch ngang. null = không sale. */
+  compareAtPrice: number | null;
   wholesalePrice: number;
   stock: number;
   featured: boolean;
@@ -40,6 +43,7 @@ export const products: Product[] = [
     category: "Snacks",
     categorySlug: "snacks",
     price: 8.99,
+    compareAtPrice: null,
     wholesalePrice: 6.25,
     stock: 42,
     featured: true,
@@ -61,6 +65,7 @@ export const products: Product[] = [
     category: "Frozen",
     categorySlug: "frozen",
     price: 12.99,
+    compareAtPrice: null,
     wholesalePrice: 9.4,
     stock: 18,
     featured: true,
@@ -81,6 +86,7 @@ export const products: Product[] = [
     category: "Sauces",
     categorySlug: "sauces",
     price: 10.5,
+    compareAtPrice: null,
     wholesalePrice: 7.6,
     stock: 27,
     featured: true,
@@ -101,6 +107,7 @@ export const products: Product[] = [
     category: "Snacks",
     categorySlug: "snacks",
     price: 5.99,
+    compareAtPrice: null,
     wholesalePrice: 4.2,
     stock: 9,
     featured: false,
@@ -121,6 +128,7 @@ export const products: Product[] = [
     category: "Beverages",
     categorySlug: "beverages",
     price: 3.99,
+    compareAtPrice: null,
     wholesalePrice: 2.65,
     stock: 64,
     featured: false,
@@ -141,6 +149,7 @@ export const products: Product[] = [
     category: "Pantry",
     categorySlug: "pantry",
     price: 11.99,
+    compareAtPrice: null,
     wholesalePrice: 8.5,
     stock: 14,
     featured: false,

@@ -33,7 +33,20 @@ export default async function ProductPage({ params }: { params: Promise<{ slug: 
           <span className="kicker">{product.category}</span>
           <h1>{product.name}</h1>
           <p className="product-detail-lead">{product.shortDescription}</p>
-          <div className="detail-price-row"><strong>{usd.format(product.price)}</strong><span>Retail price</span></div>
+          <div className="detail-price-row">
+            {product.compareAtPrice != null ? (
+              <>
+                <span className="price-compare">{usd.format(product.compareAtPrice)}</span>
+                <strong className="price-sale">{usd.format(product.price)}</strong>
+                <span className="sale-badge">Sale</span>
+              </>
+            ) : (
+              <>
+                <strong>{usd.format(product.price)}</strong>
+                <span>Retail price</span>
+              </>
+            )}
+          </div>
           <div className="detail-stock"><Check size={17} /> {product.stock} units available <span>SKU {product.sku}</span></div>
           <p className="product-description">{product.description}</p>
           <AddToCart productId={product.id} stock={product.stock} />

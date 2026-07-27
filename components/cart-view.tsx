@@ -75,7 +75,16 @@ export function CartView({ catalog }: { catalog: Product[] }) {
               </Link>
               <div className="cart-item-info">
                 <Link href={`/products/${product.slug}`}>{product.name}</Link>
-                <span>{usd.format(product.price)} each</span>
+                <span className="cart-unit-price">
+                  {product.compareAtPrice != null ? (
+                    <>
+                      <span className="price-compare">{usd.format(product.compareAtPrice)}</span>{" "}
+                      <strong className="price-sale">{usd.format(product.price)}</strong> each
+                    </>
+                  ) : (
+                    <>{usd.format(product.price)} each</>
+                  )}
+                </span>
               </div>
               <div className="quantity-control" aria-label={`Quantity for ${product.name}`}>
                 <button

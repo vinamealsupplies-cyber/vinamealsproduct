@@ -128,6 +128,17 @@ export function ProductForm({
             <input required name="retailPrice" type="number" min="0" step="0.01" defaultValue={product?.retailPrice ?? ""} placeholder="8.99" />
           </label>
           <label>
+            Sale price (USD)
+            <input
+              name="salePrice"
+              type="number"
+              min="0"
+              step="0.01"
+              defaultValue={product?.salePrice ?? ""}
+              placeholder="Leave blank for no sale"
+            />
+          </label>
+          <label>
             Wholesale price (USD)
             <input name="wholesalePrice" type="number" min="0" step="0.01" defaultValue={product?.wholesalePrice ?? ""} placeholder="6.25" />
           </label>
@@ -135,6 +146,10 @@ export function ProductForm({
             Unit cost (USD) *
             <input required name="costPrice" type="number" min="0" step="0.01" defaultValue={product?.costPrice ?? ""} placeholder="3.40" />
           </label>
+          <p className="field-hint full-width">
+            Sale price is optional. When set lower than retail, the storefront shows retail struck through and charges
+            the sale price in cart totals.
+          </p>
           {isEdit ? (
             <label>
               On hand (read-only)
