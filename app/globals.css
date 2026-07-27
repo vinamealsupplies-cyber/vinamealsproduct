@@ -92,6 +92,8 @@ main { min-height: 65vh; }
 .button.primary:hover:not(:disabled) { background: var(--green-dark); }
 .button.secondary { background: white; border-color: var(--line); color: var(--ink); }
 .button.secondary:hover:not(:disabled) { border-color: var(--green); color: var(--green); }
+.button.danger { background: var(--red); color: white; }
+.button.danger:hover:not(:disabled) { background: #8f1c13; }
 .button.light { background: white; color: var(--green-dark); }
 .button.compact { min-height: 38px; padding-inline: 14px; font-size: 13px; }
 .button.full { width: 100%; }
@@ -381,7 +383,30 @@ textarea { resize: vertical; }
 .data-table-card { overflow: hidden; border: 1px solid var(--line); border-radius: 18px; background: white; }
 .table-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 20px; padding: 13px 15px; border-bottom: 1px solid var(--line); }
 .table-toolbar > span { color: var(--muted); font-size: 12px; }
+.toolbar-side { display: flex; align-items: center; gap: 14px; white-space: nowrap; }
+.toolbar-side > span { color: var(--muted); font-size: 12px; }
+.toolbar-side button { border: 0; background: transparent; font-size: 12px; font-weight: 800; }
 .table-search { width: min(400px, 100%); min-height: 39px; display: flex; align-items: center; gap: 8px; border: 1px solid var(--line); border-radius: 999px; padding: 0 13px; background: #fbfdfc; }
+/* Nút Edit/Delete trong từng dòng bảng quản trị. */
+.row-actions { white-space: nowrap; }
+.row-actions button { display: inline-flex; align-items: center; gap: 4px; margin-left: 10px; border: 0; background: transparent; color: var(--green); font-size: 11px; font-weight: 800; }
+.row-actions button:first-child { margin-left: 0; }
+.row-actions button:hover { text-decoration: underline; }
+.row-actions button.danger { color: var(--red); }
+/* Hành động dạng link (Edit) và form nội tuyến (Restore) trong cùng ô. */
+.row-actions a { display: inline-flex; align-items: center; gap: 4px; margin-left: 10px; color: var(--green); font-size: 11px; font-weight: 800; }
+.row-actions a:first-child { margin-left: 0; }
+.row-actions a:hover { text-decoration: underline; }
+.row-actions .inline-form { display: inline; }
+.status-draft { background: #eef1f5; color: #4a5568; }
+.status-archived { background: #f1ece4; color: #7a6a52; }
+.data-table .field-hint { display: block; margin-top: 2px; font-size: 10px; }
+/* Chọn kiểu điều chỉnh tồn kho: cộng/trừ hay nhập số đếm thực tế. */
+.toggle-row { display: flex; gap: 6px; margin: 12px 0; }
+.toggle-row button { flex: 1; min-height: 34px; border: 1px solid var(--line); border-radius: 11px; background: white; color: var(--muted); font-size: 12px; font-weight: 800; }
+.toggle-row button.active { border-color: var(--green); background: var(--mint); color: var(--green-dark); }
+.stacked-form { display: grid; gap: 10px; margin-top: 22px; padding-top: 18px; border-top: 1px solid var(--line); }
+.panel-subheading { display: flex; align-items: center; gap: 6px; margin: 0; font-size: 13px; letter-spacing: -0.01em; }
 .table-search input { border: 0; box-shadow: none; padding: 7px 0; background: transparent; }
 .table-scroll { overflow-x: auto; }
 .data-table { width: 100%; border-collapse: collapse; font-size: 12px; white-space: nowrap; }
@@ -614,6 +639,31 @@ textarea { resize: vertical; }
   .footer-intro { align-items: center; text-align: center; }
   .footer-intro p { margin-inline: auto; }
   .footer-bottom { flex-direction: column; justify-content: center; align-items: center; text-align: center; padding-block: 18px; }
+}
+
+/* iOS Safari tự phóng to trang khi focus vào ô nhập có font-size < 16px, và
+   KHÔNG tự thu lại khi blur — người dùng bị kẹt ở trạng thái đã zoom. Cách
+   chữa đáng tin cậy là không để trình duyệt phải zoom ngay từ đầu, thay vì cố
+   zoom lại sau (mẹo đó không hoạt động ổn định trên iOS).
+
+   Lưu ý về nguyên nhân: `body, button, input, select, textarea { font: inherit }`
+   ở đầu file khiến ô nhập kế thừa font-size của thẻ cha, nên input nằm trong
+   <label> 13px cũng thành 13px — tức là gần như MỌI form đều dính, không riêng
+   ô search 14px trên header.
+
+   Cố ý KHÔNG dùng `maximum-scale=1` / `user-scalable=no`: cách đó chặn luôn
+   quyền phóng to của người dùng (hỏng khả năng tiếp cận) và iOS bỏ qua nó.
+
+   Chỉ áp cho màn nhỏ và thiết bị cảm ứng để không đổi giao diện desktop. */
+@media (max-width: 850px), (pointer: coarse) {
+  input,
+  select,
+  textarea,
+  .header-search input,
+  .catalog-search input,
+  .table-search input {
+    font-size: 16px;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {

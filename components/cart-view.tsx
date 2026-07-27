@@ -110,8 +110,8 @@ export function CartView({ catalog }: { catalog: Product[] }) {
       </ul>
 
       <SetupNotice>
-        Checkout and payment are not connected yet. The totals below run the real pickup/shipping and
-        sales-tax logic against your actual cart subtotal.
+        Checkout and payment are not connected yet. Sales tax is applied at checkout by Stripe Tax using your
+        delivery or pickup address, so the totals below are shown before tax.
       </SetupNotice>
 
       <FulfillmentPicker retailSubtotal={retailSubtotal} wholesaleSubtotal={wholesaleSubtotal} />

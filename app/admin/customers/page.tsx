@@ -1,17 +1,29 @@
-import { Download, UserPlus } from "lucide-react";
 import { AdminPageHeader } from "@/components/admin-page-header";
-import { SearchableTable } from "@/components/searchable-table";
-import { customerRows } from "@/lib/admin-sample-data";
+import { CustomerManager } from "@/components/customer-manager";
+import { getViewer } from "@/lib/auth";
+import { getCustomersForStaff } from "@/lib/data/customers";
 
-export default function CustomersPage() {
+export const metadata = { title: "Customers" };
+
+export default async function CustomersPage() {
+  const [viewer, customers] = await Promise.all([getViewer(), getCustomersForStaff()]);
+
   return (
     <>
-      <AdminPageHeader eyebrow="Relationships" title="Customers" description="Manage guest, retail, and wholesale customers, balances, price levels, and exemption review." action={<div className="button-row"><button className="button secondary" type="button"><Download size={17} /> Export</button><button className="button primary" type="button"><UserPlus size={17} /> Add customer</button></div>} />
-      <SearchableTable columns={[
-        { key: "number", label: "Customer no." }, { key: "name", label: "Name" }, { key: "company", label: "Company" }, { key: "type", label: "Type", kind: "status" }, { key: "email", label: "Email" },
-        { key: "exempt", label: "Exemption", kind: "status" }, { key: "sales", label: "Lifetime sales", kind: "currency", align: "right" }, { key: "balance", label: "Balance", kind: "currency", align: "right" }
-      ]} rows={customerRows} searchPlaceholder="Search customer name, company, email, or number" defaultSortKey="name" />
-      <div className="legal-callout compact"><h2>Wholesale is not the same as tax exempt</h2><p>Keep price level and exemption approval in separate fields. Only authorized staff should approve tax-exempt status after validating the required documents and jurisdiction.</p></div>
+      <AdminPageHeader
+        eyebrow="Relationships"
+        title="Customers"
+        description="Manage guest, retail, and wholesale customers, contact details, status, and exemption review."
+      />
+      {/* Xoá là thao tác không hoàn tác được nên chỉ manager/admin thấy nút. */}
+      <CustomerManager customers={customers} canDelete={Boolean(viewer?.isManager)} />
+      <div className="legal-callout compact">
+        <h2>Wholesale is not the same as tax exempt</h2>
+        <p>
+          Price level and exemption approval are separate fields. Exemption status changes through the tax
+          exemption review queue, not from this screen.
+        </p>
+      </div>
     </>
   );
 }

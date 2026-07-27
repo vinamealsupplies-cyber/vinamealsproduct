@@ -44,11 +44,13 @@ export default function AdminTaxPage() {
       <div className="setup-notice warning" role="note">
         <CircleAlert size={18} aria-hidden="true" />
         <div>
-          <strong>All {taxJurisdictionCount} rates are unverified starting estimates.</strong>
+          <strong>Stripe Tax charges the customer — this table is reference only.</strong>
           <span>
-            United States rates change by quarter and by special district. Confirm every rate against the
-            state revenue department, then mark it verified, before charging real customers. Nexus — which
-            states you are actually required to collect in — is a decision for your accountant.
+            Checkout runs through Stripe with Stripe Tax, so the sales tax a customer actually pays is
+            calculated there from the delivery or pickup address. The storefront cart no longer estimates
+            tax. Keep these {taxJurisdictionCount} rates for internal reference and reconciliation; they are
+            unverified starting estimates, and nexus — which states you must collect in — is a decision for
+            your accountant to configure in Stripe.
           </span>
         </div>
       </div>

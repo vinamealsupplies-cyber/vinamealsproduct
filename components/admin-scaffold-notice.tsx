@@ -8,7 +8,20 @@ import { SetupNotice } from "@/components/setup-notice";
 // trang đã chạy dữ liệu thật thì không cảnh báo gì.
 
 /** Đọc/ghi dữ liệu thật từ Supabase — không cần cảnh báo. */
-const LIVE_PATHS = ["/admin/categories", "/admin/products", "/admin/tax-exemptions"];
+const LIVE_PATHS = [
+  "/admin",
+  "/admin/categories",
+  "/admin/products",
+  "/admin/tax-exemptions",
+  "/admin/customers",
+  "/admin/expenses",
+  "/admin/inventory",
+  "/admin/reports",
+  "/admin/orders",
+  "/admin/invoices",
+  "/admin/payments",
+  "/admin/tax"
+];
 
 export function AdminScaffoldNotice({ demo }: { demo: boolean }) {
   const pathname = usePathname();
@@ -31,7 +44,11 @@ export function AdminScaffoldNotice({ demo }: { demo: boolean }) {
     );
   }
 
-  if (LIVE_PATHS.some((live) => pathname === live || pathname.startsWith(`${live}/`))) return null;
+  // "/admin" là tiền tố của mọi trang con nên phải so khớp tuyệt đối cho nó.
+  const isLive = LIVE_PATHS.some((live) =>
+    live === "/admin" ? pathname === "/admin" : pathname === live || pathname.startsWith(`${live}/`)
+  );
+  if (isLive) return null;
 
   return (
     <SetupNotice title="Sample data">

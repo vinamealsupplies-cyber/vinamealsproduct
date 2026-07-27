@@ -2,10 +2,14 @@ import { CalendarRange, Download } from "lucide-react";
 import { AdminPageHeader } from "@/components/admin-page-header";
 import { PerformanceChart } from "@/components/performance-chart";
 import { SearchableTable } from "@/components/searchable-table";
-import { monthlyPerformance } from "@/lib/admin-sample-data";
+import { getMonthlyPerformance } from "@/lib/data/reporting";
 import { usd } from "@/lib/format";
 
-export default function ReportsPage() {
+export const metadata = { title: "Reports" };
+
+export default async function ReportsPage() {
+  // Số liệu tổng hợp thật từ view v_monthly_business_performance.
+  const monthlyPerformance = await getMonthlyPerformance(12);
   const rows = monthlyPerformance.map((row, index) => ({
     id: index,
     month: row.month,
@@ -46,7 +50,7 @@ export default function ReportsPage() {
         <article><span>Operating expenses</span><strong>{usd.format(totals.expenses)}</strong><small>Non-inventory business costs</small></article>
         <article><span>Operating profit</span><strong>{usd.format(totals.operatingProfit)}</strong><small>Before income tax and owner adjustments</small></article>
       </section>
-      <section className="admin-panel chart-panel report-chart-panel"><div className="panel-heading"><div><h2>Monthly trend</h2><p>Net sales compared with amount received</p></div></div><PerformanceChart data={monthlyPerformance} /></section>
+      <section className="admin-panel chart-panel report-chart-panel"><div className="panel-heading"><div><h2>Monthly trend</h2><p>Net sales compared with amount received</p></div></div>{monthlyPerformance.length ? <PerformanceChart data={monthlyPerformance} /> : <p className="field-hint">No invoiced months yet.</p>}</section>
       <section className="admin-section">
         <div className="section-heading"><h2>Monthly detail</h2><p>Sort any column or search for a month.</p></div>
         <SearchableTable columns={[
@@ -54,7 +58,7 @@ export default function ReportsPage() {
           { key: "taxCollected", label: "Tax", kind: "currency", align: "right" }, { key: "amountInvoiced", label: "Invoiced", kind: "currency", align: "right" }, { key: "received", label: "Received", kind: "currency", align: "right" },
           { key: "balanceDue", label: "Balance due", kind: "currency", align: "right" }, { key: "cogs", label: "COGS", kind: "currency", align: "right" }, { key: "grossProfit", label: "Gross profit", kind: "currency", align: "right" },
           { key: "operatingExpenses", label: "Expenses", kind: "currency", align: "right" }, { key: "operatingProfit", label: "Operating profit", kind: "currency", align: "right" }
-        ]} rows={rows} searchPlaceholder="Search month" defaultSortKey="id" />
+        ]} rows={rows} searchPlaceholder="Search month" defaultSortKey="id" emptyMessage="No monthly activity yet." />
       </section>
       <div className="report-definition-note"><h2>Report definitions matter</h2><p>Net sales, shipping revenue, tax collected, amount invoiced, cash received, and current balance due are deliberately separate. Cash received is grouped by payment date, while balance due comes directly from open invoices. Payment refunds reduce cash received; production returns or credit notes must also reverse sales and COGS.</p></div>
     </>

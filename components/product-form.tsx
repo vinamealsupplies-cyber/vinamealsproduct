@@ -1,60 +1,175 @@
 "use client";
 
-import { Fragment, useState } from "react";
+import { Fragment, useActionState } from "react";
 import { Save } from "lucide-react";
+import { createProductAction, updateProductAction } from "@/app/admin/products/actions";
 import { ProductMediaUploader } from "@/components/product-media-uploader";
+import { initialAdminFormState } from "@/lib/data/admin-form";
 import type { CategoryNode } from "@/lib/data/categories";
+import type { AdminProduct } from "@/lib/data/admin-products";
 
+// Form dùng chung cho thêm mới và chỉnh sửa. Trước đây form chỉ chạy validate
+// phía trình duyệt rồi báo "starter mode" mà không ghi gì vào database.
+//
 // Danh sách category lấy từ Supabase (truyền từ server) — category vừa tạo ở
-// trang Categories xuất hiện ngay ở đây. Category con hiển thị thụt vào dưới
-// category cha.
-export function ProductForm({ categories }: { categories: CategoryNode[] }) {
-  const [saved, setSaved] = useState(false);
+// trang Categories xuất hiện ngay ở đây, category con thụt vào dưới cha.
+export function ProductForm({
+  categories,
+  product
+}: {
+  categories: CategoryNode[];
+  product?: AdminProduct;
+}) {
+  const isEdit = Boolean(product);
+  const [state, action, pending] = useActionState(
+    isEdit ? updateProductAction : createProductAction,
+    initialAdminFormState
+  );
 
   return (
-    <form className="admin-form" onSubmit={(event) => { event.preventDefault(); setSaved(true); }}>
-      {saved ? <div className="form-success" role="status">Form validation passed in starter mode. Connect the product mutation endpoint before production use.</div> : null}
+    <form className="admin-form" action={action}>
+      {product ? <input type="hidden" name="id" value={product.id} /> : null}
+      {product?.variantId ? <input type="hidden" name="variantId" value={product.variantId} /> : null}
+
+      {state.status !== "idle" ? (
+        <div className={state.status === "success" ? "form-success" : "form-error"} role="status">
+          {state.message}
+        </div>
+      ) : null}
+
       <section className="form-card">
-        <div className="form-card-heading"><div><h2>Product information</h2><p>Customer-facing content is written in English.</p></div><span className="required-note">* Required</span></div>
+        <div className="form-card-heading">
+          <div>
+            <h2>Product information</h2>
+            <p>Customer-facing content is written in English.</p>
+          </div>
+          <span className="required-note">* Required</span>
+        </div>
         <div className="form-grid two-columns">
-          <label>Product name *<input required name="name" placeholder="Example: Tropical Mango Slices" /></label>
-          <label>Slug *<input required name="slug" pattern="[a-z0-9-]+" placeholder="tropical-mango-slices" /></label>
-          <label className="full-width">Short description *<input required name="shortDescription" maxLength={180} placeholder="One clear sentence for product cards." /></label>
-          <label className="full-width">Description *<textarea required name="description" rows={6} placeholder="Ingredients, serving ideas, package details, and storage notes." /></label>
-          <label>Category *
-            <select required name="category" defaultValue="">
-              <option value="" disabled>Select category</option>
+          <label>
+            Product name *
+            <input required name="name" defaultValue={product?.name ?? ""} placeholder="Example: Tropical Mango Slices" />
+          </label>
+          <label>
+            Slug
+            <input
+              name="slug"
+              pattern="[a-z0-9-]*"
+              defaultValue={product?.slug ?? ""}
+              placeholder="Leave blank to use the name"
+            />
+          </label>
+          <label className="full-width">
+            Short description *
+            <input
+              required
+              name="shortDescription"
+              maxLength={180}
+              defaultValue={product?.shortDescription ?? ""}
+              placeholder="One clear sentence for product cards."
+            />
+          </label>
+          <label className="full-width">
+            Description
+            <textarea
+              name="description"
+              rows={6}
+              defaultValue={product?.description ?? ""}
+              placeholder="Ingredients, serving ideas, package details, and storage notes."
+            />
+          </label>
+          <label>
+            Category
+            <select name="categoryId" defaultValue={product?.categoryId ?? ""}>
+              <option value="">No category</option>
               {categories.map((category) => (
                 <Fragment key={category.id}>
-                  <option value={category.slug}>{category.name}</option>
+                  <option value={category.id}>{category.name}</option>
                   {category.children.map((child) => (
-                    <option value={child.slug} key={child.id}>&nbsp;&nbsp;— {child.name}</option>
+                    <option value={child.id} key={child.id}>&nbsp;&nbsp;— {child.name}</option>
                   ))}
                 </Fragment>
               ))}
             </select>
           </label>
-          <label>Status *<select required name="status" defaultValue="draft"><option value="draft">Draft</option><option value="active">Active</option><option value="archived">Archived</option></select></label>
+          <label>
+            Status *
+            <select required name="status" defaultValue={product?.status ?? "draft"}>
+              <option value="draft">Draft</option>
+              <option value="active">Active</option>
+              <option value="archived">Archived</option>
+            </select>
+          </label>
         </div>
       </section>
 
       <section className="form-card">
-        <div className="form-card-heading"><div><h2>Variant, price, and inventory</h2><p>Each sellable variant receives its own SKU and inventory balance.</p></div></div>
-        <div className="form-grid three-columns">
-          <label>Variant name *<input required name="variantName" placeholder="8 oz bag" /></label>
-          <label>SKU *<input required name="sku" placeholder="MANGO-8OZ" /></label>
-          <label>Barcode<input name="barcode" placeholder="Optional UPC or EAN" /></label>
-          <label>Retail price (USD) *<input required name="retailPrice" type="number" min="0" step="0.01" placeholder="8.99" /></label>
-          <label>Wholesale price (USD)<input name="wholesalePrice" type="number" min="0" step="0.01" placeholder="6.25" /></label>
-          <label>Unit cost (USD) *<input required name="costPrice" type="number" min="0" step="0.01" placeholder="3.40" /></label>
-          <label>Opening quantity<input name="openingQuantity" type="number" min="0" step="1" defaultValue="0" /></label>
-          <label>Reorder point<input name="reorderPoint" type="number" min="0" step="1" defaultValue="0" /></label>
-          <label>Location code<input name="locationCode" defaultValue="MAIN" /></label>
+        <div className="form-card-heading">
+          <div>
+            <h2>Variant, price, and inventory</h2>
+            <p>Each sellable variant receives its own SKU and inventory balance.</p>
+          </div>
         </div>
+        <div className="form-grid three-columns">
+          <label>
+            Variant name *
+            <input required name="variantName" defaultValue={product?.variantName ?? ""} placeholder="8 oz bag" />
+          </label>
+          <label>
+            SKU *
+            <input required name="sku" defaultValue={product?.sku ?? ""} placeholder="MANGO-8OZ" />
+          </label>
+          <label>
+            Barcode
+            <input name="barcode" defaultValue={product?.barcode ?? ""} placeholder="Optional UPC or EAN" />
+          </label>
+          <label>
+            Retail price (USD) *
+            <input required name="retailPrice" type="number" min="0" step="0.01" defaultValue={product?.retailPrice ?? ""} placeholder="8.99" />
+          </label>
+          <label>
+            Wholesale price (USD)
+            <input name="wholesalePrice" type="number" min="0" step="0.01" defaultValue={product?.wholesalePrice ?? ""} placeholder="6.25" />
+          </label>
+          <label>
+            Unit cost (USD) *
+            <input required name="costPrice" type="number" min="0" step="0.01" defaultValue={product?.costPrice ?? ""} placeholder="3.40" />
+          </label>
+          {isEdit ? (
+            <label>
+              On hand (read-only)
+              <input value={product?.onHand ?? 0} readOnly disabled />
+            </label>
+          ) : (
+            <label>
+              Opening quantity
+              <input name="openingQuantity" type="number" min="0" step="1" defaultValue="0" />
+            </label>
+          )}
+          <label>
+            Reorder point
+            <input name="reorderPoint" type="number" min="0" step="1" defaultValue={product?.reorderPoint ?? 0} />
+          </label>
+          <label>
+            Location code
+            <input name="locationCode" defaultValue="MAIN" />
+          </label>
+        </div>
+        {isEdit ? (
+          <p className="field-hint">
+            Stock quantity is corrected from Inventory so every change is recorded in the movement ledger.
+          </p>
+        ) : null}
         <div className="checkbox-row">
-          <label><input type="checkbox" name="trackInventory" defaultChecked /> Track inventory</label>
-          <label><input type="checkbox" name="taxable" defaultChecked /> Taxable item</label>
-          <label><input type="checkbox" name="featured" /> Featured product</label>
+          <label>
+            <input type="checkbox" name="trackInventory" defaultChecked={product?.trackInventory ?? true} /> Track inventory
+          </label>
+          <label>
+            <input type="checkbox" name="taxable" defaultChecked={product?.taxable ?? true} /> Taxable item
+          </label>
+          <label>
+            <input type="checkbox" name="featured" defaultChecked={product?.featured ?? false} /> Featured product
+          </label>
         </div>
       </section>
 
@@ -63,8 +178,10 @@ export function ProductForm({ categories }: { categories: CategoryNode[] }) {
       </section>
 
       <div className="sticky-form-actions">
-        <button className="button secondary" type="button">Save as draft</button>
-        <button className="button primary" type="submit"><Save size={17} /> Validate product</button>
+        <button className="button primary" type="submit" disabled={pending}>
+          <Save size={17} aria-hidden="true" />
+          {pending ? "Saving…" : isEdit ? "Save changes" : "Create product"}
+        </button>
       </div>
     </form>
   );
