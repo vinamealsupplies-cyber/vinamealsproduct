@@ -1,18 +1,40 @@
 "use client";
 
-import { Fragment, useActionState } from "react";
-import { Save } from "lucide-react";
+import { Fragment, useActionState, useEffect, useRef, useState } from "react";
+import { Check, Save } from "lucide-react";
 import { createProductAction, updateProductAction } from "@/app/admin/products/actions";
 import { ProductMediaUploader } from "@/components/product-media-uploader";
-import { initialAdminFormState } from "@/lib/data/admin-form";
+import { initialAdminFormState, type AdminFormState } from "@/lib/data/admin-form";
 import type { CategoryNode } from "@/lib/data/categories";
 import type { AdminProduct } from "@/lib/data/admin-products";
 
-// Form dùng chung cho thêm mới và chỉnh sửa. Trước đây form chỉ chạy validate
-// phía trình duyệt rồi báo "starter mode" mà không ghi gì vào database.
-//
-// Danh sách category lấy từ Supabase (truyền từ server) — category vừa tạo ở
-// trang Categories xuất hiện ngay ở đây, category con thụt vào dưới cha.
+// Form dùng chung cho thêm mới và chỉnh sửa.
+// Edit: Save xong → nút "Saved"; chỉ hiện lại "Save changes" khi form dirty.
+
+/** Chuỗi ổn định từ toàn bộ field (kể cả checkbox unchecked). */
+function serializeForm(form: HTMLFormElement) {
+  const parts: string[] = [];
+  for (const el of Array.from(form.elements)) {
+    if (
+      !(el instanceof HTMLInputElement) &&
+      !(el instanceof HTMLSelectElement) &&
+      !(el instanceof HTMLTextAreaElement)
+    ) {
+      continue;
+    }
+    if (!el.name || el.disabled) continue;
+    if (el instanceof HTMLInputElement) {
+      if (el.type === "file") continue;
+      if (el.type === "checkbox" || el.type === "radio") {
+        parts.push(`${el.name}=${el.checked ? "1" : "0"}`);
+        continue;
+      }
+    }
+    parts.push(`${el.name}=${el.value}`);
+  }
+  return parts.sort().join("\n");
+}
+
 export function ProductForm({
   categories,
   product
@@ -21,13 +43,57 @@ export function ProductForm({
   product?: AdminProduct;
 }) {
   const isEdit = Boolean(product);
-  const [state, action, pending] = useActionState(
-    isEdit ? updateProductAction : createProductAction,
+  const formRef = useRef<HTMLFormElement>(null);
+  const baselineRef = useRef("");
+  // Create: cho submit ngay. Edit: chỉ khi đã sửa so với baseline.
+  const [dirty, setDirty] = useState(!isEdit);
+  const [saved, setSaved] = useState(false);
+
+  const [state, formAction, pending] = useActionState(
+    async (prev: AdminFormState, formData: FormData) => {
+      const action = isEdit ? updateProductAction : createProductAction;
+      return action(prev, formData);
+    },
     initialAdminFormState
   );
 
+  // Baseline sau mount / khi đổi product đang sửa.
+  useEffect(() => {
+    const form = formRef.current;
+    if (!form) return;
+    baselineRef.current = serializeForm(form);
+    setDirty(!isEdit);
+    setSaved(false);
+  }, [isEdit, product?.id]);
+
+  // Save thành công → khóa nút Saved cho đến khi user sửa lại.
+  useEffect(() => {
+    if (state.status !== "success") return;
+    const form = formRef.current;
+    if (form) baselineRef.current = serializeForm(form);
+    setDirty(false);
+    setSaved(true);
+  }, [state]);
+
+  function recomputeDirty() {
+    const form = formRef.current;
+    if (!form) return;
+    const next = serializeForm(form) !== baselineRef.current;
+    setDirty(next);
+    if (next) setSaved(false);
+  }
+
+  const showSaved = isEdit && saved && !dirty && !pending;
+  const canSubmit = pending ? false : isEdit ? dirty : true;
+
   return (
-    <form className="admin-form" action={action}>
+    <form
+      ref={formRef}
+      className="admin-form"
+      action={formAction}
+      onInput={recomputeDirty}
+      onChange={recomputeDirty}
+    >
       {product ? <input type="hidden" name="id" value={product.id} /> : null}
       {product?.variantId ? <input type="hidden" name="variantId" value={product.variantId} /> : null}
 
@@ -86,7 +152,9 @@ export function ProductForm({
                 <Fragment key={category.id}>
                   <option value={category.id}>{category.name}</option>
                   {category.children.map((child) => (
-                    <option value={child.id} key={child.id}>&nbsp;&nbsp;— {child.name}</option>
+                    <option value={child.id} key={child.id}>
+                      &nbsp;&nbsp;— {child.name}
+                    </option>
                   ))}
                 </Fragment>
               ))}
@@ -125,7 +193,15 @@ export function ProductForm({
           </label>
           <label>
             Retail price (USD) *
-            <input required name="retailPrice" type="number" min="0" step="0.01" defaultValue={product?.retailPrice ?? ""} placeholder="8.99" />
+            <input
+              required
+              name="retailPrice"
+              type="number"
+              min="0"
+              step="0.01"
+              defaultValue={product?.retailPrice ?? ""}
+              placeholder="8.99"
+            />
           </label>
           <label>
             Sale price (USD)
@@ -140,11 +216,26 @@ export function ProductForm({
           </label>
           <label>
             Wholesale price (USD)
-            <input name="wholesalePrice" type="number" min="0" step="0.01" defaultValue={product?.wholesalePrice ?? ""} placeholder="6.25" />
+            <input
+              name="wholesalePrice"
+              type="number"
+              min="0"
+              step="0.01"
+              defaultValue={product?.wholesalePrice ?? ""}
+              placeholder="6.25"
+            />
           </label>
           <label>
             Unit cost (USD) *
-            <input required name="costPrice" type="number" min="0" step="0.01" defaultValue={product?.costPrice ?? ""} placeholder="3.40" />
+            <input
+              required
+              name="costPrice"
+              type="number"
+              min="0"
+              step="0.01"
+              defaultValue={product?.costPrice ?? ""}
+              placeholder="3.40"
+            />
           </label>
           <p className="field-hint full-width">
             Sale price is optional. When set lower than retail, the storefront shows retail struck through and charges
@@ -173,7 +264,8 @@ export function ProductForm({
         ) : null}
         <div className="checkbox-row">
           <label>
-            <input type="checkbox" name="trackInventory" defaultChecked={product?.trackInventory ?? true} /> Track inventory
+            <input type="checkbox" name="trackInventory" defaultChecked={product?.trackInventory ?? true} /> Track
+            inventory
           </label>
           <label>
             <input type="checkbox" name="taxable" defaultChecked={product?.taxable ?? true} /> Taxable item
@@ -189,10 +281,16 @@ export function ProductForm({
       </section>
 
       <div className="sticky-form-actions">
-        <button className="button primary" type="submit" disabled={pending}>
-          <Save size={17} aria-hidden="true" />
-          {pending ? "Saving…" : isEdit ? "Save changes" : "Create product"}
-        </button>
+        {showSaved ? (
+          <button className="button secondary button-saved" type="button" disabled>
+            <Check size={17} aria-hidden="true" /> Saved
+          </button>
+        ) : (
+          <button className="button primary" type="submit" disabled={!canSubmit}>
+            <Save size={17} aria-hidden="true" />
+            {pending ? "Saving…" : isEdit ? "Save changes" : "Create product"}
+          </button>
+        )}
       </div>
     </form>
   );

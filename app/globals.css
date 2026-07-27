@@ -518,6 +518,13 @@ textarea { resize: vertical; }
 .checkbox-row label, .checkbox-label { display: flex !important; align-items: center; gap: 7px; }
 .checkbox-row input, .checkbox-label input { width: auto; }
 .sticky-form-actions { position: sticky; bottom: 12px; z-index: 5; display: flex; justify-content: flex-end; gap: 10px; padding: 12px; border: 1px solid var(--line); border-radius: 16px; background: rgba(255,255,255,.94); box-shadow: var(--shadow-small); backdrop-filter: blur(10px); }
+.button-saved {
+  border-color: #b7dcc8 !important;
+  background: var(--mint) !important;
+  color: var(--green-dark) !important;
+  opacity: 1 !important;
+  cursor: default;
+}
 .media-uploader-heading { display: flex; justify-content: space-between; gap: 20px; }
 .media-uploader-heading p { margin: 2px 0 0; color: var(--muted); font-size: 12px; }
 .media-uploader-heading > span { align-self: start; padding: 6px 9px; border-radius: 999px; background: var(--mint); color: var(--green-dark); font-size: 11px; font-weight: 850; }
