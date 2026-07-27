@@ -5,8 +5,7 @@ import { Boxes, DollarSign, History, Save, SlidersHorizontal, X } from "lucide-r
 import {
   adjustInventoryAction,
   fetchVariantHistory,
-  updateInventoryPricingAction,
-  updateReorderPointAction
+  updateInventoryPricingAction
 } from "@/app/admin/inventory/actions";
 import { initialAdminFormState, type AdminFormState } from "@/lib/data/admin-form";
 import type { InventoryRow, MovementRow } from "@/lib/data/inventory";
@@ -32,8 +31,8 @@ export function InventoryManager({
   const [history, setHistory] = useState<MovementRow[] | null>(null);
   const [loadingHistory, setLoadingHistory] = useState(false);
 
-  // Sau khi server revalidate (đổi giá / số lượng / reorder), đồng bộ panel
-  // với dữ liệu mới để form và bảng không lệch nhau.
+  // Sau khi server revalidate (đổi giá / số lượng), đồng bộ panel với dữ liệu
+  // mới để form và bảng không lệch nhau.
   useEffect(() => {
     if (!selected) return;
     const fresh = rows.find(
@@ -65,15 +64,6 @@ export function InventoryManager({
       setNotice(result);
       // Giữ nguyên món đang chọn và nạp lại lịch sử để thấy ngay dòng vừa ghi.
       if (result.status === "success") await refreshHistory();
-      return result;
-    },
-    initialAdminFormState
-  );
-
-  const [, reorderAction, savingReorder] = useActionState(
-    async (prev: AdminFormState, formData: FormData) => {
-      const result = await updateReorderPointAction(prev, formData);
-      setNotice(result);
       return result;
     },
     initialAdminFormState
@@ -260,22 +250,6 @@ export function InventoryManager({
               </label>
               <button className="button secondary" type="submit" disabled={savingPricing}>
                 <Save size={16} aria-hidden="true" /> {savingPricing ? "Saving…" : "Save pricing"}
-              </button>
-            </form>
-
-            <form
-              action={reorderAction}
-              key={`${selected.variantId}-reorder-${selected.reorderPoint}`}
-              className="stacked-form"
-            >
-              <input type="hidden" name="variantId" value={selected.variantId} />
-              <input type="hidden" name="locationId" value={selected.locationId} />
-              <label>
-                Reorder point
-                <input name="reorderPoint" type="number" min="0" step="1" defaultValue={selected.reorderPoint} />
-              </label>
-              <button className="button secondary" type="submit" disabled={savingReorder}>
-                <Save size={16} aria-hidden="true" /> {savingReorder ? "Saving…" : "Save reorder point"}
               </button>
             </form>
 

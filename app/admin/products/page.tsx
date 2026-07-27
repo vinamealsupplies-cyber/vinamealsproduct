@@ -15,7 +15,7 @@ export default async function AdminProductsPage() {
       <AdminPageHeader
         eyebrow="Catalog"
         title="Products"
-        description="Add, search, price, categorize, and maintain every sellable product."
+        description="Add, search, price, and maintain products. Archived items stay under the Archived tab — edit or restore anytime."
         action={
           <div className="button-row">
             <Link className="button secondary" href="/admin/imports"><FileSpreadsheet size={17} /> Import Excel</Link>

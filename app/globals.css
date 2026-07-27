@@ -386,6 +386,26 @@ textarea { resize: vertical; }
 .toolbar-side { display: flex; align-items: center; gap: 14px; white-space: nowrap; }
 .toolbar-side > span { color: var(--muted); font-size: 12px; }
 .toolbar-side button { border: 0; background: transparent; font-size: 12px; font-weight: 800; }
+/* Bộ lọc status products: Catalog / Active / Draft / Archived / All */
+.product-filter-toolbar { flex-wrap: wrap; gap: 12px; }
+.status-filter-tabs { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.status-filter-tabs button {
+  display: inline-flex; align-items: center; gap: 6px;
+  min-height: 32px; padding: 0 11px; border: 1px solid var(--line); border-radius: 999px;
+  background: white; color: var(--muted); font-size: 12px; font-weight: 800;
+}
+.status-filter-tabs button:hover { border-color: #c5d5cd; color: var(--ink); }
+.status-filter-tabs button.active { border-color: var(--green); background: var(--mint); color: var(--green-dark); }
+.status-filter-tabs .filter-count {
+  min-width: 18px; padding: 1px 6px; border-radius: 999px;
+  background: #eef3f0; color: #4d625b; font-size: 10px; font-variant-numeric: tabular-nums;
+}
+.status-filter-tabs button.active .filter-count { background: white; color: var(--green-dark); }
+.archived-banner {
+  margin: 0; padding: 10px 15px; border-bottom: 1px solid var(--line);
+  background: #faf7f2; color: #6a5a45; font-size: 12px; line-height: 1.45;
+}
+.data-table tbody tr.row-archived { opacity: 0.88; }
 .table-search { width: min(400px, 100%); min-height: 39px; display: flex; align-items: center; gap: 8px; border: 1px solid var(--line); border-radius: 999px; padding: 0 13px; background: #fbfdfc; }
 /* Nút Edit/Delete trong từng dòng bảng quản trị. */
 .row-actions { white-space: nowrap; }

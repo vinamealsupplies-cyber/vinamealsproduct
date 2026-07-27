@@ -66,7 +66,6 @@ function readForm(formData: FormData) {
     wholesalePrice: number("wholesalePrice"),
     costPrice: number("costPrice"),
     openingQuantity: number("openingQuantity") ?? 0,
-    reorderPoint: number("reorderPoint") ?? 0,
     locationCode: text("locationCode", 30) || "MAIN",
     trackInventory: formData.get("trackInventory") !== null,
     taxable: formData.get("taxable") !== null
@@ -82,7 +81,6 @@ function validate(input: ReturnType<typeof readForm>) {
   if (input.costPrice === null || input.costPrice < 0) return "Enter a unit cost of 0 or more.";
   if (input.wholesalePrice !== null && input.wholesalePrice < 0) return "Wholesale price cannot be negative.";
   if (input.openingQuantity < 0) return "Opening quantity cannot be negative.";
-  if (input.reorderPoint < 0) return "Reorder point cannot be negative.";
   return null;
 }
 
@@ -179,14 +177,6 @@ export async function createProductAction(_prev: AdminFormState, formData: FormD
         });
         if (error) throw new Error(error.message);
       }
-      if (input.reorderPoint > 0) {
-        await supabase
-          .from("inventory_balances")
-          .upsert(
-            { variant_id: variant.id, location_id: locationId, reorder_point: input.reorderPoint },
-            { onConflict: "variant_id,location_id" }
-          );
-      }
     }
   } catch (error) {
     await supabase.from("products").delete().eq("id", product.id);
@@ -245,16 +235,6 @@ export async function updateProductAction(_prev: AdminFormState, formData: FormD
       })
       .eq("id", variantId);
     if (variantError) return fail(friendlyError(variantError.message));
-
-    const locationId = await resolveLocationId(input.locationCode);
-    if (locationId) {
-      await supabase
-        .from("inventory_balances")
-        .upsert(
-          { variant_id: variantId, location_id: locationId, reorder_point: input.reorderPoint },
-          { onConflict: "variant_id,location_id" }
-        );
-    }
   }
 
   // Danh mục chính: xoá liên kết cũ rồi gắn cái mới.
@@ -288,7 +268,10 @@ export async function archiveProductAction(_prev: AdminFormState, formData: Form
   if (error) return fail(error.message);
 
   revalidate();
-  return { status: "success", message: `Archived ${product.name}. It no longer appears in the storefront.` };
+  return {
+    status: "success",
+    message: `Archived ${product.name}. Open the Archived tab to edit or restore it.`
+  };
 }
 
 export async function restoreProductAction(_prev: AdminFormState, formData: FormData): Promise<AdminFormState> {

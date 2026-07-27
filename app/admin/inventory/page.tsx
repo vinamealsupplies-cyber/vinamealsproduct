@@ -12,7 +12,7 @@ export default async function InventoryPage() {
       <AdminPageHeader
         eyebrow="Inventory"
         title="Inventory detail"
-        description="See quantity by SKU and location. Adjust stock, set unit cost (giá nhập) and retail price (giá bán), reorder point, and inventory value."
+        description="See quantity by SKU and location. Adjust stock, set unit cost (giá nhập) and retail price (giá bán), and inventory value."
       />
       <InventoryManager rows={rows} movements={movements} />
       <section className="ledger-explainer">

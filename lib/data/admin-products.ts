@@ -30,7 +30,6 @@ export type AdminProduct = {
   taxable: boolean;
   trackInventory: boolean;
   onHand: number;
-  reorderPoint: number;
   /** Đã từng phát sinh tồn kho → không xoá cứng được (FK on delete restrict). */
   hasMovements: boolean;
 };
@@ -78,13 +77,13 @@ function pickVariant(row: DbRow) {
 
 function mapRow(
   row: DbRow,
-  stock: Map<string, { onHand: number; reorderPoint: number }>,
+  stock: Map<string, number>,
   movementVariantIds: Set<string>
 ): AdminProduct {
   const variant = pickVariant(row);
   const link =
     (row.product_categories ?? []).find((item) => item.is_primary) ?? (row.product_categories ?? [])[0];
-  const balance = variant ? stock.get(variant.id) : undefined;
+  const onHand = variant ? stock.get(variant.id) : undefined;
 
   return {
     id: row.id,
@@ -106,22 +105,21 @@ function mapRow(
     costPrice: num(variant?.cost_price),
     taxable: variant?.taxable ?? true,
     trackInventory: variant?.track_inventory ?? true,
-    onHand: balance?.onHand ?? 0,
-    reorderPoint: balance?.reorderPoint ?? 0,
+    onHand: onHand ?? 0,
     hasMovements: variant ? movementVariantIds.has(variant.id) : false
   };
 }
 
 async function loadStockAndMovements(variantIds: string[]) {
   const supabase = createAdminClient();
-  const stock = new Map<string, { onHand: number; reorderPoint: number }>();
+  const stock = new Map<string, number>();
   const movementVariantIds = new Set<string>();
   if (!variantIds.length) return { stock, movementVariantIds };
 
   const [balances, movements] = await Promise.all([
     supabase
       .from("inventory_balances")
-      .select("variant_id, quantity_on_hand, reorder_point")
+      .select("variant_id, quantity_on_hand")
       .in("variant_id", variantIds),
     supabase.from("inventory_movements").select("variant_id").in("variant_id", variantIds)
   ]);
@@ -129,13 +127,8 @@ async function loadStockAndMovements(variantIds: string[]) {
   for (const row of (balances.data ?? []) as {
     variant_id: string;
     quantity_on_hand: number | string;
-    reorder_point: number | string;
   }[]) {
-    const current = stock.get(row.variant_id) ?? { onHand: 0, reorderPoint: 0 };
-    stock.set(row.variant_id, {
-      onHand: current.onHand + num(row.quantity_on_hand),
-      reorderPoint: num(row.reorder_point)
-    });
+    stock.set(row.variant_id, (stock.get(row.variant_id) ?? 0) + num(row.quantity_on_hand));
   }
   for (const row of (movements.data ?? []) as { variant_id: string }[]) {
     movementVariantIds.add(row.variant_id);

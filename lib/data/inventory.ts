@@ -16,7 +16,6 @@ export type InventoryRow = {
   onHand: number;
   reserved: number;
   available: number;
-  reorderPoint: number;
   /** Giá nhập / unit cost — dùng tính inventory value. */
   costPrice: number;
   /** Giá bán lẻ (retail). */
@@ -36,7 +35,6 @@ type DbRow = {
   quantity_on_hand: number | string;
   quantity_reserved: number | string;
   available_quantity: number | string;
-  reorder_point: number | string;
   cost_price: number | string;
   retail_price: number | string;
   inventory_value: number | string;
@@ -53,7 +51,7 @@ export async function getInventoryForStaff(): Promise<InventoryRow[]> {
   const { data, error } = await supabase
     .from("v_inventory_detail")
     .select(
-      "variant_id, location_id, product_name, variant_name, sku, location_code, primary_category_name, quantity_on_hand, quantity_reserved, available_quantity, reorder_point, cost_price, retail_price, inventory_value, stock_status"
+      "variant_id, location_id, product_name, variant_name, sku, location_code, primary_category_name, quantity_on_hand, quantity_reserved, available_quantity, cost_price, retail_price, inventory_value, stock_status"
     )
     .order("product_name");
 
@@ -70,7 +68,6 @@ export async function getInventoryForStaff(): Promise<InventoryRow[]> {
     onHand: num(row.quantity_on_hand),
     reserved: num(row.quantity_reserved),
     available: num(row.available_quantity),
-    reorderPoint: num(row.reorder_point),
     costPrice: num(row.cost_price),
     retailPrice: num(row.retail_price),
     inventoryValue: num(row.inventory_value),

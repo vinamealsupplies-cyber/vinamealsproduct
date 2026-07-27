@@ -9,7 +9,7 @@ import {
   restoreProductAction
 } from "@/app/admin/products/actions";
 import { initialAdminFormState, type AdminFormState } from "@/lib/data/admin-form";
-import type { AdminProduct } from "@/lib/data/admin-products";
+import type { AdminProduct, ProductStatus } from "@/lib/data/admin-products";
 import { integer, usd } from "@/lib/format";
 
 const STATUS_COPY: Record<string, string> = {
@@ -17,6 +17,9 @@ const STATUS_COPY: Record<string, string> = {
   active: "Active",
   archived: "Archived"
 };
+
+/** Bộ lọc danh sách — "live" = active + draft (mặc định, ẩn archived). */
+type StatusFilter = "live" | ProductStatus | "all";
 
 export function ProductManager({
   products,
@@ -26,26 +29,51 @@ export function ProductManager({
   canDeleteForever: boolean;
 }) {
   const [query, setQuery] = useState("");
-  const [showArchived, setShowArchived] = useState(false);
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>("live");
   const [confirming, setConfirming] = useState<{ product: AdminProduct; mode: "archive" | "forever" } | null>(null);
   const [notice, setNotice] = useState<AdminFormState>(initialAdminFormState);
 
-  function wrap(action: (prev: AdminFormState, formData: FormData) => Promise<AdminFormState>) {
+  function wrap(
+    action: (prev: AdminFormState, formData: FormData) => Promise<AdminFormState>,
+    options?: { afterSuccess?: () => void }
+  ) {
     return async (prev: AdminFormState, formData: FormData) => {
       const result = await action(prev, formData);
       setNotice(result);
-      if (result.status === "success") setConfirming(null);
+      if (result.status === "success") {
+        setConfirming(null);
+        options?.afterSuccess?.();
+      }
       return result;
     };
   }
 
-  const [, archiveAction, archiving] = useActionState(wrap(archiveProductAction), initialAdminFormState);
-  const [, restoreAction, restoring] = useActionState(wrap(restoreProductAction), initialAdminFormState);
+  // Archive xong tự chuyển sang tab Archived để không "mất" sản phẩm.
+  const [, archiveAction, archiving] = useActionState(
+    wrap(archiveProductAction, { afterSuccess: () => setStatusFilter("archived") }),
+    initialAdminFormState
+  );
+  const [, restoreAction, restoring] = useActionState(
+    wrap(restoreProductAction, { afterSuccess: () => setStatusFilter("live") }),
+    initialAdminFormState
+  );
   const [, deleteAction, deleting] = useActionState(wrap(deleteProductForeverAction), initialAdminFormState);
+
+  const counts = {
+    all: products.length,
+    live: products.filter((p) => p.status !== "archived").length,
+    active: products.filter((p) => p.status === "active").length,
+    draft: products.filter((p) => p.status === "draft").length,
+    archived: products.filter((p) => p.status === "archived").length
+  };
 
   const needle = query.trim().toLowerCase();
   const visible = products
-    .filter((product) => (showArchived ? true : product.status !== "archived"))
+    .filter((product) => {
+      if (statusFilter === "all") return true;
+      if (statusFilter === "live") return product.status !== "archived";
+      return product.status === statusFilter;
+    })
     .filter((product) =>
       needle
         ? [product.name, product.sku, product.categoryName].some((value) =>
@@ -54,7 +82,13 @@ export function ProductManager({
         : true
     );
 
-  const archivedCount = products.filter((product) => product.status === "archived").length;
+  const filters: { id: StatusFilter; label: string; count: number }[] = [
+    { id: "live", label: "Catalog", count: counts.live },
+    { id: "active", label: "Active", count: counts.active },
+    { id: "draft", label: "Draft", count: counts.draft },
+    { id: "archived", label: "Archived", count: counts.archived },
+    { id: "all", label: "All", count: counts.all }
+  ];
 
   return (
     <>
@@ -72,8 +106,9 @@ export function ProductManager({
               <div className="legal-callout compact">
                 <h2>Archive {confirming.product.name}?</h2>
                 <p>
-                  It disappears from the storefront but keeps its SKU, stock records, and sales history. You can
-                  restore it at any time.
+                  It leaves the storefront but is <strong>not deleted</strong>. Find it again under the{" "}
+                  <strong>Archived</strong> tab on this page — open Edit to fix it, or Restore to put it back on
+                  sale.
                 </p>
               </div>
               <div className="button-row">
@@ -111,7 +146,7 @@ export function ProductManager({
       ) : null}
 
       <div className="data-table-card">
-        <div className="table-toolbar">
+        <div className="table-toolbar product-filter-toolbar">
           <label className="table-search">
             <Search size={17} aria-hidden="true" />
             <input
@@ -121,15 +156,29 @@ export function ProductManager({
               placeholder="Search product name, SKU, or category"
             />
           </label>
-          <div className="toolbar-side">
-            <span>{visible.length} shown</span>
-            {archivedCount ? (
-              <button type="button" className="text-link" onClick={() => setShowArchived((value) => !value)}>
-                {showArchived ? "Hide" : "Show"} archived ({archivedCount})
+          <div className="status-filter-tabs" role="tablist" aria-label="Filter by status">
+            {filters.map((filter) => (
+              <button
+                key={filter.id}
+                type="button"
+                role="tab"
+                aria-selected={statusFilter === filter.id}
+                className={statusFilter === filter.id ? "active" : undefined}
+                onClick={() => setStatusFilter(filter.id)}
+              >
+                {filter.label}
+                <span className="filter-count">{filter.count}</span>
               </button>
-            ) : null}
+            ))}
           </div>
         </div>
+
+        {statusFilter === "archived" ? (
+          <p className="archived-banner">
+            Archived products stay here with full history. Use <strong>Edit</strong> to change details, or{" "}
+            <strong>Restore</strong> to put them back on the storefront as Active.
+          </p>
+        ) : null}
 
         <div className="table-scroll">
           <table className="data-table">
@@ -147,7 +196,7 @@ export function ProductManager({
             </thead>
             <tbody>
               {visible.map((product) => (
-                <tr key={product.id}>
+                <tr key={product.id} className={product.status === "archived" ? "row-archived" : undefined}>
                   <td>
                     {product.name}
                     {product.featured ? <span className="field-hint">Featured</span> : null}
@@ -207,7 +256,11 @@ export function ProductManager({
               {!visible.length ? (
                 <tr>
                   <td className="empty-table" colSpan={8}>
-                    {products.length ? "No products match that search." : "No products yet."}
+                    {products.length
+                      ? statusFilter === "archived"
+                        ? "No archived products."
+                        : "No products match that filter or search."
+                      : "No products yet."}
                   </td>
                 </tr>
               ) : null}

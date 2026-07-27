@@ -147,10 +147,6 @@ export function ProductForm({
             </label>
           )}
           <label>
-            Reorder point
-            <input name="reorderPoint" type="number" min="0" step="1" defaultValue={product?.reorderPoint ?? 0} />
-          </label>
-          <label>
             Location code
             <input name="locationCode" defaultValue="MAIN" />
           </label>

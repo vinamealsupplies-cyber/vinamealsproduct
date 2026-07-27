@@ -84,7 +84,7 @@ export default async function AdminDashboardPage() {
           <div className="attention-list">
             <Link href="/admin/inventory">
               <span className="attention-count">{metrics.lowStockCount}</span>
-              <div><strong>Low-stock SKUs</strong><p>Available quantity is at or below reorder point.</p></div>
+              <div><strong>Low-stock SKUs</strong><p>Available quantity is low or out of stock.</p></div>
               <ArrowRight size={17} />
             </Link>
             <Link href="/admin/invoices">

@@ -12,7 +12,6 @@ import type { AdminFormState } from "@/lib/data/admin-form";
 // Số lượng KHÔNG được sửa trực tiếp vào inventory_balances: thiết kế của DB là
 // sổ cái (ledger) — mỗi thay đổi phải là một dòng inventory_movements bất biến,
 // trigger sẽ tự cộng/trừ vào balance. Nhờ vậy mọi con số đều giải thích được.
-// Riêng reorder point là tham số cấu hình nên cập nhật thẳng.
 
 function fail(message: string): AdminFormState {
   return { status: "error", message };
@@ -96,33 +95,6 @@ export async function adjustInventoryAction(
 
   const sign = delta > 0 ? "+" : "";
   return { status: "success", message: `Adjusted ${sku || "item"} by ${sign}${delta}.` };
-}
-
-export async function updateReorderPointAction(
-  _prev: AdminFormState,
-  formData: FormData
-): Promise<AdminFormState> {
-  const { error: denied } = await guard("admin-inventory");
-  if (denied) return denied;
-
-  const variantId = String(formData.get("variantId") ?? "").trim();
-  const locationId = String(formData.get("locationId") ?? "").trim();
-  const reorderPoint = Number.parseFloat(String(formData.get("reorderPoint") ?? ""));
-
-  if (!variantId || !locationId) return fail("Missing inventory row.");
-  if (!Number.isFinite(reorderPoint) || reorderPoint < 0) return fail("Reorder point must be 0 or more.");
-
-  const { error } = await createAdminClient()
-    .from("inventory_balances")
-    .update({ reorder_point: reorderPoint })
-    .eq("variant_id", variantId)
-    .eq("location_id", locationId);
-
-  if (error) return fail(error.message);
-
-  revalidatePath("/admin/inventory");
-  revalidatePath("/admin");
-  return { status: "success", message: `Reorder point set to ${reorderPoint}.` };
 }
 
 /**
