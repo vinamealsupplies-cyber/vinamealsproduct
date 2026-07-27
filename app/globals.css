@@ -439,8 +439,12 @@ textarea { resize: vertical; }
 .data-table .numeric { text-align: right; font-variant-numeric: tabular-nums; }
 .empty-table { height: 120px; text-align: center; color: var(--muted); }
 .status-pill { display: inline-flex; align-items: center; min-height: 24px; padding: 0 8px; border-radius: 999px; background: #eef3f0; color: #4d625b; font-size: 10px; font-weight: 850; text-transform: capitalize; }
-.status-active, .status-paid, .status-posted, .status-valid, .status-healthy, .status-approved, .status-fulfilled { background: var(--mint); color: var(--green-dark); }
+.status-active, .status-paid, .status-posted, .status-valid, .status-healthy, .status-approved, .status-fulfilled, .status-in-stock { background: var(--mint); color: var(--green-dark); }
 .status-low-stock, .status-pending, .status-partially-paid { background: #fff0d1; color: #915407; }
+/* Inventory: out of stock — đỏ rõ để dễ nhìn */
+.status-out-of-stock { background: #fde8e6; color: var(--red); border: 1px solid #f0b4ae; }
+.data-table tbody tr.row-out-of-stock { background: #fff8f7; }
+.data-table tbody tr.row-out-of-stock:hover { background: #fff0ef; }
 .status-wholesale, .status-invoiced { background: var(--blue); color: #19526a; }
 .status-retail { background: var(--lavender); color: #5e3d8a; }
 .status-guest, .status-not-requested { background: #edf1ef; color: #5b6c66; }

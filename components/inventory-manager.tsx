@@ -113,7 +113,12 @@ export function InventoryManager({
               {rows.map((row) => (
                 <tr
                   key={`${row.variantId}-${row.locationId}`}
-                  className={row.productStatus === "archived" ? "row-archived" : undefined}
+                  className={[
+                    row.productStatus === "archived" ? "row-archived" : "",
+                    row.stockStatus === "out_of_stock" ? "row-out-of-stock" : ""
+                  ]
+                    .filter(Boolean)
+                    .join(" ") || undefined}
                 >
                   <td>
                     {row.productName}
