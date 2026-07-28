@@ -223,7 +223,12 @@ function OrderRows({ orders, handlers }: { orders: StaffOrder[]; handlers: RowHa
                   <span className="order-number">{order.number}</span>
                   <span className="order-itemcount">
                     {order.itemCount} món
-                    {specialCount > 0 ? ` · ${specialCount} ghi chú` : ""}
+                    {specialCount > 0 ? (
+                      <span className="order-note-count">
+                        {" "}
+                        · {specialCount} ghi chú
+                      </span>
+                    ) : null}
                   </span>
                 </button>
               </td>
