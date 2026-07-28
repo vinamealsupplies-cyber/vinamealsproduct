@@ -2,26 +2,40 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { CheckCircle2, MessageSquareText, ShoppingBag, Store } from "lucide-react";
+import { CheckCircle2, MessageSquareText, ShoppingBag, Store, Truck } from "lucide-react";
 import { placeTestOrder } from "@/app/checkout/actions";
+import { ShippingAddressPicker } from "@/components/shipping-address-picker";
+import type { CustomerAddress } from "@/lib/data/address-types";
 import { useCart } from "@/lib/cart";
 import type { Product } from "@/lib/sample-data";
 import { usd } from "@/lib/format";
 
-// Bước xác nhận đơn. Ghi chú từng món (từ giỏ) gửi kèm placeTestOrder.
+type FulfillmentMethod = "pickup" | "ship";
+
+// Bước xác nhận đơn: chọn pickup hoặc ship + địa chỉ, ghi chú từng món.
 export function CheckoutView({
   catalog,
   customerName,
-  pickupLocationName
+  pickupLocationName,
+  shippingAddresses = []
 }: {
   catalog: Product[];
   customerName: string;
   pickupLocationName: string;
+  shippingAddresses?: CustomerAddress[];
 }) {
   const { items, ready, clear, setNote } = useCart();
   const [placing, setPlacing] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [done, setDone] = useState<{ orderNumber: string; total: number } | null>(null);
+  const [method, setMethod] = useState<FulfillmentMethod>("pickup");
+  const [shippingAddressId, setShippingAddressId] = useState<string | null>(
+    shippingAddresses.find((a) => a.isDefault)?.id ?? shippingAddresses[0]?.id ?? null
+  );
+  const [done, setDone] = useState<{
+    orderNumber: string;
+    total: number;
+    fulfillmentMethod: FulfillmentMethod;
+  } | null>(null);
 
   const byId = new Map(catalog.map((product) => [product.id, product]));
 
@@ -39,8 +53,15 @@ export function CheckoutView({
           <CheckCircle2 size={40} aria-hidden="true" />
           <h1>Đặt hàng thành công</h1>
           <p>
-            Mã đơn <strong>{done.orderNumber}</strong> — tổng {usd.format(done.total)}. Nhận tại{" "}
-            {pickupLocationName}. Chưa thu tiền (đơn đặt thử).
+            Mã đơn <strong>{done.orderNumber}</strong> — tổng {usd.format(done.total)}.{" "}
+            {done.fulfillmentMethod === "pickup" ? (
+              <>
+                Nhận tại <strong>{pickupLocationName}</strong>.
+              </>
+            ) : (
+              <>Đơn <strong>ship</strong> — nhân viên sẽ gửi hàng và cập nhật tracking.</>
+            )}{" "}
+            Chưa thu tiền (đơn đặt thử).
           </p>
           <div className="checkout-actions-row">
             <Link className="button primary" href="/products">
@@ -73,17 +94,30 @@ export function CheckoutView({
   async function submit() {
     setPlacing(true);
     setError(null);
+    if (method === "ship" && !shippingAddressId) {
+      setPlacing(false);
+      setError("Chọn địa chỉ giao hàng cho đơn ship.");
+      return;
+    }
     const result = await placeTestOrder(
       lines.map((line) => ({
         productId: line.product.id,
         quantity: line.quantity,
         note: line.note
-      }))
+      })),
+      {
+        fulfillmentMethod: method,
+        shippingAddressId: method === "ship" ? shippingAddressId : null
+      }
     );
     setPlacing(false);
     if (result.ok) {
       clear();
-      setDone({ orderNumber: result.orderNumber, total: result.total });
+      setDone({
+        orderNumber: result.orderNumber,
+        total: result.total,
+        fulfillmentMethod: result.fulfillmentMethod
+      });
     } else {
       setError(result.error);
     }
@@ -95,16 +129,61 @@ export function CheckoutView({
         <span className="kicker">Checkout</span>
         <h1>Xác nhận đơn hàng</h1>
         <p>
-          Đặt hàng thử — không cần thanh toán. Thêm ghi chú từng món nếu có yêu cầu đặc biệt (nhân
-          viên sẽ thấy khi chuẩn bị giao).
+          Chọn <strong>pickup</strong> hoặc <strong>ship</strong>. Thêm ghi chú từng món nếu có yêu
+          cầu đặc biệt.
         </p>
       </header>
 
-      <div className="checkout-pickup">
-        <Store size={18} aria-hidden="true" />
-        <span>
-          Nhận hàng tại <strong>{pickupLocationName}</strong> · Khách: {customerName}
-        </span>
+      <div className="checkout-fulfillment-block">
+        <p className="field-hint" style={{ marginBottom: 10 }}>
+          Khách: <strong>{customerName}</strong>
+        </p>
+        <div className="fulfillment-choice">
+          <label>
+            <input
+              type="radio"
+              name="checkout-fulfillment"
+              value="pickup"
+              checked={method === "pickup"}
+              onChange={() => setMethod("pickup")}
+            />
+            <span>
+              <strong>
+                <Store size={15} aria-hidden="true" /> Store pickup
+              </strong>
+              <small>Nhận tại {pickupLocationName}. Không phí ship.</small>
+            </span>
+          </label>
+          <label>
+            <input
+              type="radio"
+              name="checkout-fulfillment"
+              value="ship"
+              checked={method === "ship"}
+              onChange={() => setMethod("ship")}
+            />
+            <span>
+              <strong>
+                <Truck size={15} aria-hidden="true" /> Ship to address
+              </strong>
+              <small>Giao tận nơi — nhân viên cập nhật tracking khi đã ship.</small>
+            </span>
+          </label>
+        </div>
+        {method === "ship" ? (
+          <div style={{ marginTop: 14 }}>
+            <ShippingAddressPicker
+              addresses={shippingAddresses}
+              signedIn
+              selectedId={shippingAddressId}
+              onSelect={setShippingAddressId}
+            />
+          </div>
+        ) : (
+          <p className="field-hint" style={{ marginTop: 12 }}>
+            Đến lấy tại <strong>{pickupLocationName}</strong> — mang mã đơn và giấy tờ tùy thân.
+          </p>
+        )}
       </div>
 
       <ul className="cart-items checkout-lines">
@@ -139,12 +218,12 @@ export function CheckoutView({
           <strong>{usd.format(subtotal)}</strong>
         </div>
         <div className="checkout-summary-row muted">
-          <span>Thuế / phí vận chuyển</span>
-          <span>—</span>
+          <span>Nhận hàng</span>
+          <span>{method === "pickup" ? "Pickup" : "Ship"}</span>
         </div>
         <div className="checkout-summary-row total">
           <span>Tổng cộng</span>
-          <strong>{usd.format(subtotal)}</strong>
+          <strong>{usd.format(subtotal + (method === "ship" ? 12.5 : 0))}</strong>
         </div>
       </div>
 
@@ -155,7 +234,11 @@ export function CheckoutView({
       ) : null}
 
       <button className="button primary block" type="button" disabled={placing} onClick={submit}>
-        {placing ? "Đang tạo đơn…" : "Đặt hàng thử (không thanh toán)"}
+        {placing
+          ? "Đang tạo đơn…"
+          : method === "pickup"
+            ? "Đặt hàng — pickup"
+            : "Đặt hàng — ship"}
       </button>
       <Link className="button ghost block" href="/cart">
         Quay lại giỏ hàng

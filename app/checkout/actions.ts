@@ -21,8 +21,14 @@ export type CheckoutItem = {
   note?: string;
 };
 
+export type CheckoutOptions = {
+  fulfillmentMethod?: "pickup" | "ship";
+  /** Bắt buộc khi ship — id customer_addresses của khách. */
+  shippingAddressId?: string | null;
+};
+
 export type CheckoutResult =
-  | { ok: true; orderNumber: string; total: number }
+  | { ok: true; orderNumber: string; total: number; fulfillmentMethod: "pickup" | "ship" }
   | { ok: false; error: string };
 
 type VariantRow = {
@@ -54,7 +60,10 @@ function cleanNote(note: unknown): string | null {
   return trimmed || null;
 }
 
-export async function placeTestOrder(items: CheckoutItem[]): Promise<CheckoutResult> {
+export async function placeTestOrder(
+  items: CheckoutItem[],
+  options: CheckoutOptions = {}
+): Promise<CheckoutResult> {
   const viewer = await getViewer();
   if (!viewer || viewer.demo) {
     return { ok: false, error: "Vui lòng đăng nhập để đặt hàng." };
@@ -65,6 +74,10 @@ export async function placeTestOrder(items: CheckoutItem[]): Promise<CheckoutRes
   if (!(await checkRateLimit(await callerKey("checkout", viewer.id), RATE_LIMITS.mutation))) {
     return { ok: false, error: "Bạn thao tác quá nhanh. Đợi một phút rồi thử lại." };
   }
+
+  const fulfillmentMethod: "pickup" | "ship" =
+    options.fulfillmentMethod === "ship" ? "ship" : "pickup";
+  const shippingAddressId = options.shippingAddressId?.trim() || null;
 
   // Gộp trùng productId: cộng qty, gộp ghi chú (nếu khác nhau).
   const wanted = new Map<string, { quantity: number; notes: string[] }>();
@@ -158,15 +171,6 @@ export async function placeTestOrder(items: CheckoutItem[]): Promise<CheckoutRes
     line_note: line.notes.length ? line.notes.join("; ").slice(0, LINE_NOTE_MAX) : null
   }));
 
-  const { data: location } = await supabase
-    .from("inventory_locations")
-    .select("id")
-    .eq("code", PICKUP_LOCATION_CODE)
-    .maybeSingle();
-  if (!location?.id) {
-    return { ok: false, error: "Chưa cấu hình địa điểm nhận hàng (STORE-PICKUP)." };
-  }
-
   // Đồng bộ họ tên + SĐT từ profile (không hiện email trên Orders).
   const { data: profile } = await supabase
     .from("profiles")
@@ -212,7 +216,55 @@ export async function placeTestOrder(items: CheckoutItem[]): Promise<CheckoutRes
     }
   }
 
+  if (!customerId) return { ok: false, error: "Không tạo được hồ sơ khách. Thử lại." };
+
+  const SHIPPING_FLAT_RATE = 12.5;
+  let pickupLocationId: string | null = null;
+  let shippingAmount = 0;
+  let shippingSnapshot: Record<string, unknown> | null = null;
+
+  if (fulfillmentMethod === "pickup") {
+    const { data: location } = await supabase
+      .from("inventory_locations")
+      .select("id")
+      .eq("code", PICKUP_LOCATION_CODE)
+      .maybeSingle();
+    if (!location?.id) {
+      return { ok: false, error: "Chưa cấu hình địa điểm nhận hàng (STORE-PICKUP)." };
+    }
+    pickupLocationId = location.id;
+    shippingAmount = 0;
+  } else {
+    if (!shippingAddressId) {
+      return { ok: false, error: "Chọn địa chỉ giao hàng cho đơn ship." };
+    }
+    const { data: address } = await supabase
+      .from("customer_addresses")
+      .select(
+        "id, customer_id, recipient_name, company_name, phone, line1, line2, city, state_region, postal_code, country_code"
+      )
+      .eq("id", shippingAddressId)
+      .eq("customer_id", customerId)
+      .maybeSingle();
+    if (!address) {
+      return { ok: false, error: "Địa chỉ giao hàng không hợp lệ." };
+    }
+    shippingAmount = SHIPPING_FLAT_RATE;
+    shippingSnapshot = {
+      recipient_name: address.recipient_name,
+      company_name: address.company_name,
+      phone: address.phone,
+      line1: address.line1,
+      line2: address.line2,
+      city: address.city,
+      state_region: address.state_region,
+      postal_code: address.postal_code,
+      country_code: address.country_code
+    };
+  }
+
   const subtotal = orderItems.reduce((sum, item) => sum + item.unit_price * item.quantity, 0);
+  const total = subtotal + shippingAmount;
 
   const { data: order, error: orderErr } = await supabase
     .from("sales_orders")
@@ -221,20 +273,23 @@ export async function placeTestOrder(items: CheckoutItem[]): Promise<CheckoutRes
       channel: "web",
       status: "confirmed",
       currency: "USD",
-      fulfillment_method: "pickup",
-      pickup_location_id: location.id,
-      shipping_amount: 0,
+      fulfillment_method: fulfillmentMethod,
+      pickup_location_id: pickupLocationId,
+      shipping_amount: shippingAmount,
+      shipping_address_snapshot: shippingSnapshot,
       subtotal,
-      total_amount: subtotal,
+      total_amount: total,
       placed_at: new Date().toISOString(),
       created_by: viewer.id,
       notes: useWholesale
-        ? "Đơn đặt thử (wholesale pricing). Không thanh toán."
-        : "Đơn đặt thử (không thanh toán) từ storefront."
+        ? `Đơn đặt thử (${fulfillmentMethod}, wholesale). Không thanh toán.`
+        : `Đơn đặt thử (${fulfillmentMethod}). Không thanh toán.`
     })
     .select("id, order_number")
     .single();
-  if (orderErr || !order) return { ok: false, error: "Không tạo được đơn hàng. Thử lại." };
+  if (orderErr || !order) {
+    return { ok: false, error: orderErr?.message || "Không tạo được đơn hàng. Thử lại." };
+  }
 
   const { error: itemsErr } = await supabase
     .from("sales_order_items")
@@ -259,8 +314,8 @@ export async function placeTestOrder(items: CheckoutItem[]): Promise<CheckoutRes
     after: {
       orderNumber: order.order_number,
       status: "confirmed",
-      fulfillmentMethod: "pickup",
-      total: subtotal,
+      fulfillmentMethod,
+      total,
       itemCount: orderItems.length,
       channel: "web",
       wholesale: useWholesale,
@@ -277,11 +332,17 @@ export async function placeTestOrder(items: CheckoutItem[]): Promise<CheckoutRes
       orderNumber: order.order_number,
       wholesaleApplied: useWholesale,
       wholesaleMinKind: eligibility.minKind,
-      wholesaleMinValue: eligibility.minValue
+      wholesaleMinValue: eligibility.minValue,
+      fulfillmentMethod
     }
   });
 
   revalidatePath("/admin/orders");
   revalidatePath("/account");
-  return { ok: true, orderNumber: order.order_number ?? order.id, total: subtotal };
+  return {
+    ok: true,
+    orderNumber: order.order_number ?? order.id,
+    total,
+    fulfillmentMethod
+  };
 }

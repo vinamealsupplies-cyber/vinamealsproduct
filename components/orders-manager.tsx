@@ -18,7 +18,6 @@ import {
 import {
   cancelOrder,
   cancelPickup,
-  confirmDelivered,
   confirmPickup,
   saveShipmentTracking,
   updateOrderNotes
@@ -263,7 +262,7 @@ function OrderRows({ orders, handlers }: { orders: StaffOrder[]; handlers: RowHa
                   </span>
                 ) : order.awaitingDelivery ? (
                   <span className="pickup-badge waiting blink-red">
-                    <Truck size={14} aria-hidden="true" /> CHỜ SHIP / GIAO
+                    <Truck size={14} aria-hidden="true" /> CHỜ SHIP
                   </span>
                 ) : order.status === "cancelled" ? (
                   <span className="muted">Đã huỷ</span>
@@ -299,10 +298,10 @@ function OrderRows({ orders, handlers }: { orders: StaffOrder[]; handlers: RowHa
                     Huỷ pickup
                   </button>
                 ) : null}
-                {order.canEditTracking ? (
+                {order.canEditTracking && !order.awaitingDelivery ? (
                   <button type="button" className="compact" onClick={() => onShipTracking(order)}>
                     <Truck size={14} aria-hidden="true" />
-                    {order.trackingNumber ? "Sửa tracking" : "Nhập tracking"}
+                    {order.trackingNumber ? "Sửa shipping info" : "Shipping info"}
                   </button>
                 ) : null}
                 {order.trackingUrl ? (
@@ -319,16 +318,10 @@ function OrderRows({ orders, handlers }: { orders: StaffOrder[]; handlers: RowHa
                   <button
                     className="button primary compact"
                     type="button"
-                    disabled={pendingId === order.id || !order.trackingNumber}
-                    title={
-                      order.trackingNumber
-                        ? "Xác nhận khách đã nhận hàng"
-                        : "Nhập tracking trước khi xác nhận đã giao"
-                    }
-                    onClick={() => run(order.id, () => confirmDelivered(order.id))}
+                    onClick={() => onShipTracking(order)}
                   >
-                    <CheckCircle2 size={14} aria-hidden="true" />
-                    {pendingId === order.id ? "…" : "Đã giao"}
+                    <Truck size={14} aria-hidden="true" />
+                    {order.trackingNumber ? "Xác nhận đã ship" : "Shipping info + ship"}
                   </button>
                 ) : null}
                 {order.canEditNotes ? (
@@ -622,11 +615,11 @@ export function OrdersManager({ orders }: { orders: StaffOrder[] }) {
       {shippingOrder ? (
         <div className="form-card compact-form-card orders-inline-panel">
           <h2>
-            <Truck size={18} aria-hidden="true" /> Mã vận đơn — {shippingOrder.number}
+            <Truck size={18} aria-hidden="true" /> Shipping info — {shippingOrder.number}
           </h2>
           <p className="field-hint">
-            Nhập tracking như FedEx / USPS / UPS / DHL. Sau khi lưu, bấm <strong>Tra cứu</strong> để
-            xem hàng đã tới chưa, rồi bấm <strong>Đã giao</strong> khi khách nhận xong.
+            Đơn <strong>ship</strong> (không phải pickup). Nhập hãng + mã tracking, rồi{" "}
+            <strong>Xác nhận đã ship</strong>. Có thể mở link FedEx/USPS để tra cứu sau.
           </p>
           <div className="form-grid two-columns">
             <label>
@@ -663,18 +656,44 @@ export function OrdersManager({ orders }: { orders: StaffOrder[] }) {
             </label>
           </div>
           <div className="button-row">
+            {shippingOrder.status === "confirmed" ? (
+              <button
+                className="button primary"
+                type="button"
+                disabled={pendingId === shippingOrder.id}
+                onClick={() =>
+                  run(shippingOrder.id, () =>
+                    saveShipmentTracking(
+                      shippingOrder.id,
+                      carrier,
+                      trackingNumber,
+                      customUrl,
+                      true
+                    )
+                  )
+                }
+              >
+                <Truck size={16} aria-hidden="true" />
+                {pendingId === shippingOrder.id ? "Đang lưu…" : "Xác nhận đã ship"}
+              </button>
+            ) : null}
             <button
-              className="button primary"
+              className="button secondary"
               type="button"
               disabled={pendingId === shippingOrder.id}
               onClick={() =>
                 run(shippingOrder.id, () =>
-                  saveShipmentTracking(shippingOrder.id, carrier, trackingNumber, customUrl)
+                  saveShipmentTracking(
+                    shippingOrder.id,
+                    carrier,
+                    trackingNumber,
+                    customUrl,
+                    false
+                  )
                 )
               }
             >
-              <Truck size={16} aria-hidden="true" />
-              {pendingId === shippingOrder.id ? "Đang lưu…" : "Lưu tracking"}
+              {pendingId === shippingOrder.id ? "…" : "Chỉ lưu tracking"}
             </button>
             {shippingOrder.trackingUrl || trackingNumber ? (
               <a
@@ -686,7 +705,7 @@ export function OrdersManager({ orders }: { orders: StaffOrder[] }) {
                 target="_blank"
                 rel="noopener noreferrer"
               >
-                <ExternalLink size={16} aria-hidden="true" /> Mở tra cứu
+                <ExternalLink size={16} aria-hidden="true" /> Tra cứu
               </a>
             ) : null}
             <button

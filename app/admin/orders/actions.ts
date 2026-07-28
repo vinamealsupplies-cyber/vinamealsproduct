@@ -62,14 +62,15 @@ async function loadOrder(id: string): Promise<OrderSnapshot | null> {
 }
 
 /**
- * Lưu mã vận đơn (ship). Không tự chuyển fulfilled — nhân viên tra cứu FedEx/USPS
- * rồi bấm "Đã giao" khi hàng tới.
+ * Lưu shipping info (carrier + tracking).
+ * markShipped=true → xác nhận đã ship (fulfilled). Đơn ship KHÔNG dùng flow pickup.
  */
 export async function saveShipmentTracking(
   orderId: string,
   carrier: string,
   trackingNumber: string,
-  customUrl = ""
+  customUrl = "",
+  markShipped = false
 ): Promise<OrderActionResult> {
   const gate = await requireOps();
   if ("error" in gate) return { ok: false, error: gate.error };
@@ -91,22 +92,32 @@ export async function saveShipmentTracking(
   if (!before) return { ok: false, error: "Không tìm thấy đơn." };
   if (before.status === "cancelled") return { ok: false, error: "Đơn đã huỷ." };
   if (before.fulfillment_method !== "ship") {
-    return { ok: false, error: "Chỉ đơn ship mới có mã vận đơn." };
+    return { ok: false, error: "Chỉ đơn ship mới có mã vận đơn / xác nhận đã ship." };
+  }
+  if (markShipped && before.status !== "confirmed") {
+    return { ok: false, error: "Chỉ xác nhận đã ship cho đơn đang confirmed." };
   }
 
   const trackingUrl =
     override || buildTrackingUrl(carrierCode as ShippingCarrier, tracking) || null;
   const now = new Date().toISOString();
   const supabase = createAdminClient();
+
+  const patch: Record<string, unknown> = {
+    shipping_carrier: carrierCode,
+    tracking_number: tracking,
+    tracking_url: trackingUrl,
+    shipped_at: before.shipped_at ?? now,
+    updated_at: now
+  };
+  if (markShipped) {
+    patch.status = "fulfilled";
+    patch.fulfilled_at = now;
+  }
+
   const { data, error } = await supabase
     .from("sales_orders")
-    .update({
-      shipping_carrier: carrierCode,
-      tracking_number: tracking,
-      tracking_url: trackingUrl,
-      shipped_at: before.shipped_at ?? now,
-      updated_at: now
-    })
+    .update(patch)
     .eq("id", orderId)
     .select(ORDER_SELECT);
 
@@ -117,29 +128,42 @@ export async function saveShipmentTracking(
         error: "Database chưa có cột tracking. Chạy migration 20260728220000_order_shipping_tracking.sql."
       };
     }
-    return { ok: false, error: "Không lưu mã vận đơn. Thử lại." };
+    if (error.message.includes("shipping_address") || error.message.includes("ship_address")) {
+      return {
+        ok: false,
+        error: "Đơn ship cần địa chỉ giao hàng trước khi xác nhận đã ship."
+      };
+    }
+    return { ok: false, error: "Không lưu shipping info. Thử lại." };
   }
   if (!data?.length) return { ok: false, error: "Không tìm thấy đơn." };
 
   const after = data[0] as OrderSnapshot;
   await writeAuditLog({
     actorUserId: gate.viewer.id,
-    action: "order.save_tracking",
+    action: markShipped ? "order.confirm_shipped" : "order.save_tracking",
     entityType: "sales_order",
     entityId: orderId,
     before: {
+      status: before.status,
       shipping_carrier: before.shipping_carrier,
-      tracking_number: before.tracking_number
+      tracking_number: before.tracking_number,
+      shipped_at: before.shipped_at
     },
     after: {
+      status: after.status,
       shipping_carrier: after.shipping_carrier,
       tracking_number: after.tracking_number,
-      tracking_url: after.tracking_url
+      tracking_url: after.tracking_url,
+      shipped_at: after.shipped_at,
+      fulfilled_at: after.fulfilled_at
     },
     metadata: {
       orderNumber: after.order_number,
+      markShipped,
       actorRole: gate.viewer.role,
-      actorEmail: gate.viewer.email
+      actorEmail: gate.viewer.email,
+      actorName: actorDisplayName(gate.viewer)
     }
   });
 
