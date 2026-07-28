@@ -28,6 +28,8 @@ function displayName(customer: AdminCustomer) {
 }
 
 function CustomerFields({ customer }: { customer?: AdminCustomer }) {
+  const [customerType, setCustomerType] = useState(customer?.customerType ?? "retail");
+
   return (
     <div className="form-grid two-columns">
       <label>
@@ -52,7 +54,11 @@ function CustomerFields({ customer }: { customer?: AdminCustomer }) {
       </label>
       <label>
         Type
-        <select name="customerType" defaultValue={customer?.customerType ?? "retail"}>
+        <select
+          name="customerType"
+          value={customerType}
+          onChange={(e) => setCustomerType(e.target.value as AdminCustomer["customerType"])}
+        >
           {TYPES.map((type) => (
             <option key={type.value} value={type.value}>{type.label}</option>
           ))}
@@ -66,6 +72,40 @@ function CustomerFields({ customer }: { customer?: AdminCustomer }) {
           ))}
         </select>
       </label>
+      {customerType === "wholesale" ? (
+        <>
+          <label>
+            Wholesale unlock by
+            <select
+              name="wholesaleMinKind"
+              defaultValue={customer?.wholesaleMinKind ?? "quantity"}
+            >
+              <option value="quantity">Minimum quantity (items)</option>
+              <option value="amount">Minimum order amount (USD)</option>
+            </select>
+          </label>
+          <label>
+            Minimum value
+            <input
+              name="wholesaleMinValue"
+              type="number"
+              min={0.01}
+              step="any"
+              required
+              defaultValue={customer?.wholesaleMinValue ?? 12}
+              placeholder="e.g. 12 or 150"
+            />
+            <span className="field-hint">
+              Customer only gets wholesale prices after the cart reaches this quantity or amount.
+            </span>
+          </label>
+        </>
+      ) : (
+        <>
+          <input type="hidden" name="wholesaleMinKind" value="" />
+          <input type="hidden" name="wholesaleMinValue" value="" />
+        </>
+      )}
       <label className="full-width">
         Notes
         <textarea name="notes" rows={3} maxLength={1000} defaultValue={customer?.notes ?? ""} />
@@ -178,6 +218,14 @@ export function CustomerManager({ customers, canDelete }: { customers: AdminCust
                   <td>{customer.companyName ?? "—"}</td>
                   <td>
                     <span className={`status-pill status-${customer.customerType}`}>{customer.customerType}</span>
+                    {customer.customerType === "wholesale" && customer.wholesaleMinKind ? (
+                      <span className="field-hint">
+                        min{" "}
+                        {customer.wholesaleMinKind === "quantity"
+                          ? `${customer.wholesaleMinValue} items`
+                          : `$${Number(customer.wholesaleMinValue ?? 0).toFixed(2)}`}
+                      </span>
+                    ) : null}
                   </td>
                   <td>
                     <span className={`status-pill status-${customer.status}`}>{customer.status}</span>
@@ -250,7 +298,7 @@ export function CustomerManager({ customers, canDelete }: { customers: AdminCust
         ) : editing ? (
           <form action={updateAction} key={editing.id}>
             <input type="hidden" name="id" value={editing.id} />
-            <CustomerFields customer={editing} />
+            <CustomerFields key={editing.id} customer={editing} />
             <div className="button-row">
               <button className="button primary" type="submit" disabled={updating}>
                 <Save size={17} aria-hidden="true" /> {updating ? "Saving…" : "Save changes"}
@@ -262,7 +310,7 @@ export function CustomerManager({ customers, canDelete }: { customers: AdminCust
           </form>
         ) : (
           <form action={createAction} key={addedCount}>
-            <CustomerFields />
+            <CustomerFields key={`new-${addedCount}`} />
             <button className="button primary" type="submit" disabled={creating}>
               <Plus size={17} aria-hidden="true" /> {creating ? "Adding…" : "Add customer"}
             </button>

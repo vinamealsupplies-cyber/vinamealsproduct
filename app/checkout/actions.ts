@@ -3,8 +3,10 @@
 import { revalidatePath } from "next/cache";
 import { getViewer } from "@/lib/auth";
 import { writeAuditLog } from "@/lib/data/audit-log";
+import { getOwnWholesaleAccount } from "@/lib/data/wholesale-account";
 import { callerKey, checkRateLimit, RATE_LIMITS } from "@/lib/rate-limit";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { evaluateWholesaleEligibility } from "@/lib/wholesale";
 
 // Checkout "đặt thử" — KHÔNG thu tiền. Mục tiêu: tạo sales_orders confirmed +
 // pickup, kèm line_note từng món (yêu cầu đặc biệt của khách).
@@ -28,6 +30,7 @@ type VariantRow = {
   sku: string;
   retail_price: number | string;
   sale_price: number | string | null;
+  wholesale_price: number | string | null;
   cost_price: number | string | null;
   is_default: boolean;
   is_active: boolean;
@@ -81,24 +84,26 @@ export async function placeTestOrder(items: CheckoutItem[]): Promise<CheckoutRes
   if (wanted.size === 0) return { ok: false, error: "Giỏ hàng không hợp lệ." };
 
   const supabase = createAdminClient();
+  const wholesaleAccount = await getOwnWholesaleAccount(viewer.id);
 
   const { data: productRows, error: prodErr } = await supabase
     .from("products")
     .select(
-      "id, name, status, product_variants ( id, sku, retail_price, sale_price, cost_price, is_default, is_active )"
+      "id, name, status, product_variants ( id, sku, retail_price, sale_price, wholesale_price, cost_price, is_default, is_active )"
     )
     .in("id", [...wanted.keys()]);
   if (prodErr) return { ok: false, error: "Không đọc được sản phẩm. Thử lại." };
 
-  const orderItems: {
-    product_id: string;
-    variant_id: string | null;
-    product_name_snapshot: string;
-    sku_snapshot: string;
+  // Tính total qty + wholesale subtotal trước để quyết định qualifies.
+  let cartQuantity = 0;
+  let wholesaleCartAmount = 0;
+  const priced: {
+    row: ProductRow;
+    variant: VariantRow;
     quantity: number;
-    unit_price: number;
-    unit_cost_snapshot: number;
-    line_note: string | null;
+    notes: string[];
+    retailUnit: number;
+    wholesaleUnit: number;
   }[] = [];
 
   for (const row of (productRows ?? []) as unknown as ProductRow[]) {
@@ -113,21 +118,45 @@ export async function placeTestOrder(items: CheckoutItem[]): Promise<CheckoutRes
     const retail = num(variant.retail_price);
     const rawSale =
       variant.sale_price == null || variant.sale_price === "" ? null : num(variant.sale_price);
-    const unitPrice = rawSale != null && rawSale >= 0 && rawSale < retail ? rawSale : retail;
+    const retailUnit = rawSale != null && rawSale >= 0 && rawSale < retail ? rawSale : retail;
+    const wholesaleRaw =
+      variant.wholesale_price == null || variant.wholesale_price === ""
+        ? null
+        : num(variant.wholesale_price);
+    const wholesaleUnit =
+      wholesaleRaw != null && wholesaleRaw >= 0 ? wholesaleRaw : retailUnit;
 
-    orderItems.push({
-      product_id: row.id,
-      variant_id: variant.id ?? null,
-      product_name_snapshot: row.name,
-      sku_snapshot: variant.sku ?? "",
+    cartQuantity += wantedLine.quantity;
+    wholesaleCartAmount += wholesaleUnit * wantedLine.quantity;
+    priced.push({
+      row,
+      variant,
       quantity: wantedLine.quantity,
-      unit_price: unitPrice,
-      unit_cost_snapshot: num(variant.cost_price),
-      line_note: wantedLine.notes.length ? wantedLine.notes.join("; ").slice(0, LINE_NOTE_MAX) : null
+      notes: wantedLine.notes,
+      retailUnit,
+      wholesaleUnit
     });
   }
 
-  if (orderItems.length === 0) return { ok: false, error: "Không có sản phẩm hợp lệ trong giỏ." };
+  if (priced.length === 0) return { ok: false, error: "Không có sản phẩm hợp lệ trong giỏ." };
+
+  const eligibility = evaluateWholesaleEligibility(
+    wholesaleAccount,
+    cartQuantity,
+    wholesaleCartAmount
+  );
+  const useWholesale = eligibility.qualifies;
+
+  const orderItems = priced.map((line) => ({
+    product_id: line.row.id,
+    variant_id: line.variant.id ?? null,
+    product_name_snapshot: line.row.name,
+    sku_snapshot: line.variant.sku ?? "",
+    quantity: line.quantity,
+    unit_price: useWholesale ? line.wholesaleUnit : line.retailUnit,
+    unit_cost_snapshot: num(line.variant.cost_price),
+    line_note: line.notes.length ? line.notes.join("; ").slice(0, LINE_NOTE_MAX) : null
+  }));
 
   const { data: location } = await supabase
     .from("inventory_locations")
@@ -199,7 +228,9 @@ export async function placeTestOrder(items: CheckoutItem[]): Promise<CheckoutRes
       total_amount: subtotal,
       placed_at: new Date().toISOString(),
       created_by: viewer.id,
-      notes: "Đơn đặt thử (không thanh toán) từ storefront."
+      notes: useWholesale
+        ? "Đơn đặt thử (wholesale pricing). Không thanh toán."
+        : "Đơn đặt thử (không thanh toán) từ storefront."
     })
     .select("id, order_number")
     .single();
@@ -232,16 +263,21 @@ export async function placeTestOrder(items: CheckoutItem[]): Promise<CheckoutRes
       total: subtotal,
       itemCount: orderItems.length,
       channel: "web",
+      wholesale: useWholesale,
       items: orderItems.map((i) => ({
         name: i.product_name_snapshot,
         qty: i.quantity,
-        note: i.line_note
+        note: i.line_note,
+        unitPrice: i.unit_price
       }))
     },
     metadata: {
       actorRole: viewer.role,
       actorEmail: viewer.email,
-      orderNumber: order.order_number
+      orderNumber: order.order_number,
+      wholesaleApplied: useWholesale,
+      wholesaleMinKind: eligibility.minKind,
+      wholesaleMinValue: eligibility.minValue
     }
   });
 

@@ -9,23 +9,26 @@ import type { CustomerAddress } from "@/lib/data/address-types";
 import { useCart } from "@/lib/cart";
 import type { Product } from "@/lib/sample-data";
 import { usd } from "@/lib/format";
+import { evaluateWholesaleEligibility, type WholesaleAccount } from "@/lib/wholesale";
 
-// Trang giỏ hàng thật: liệt kê món đã thêm, sửa số lượng, xoá, và nối
-// subtotal thật (retail + wholesale) vào FulfillmentPicker. Catalog lấy từ DB
-// và truyền từ server (app/cart/page.tsx) để giá/tồn kho luôn khớp DB.
+// Giỏ hàng: giá sỉ chỉ khi admin gán wholesale + đạt ngưỡng min qty/amount.
 export function CartView({
   catalog,
   shippingAddresses = [],
-  signedIn = false
+  signedIn = false,
+  wholesaleAccount = null,
+  wholesalePriceByProductId = {}
 }: {
   catalog: Product[];
   shippingAddresses?: CustomerAddress[];
   signedIn?: boolean;
+  wholesaleAccount?: WholesaleAccount | null;
+  /** productId → wholesale unit price (chỉ gửi khi isWholesale). */
+  wholesalePriceByProductId?: Record<string, number>;
 }) {
   const { items, setQuantity, setNote, remove, clear, ready } = useCart();
   const byId = new Map(catalog.map((product) => [product.id, product]));
 
-  // Chờ đọc xong localStorage để không flash "giỏ trống" rồi mới hiện hàng.
   if (!ready) return <div className="page-shell shell narrow-page" aria-busy="true" />;
 
   const lines = items
@@ -47,13 +50,23 @@ export function CartView({
     );
   }
 
+  const cartQuantity = lines.reduce((sum, line) => sum + line.quantity, 0);
   const retailSubtotal = lines.reduce((sum, line) => sum + line.product.price * line.quantity, 0);
-  // Giá sỉ không còn được gửi ra storefront (chỉ tài khoản wholesale đã duyệt
-  // mới thấy, qua v_account_price_list). Khối "Wholesale pricing" của
-  // FulfillmentPicker vì vậy tính trên cùng subtotal bán lẻ cho tới khi luồng
-  // giá theo tài khoản được nối.
-  const wholesaleSubtotal = retailSubtotal;
-  const count = lines.reduce((sum, line) => sum + line.quantity, 0);
+
+  const wholesaleSubtotal = lines.reduce((sum, line) => {
+    const unit =
+      wholesalePriceByProductId[line.product.id] ??
+      line.product.wholesalePrice ??
+      line.product.price;
+    return sum + unit * line.quantity;
+  }, 0);
+
+  // Threshold amount so với tổng giá sỉ dự kiến (min order at wholesale rates).
+  const wholesale = evaluateWholesaleEligibility(
+    wholesaleAccount,
+    cartQuantity,
+    wholesaleSubtotal
+  );
 
   return (
     <div className="page-shell shell narrow-page">
@@ -62,7 +75,8 @@ export function CartView({
           <span className="kicker">Cart</span>
           <h1>Your cart</h1>
           <p>
-            {count} item{count === 1 ? "" : "s"} — quantities are capped at available stock.
+            {cartQuantity} item{cartQuantity === 1 ? "" : "s"} — quantities are capped at available
+            stock.
           </p>
         </div>
         <button className="button secondary compact" type="button" onClick={clear}>
@@ -73,6 +87,12 @@ export function CartView({
       <ul className="cart-items">
         {lines.map(({ product, quantity, note }) => {
           const image = product.media.find((item) => item.type === "image" && item.src);
+          const wholesaleUnit = wholesalePriceByProductId[product.id];
+          const showWholesaleUnit =
+            wholesale.isWholesale &&
+            wholesaleUnit != null &&
+            wholesaleUnit < product.price - 1e-9;
+
           return (
             <li className="cart-item cart-item-with-note" key={product.id}>
               <Link className="cart-item-image" href={`/products/${product.slug}`}>
@@ -93,6 +113,13 @@ export function CartView({
                   ) : (
                     <>{usd.format(product.price)} each</>
                   )}
+                  {showWholesaleUnit ? (
+                    <span className="cart-wholesale-hint">
+                      {" "}
+                      · Wholesale {usd.format(wholesaleUnit)}
+                      {!wholesale.qualifies ? " (when min met)" : " applied"}
+                    </span>
+                  ) : null}
                 </span>
                 <label className="cart-line-note">
                   <span>Special request for this item</span>
@@ -123,7 +150,12 @@ export function CartView({
                   <Plus size={15} />
                 </button>
               </div>
-              <strong className="cart-line-total">{usd.format(product.price * quantity)}</strong>
+              <strong className="cart-line-total">
+                {usd.format(
+                  (wholesale.qualifies && wholesaleUnit != null ? wholesaleUnit : product.price) *
+                    quantity
+                )}
+              </strong>
               <button
                 className="cart-remove"
                 type="button"
@@ -145,13 +177,14 @@ export function CartView({
       </div>
 
       <SetupNotice>
-        Đang bật chế độ đặt hàng thử: bấm “Tiến hành đặt hàng” để tạo đơn nhận tại cửa hàng mà KHÔNG cần
-        thanh toán. Thanh toán online (Stripe Tax + thẻ) sẽ được nối ở phase sau.
+        Đang bật chế độ đặt hàng thử: bấm “Tiến hành đặt hàng” để tạo đơn nhận tại cửa hàng mà KHÔNG
+        cần thanh toán. Thanh toán online (Stripe Tax + thẻ) sẽ được nối ở phase sau.
       </SetupNotice>
 
       <FulfillmentPicker
         retailSubtotal={retailSubtotal}
         wholesaleSubtotal={wholesaleSubtotal}
+        wholesale={wholesale}
         shippingAddresses={shippingAddresses}
         signedIn={signedIn}
       />

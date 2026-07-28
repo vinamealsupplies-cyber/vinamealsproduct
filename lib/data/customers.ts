@@ -9,6 +9,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 
 export type CustomerType = "retail" | "wholesale" | "guest";
 export type CustomerStatus = "active" | "inactive" | "blocked";
+export type WholesaleMinKind = "quantity" | "amount";
 
 export type AdminCustomer = {
   id: string;
@@ -22,6 +23,9 @@ export type AdminCustomer = {
   status: CustomerStatus;
   notes: string | null;
   taxExemptStatus: string;
+  /** quantity | amount — ngưỡng mở giá sỉ (chỉ wholesale). */
+  wholesaleMinKind: WholesaleMinKind | null;
+  wholesaleMinValue: number | null;
   /** Có tài khoản đăng nhập gắn kèm hay không — ảnh hưởng tới việc được xoá. */
   hasLogin: boolean;
   createdAt: string;
@@ -39,9 +43,17 @@ type DbCustomer = {
   status: CustomerStatus;
   notes: string | null;
   tax_exempt_status: string;
+  wholesale_min_kind: WholesaleMinKind | null;
+  wholesale_min_value: number | string | null;
   auth_user_id: string | null;
   created_at: string;
 };
+
+function numOrNull(value: number | string | null | undefined): number | null {
+  if (value == null || value === "") return null;
+  const parsed = typeof value === "string" ? Number.parseFloat(value) : value;
+  return typeof parsed === "number" && Number.isFinite(parsed) ? parsed : null;
+}
 
 function mapCustomer(row: DbCustomer): AdminCustomer {
   return {
@@ -56,6 +68,11 @@ function mapCustomer(row: DbCustomer): AdminCustomer {
     status: row.status,
     notes: row.notes,
     taxExemptStatus: row.tax_exempt_status,
+    wholesaleMinKind:
+      row.wholesale_min_kind === "quantity" || row.wholesale_min_kind === "amount"
+        ? row.wholesale_min_kind
+        : null,
+    wholesaleMinValue: numOrNull(row.wholesale_min_value),
     hasLogin: Boolean(row.auth_user_id),
     createdAt: row.created_at
   };
@@ -66,7 +83,7 @@ export async function getCustomersForStaff(): Promise<AdminCustomer[]> {
   const { data, error } = await supabase
     .from("customers")
     .select(
-      "id, customer_number, first_name, last_name, company_name, email, phone, customer_type, status, notes, tax_exempt_status, auth_user_id, created_at"
+      "id, customer_number, first_name, last_name, company_name, email, phone, customer_type, status, notes, tax_exempt_status, wholesale_min_kind, wholesale_min_value, auth_user_id, created_at"
     )
     .order("customer_number", { ascending: true });
 

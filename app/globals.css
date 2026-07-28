@@ -1492,6 +1492,34 @@ a.oauth-button { text-decoration: none; color: inherit; box-sizing: border-box; 
   font-weight: 750;
   color: var(--green-dark, #1b5e40);
 }
+
+/* Wholesale eligibility on cart */
+.wholesale-status-banner {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 12px;
+  align-items: start;
+  padding: 14px 16px;
+  border-radius: 14px;
+  margin-bottom: 16px;
+}
+.wholesale-status-banner strong { display: block; font-size: 14px; margin-bottom: 3px; }
+.wholesale-status-banner p { margin: 0; font-size: 12px; line-height: 1.4; }
+.wholesale-status-banner.is-active {
+  background: var(--mint);
+  color: var(--green-dark);
+  border: 1px solid #b8e0c8;
+}
+.wholesale-status-banner.is-locked {
+  background: #fff8e8;
+  color: #7a5200;
+  border: 1px solid #f0d9a0;
+}
+.cart-wholesale-hint {
+  color: var(--green-dark, #1b5e40);
+  font-weight: 700;
+  font-size: 11px;
+}
 .orders-table-wrap {
   overflow-x: auto; border: 1px solid var(--line);
   border-radius: var(--radius-small); background: var(--surface);

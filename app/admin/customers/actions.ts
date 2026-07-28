@@ -29,6 +29,11 @@ function readForm(formData: FormData) {
   const text = (name: string, max = 160) => String(formData.get(name) ?? "").trim().slice(0, max) || null;
   const customerType = String(formData.get("customerType") ?? "retail");
   const status = String(formData.get("status") ?? "active");
+  const minKindRaw = String(formData.get("wholesaleMinKind") ?? "").trim();
+  const minKind =
+    minKindRaw === "quantity" || minKindRaw === "amount" ? minKindRaw : null;
+  const minValueRaw = String(formData.get("wholesaleMinValue") ?? "").trim();
+  const minValueParsed = minValueRaw ? Number.parseFloat(minValueRaw) : null;
 
   return {
     firstName: text("firstName"),
@@ -38,7 +43,10 @@ function readForm(formData: FormData) {
     phone: text("phone", 40),
     notes: text("notes", 1000),
     customerType: CUSTOMER_TYPES.has(customerType) ? customerType : "retail",
-    status: CUSTOMER_STATUSES.has(status) ? status : "active"
+    status: CUSTOMER_STATUSES.has(status) ? status : "active",
+    wholesaleMinKind: minKind as "quantity" | "amount" | null,
+    wholesaleMinValue:
+      minValueParsed != null && Number.isFinite(minValueParsed) ? minValueParsed : null
   };
 }
 
@@ -54,7 +62,25 @@ function validate(input: ReturnType<typeof readForm>) {
   if (input.customerType === "wholesale" && !input.companyName) {
     return "Wholesale customers need a company name.";
   }
+  if (input.customerType === "wholesale") {
+    if (!input.wholesaleMinKind) {
+      return "Set wholesale minimum as quantity or order amount.";
+    }
+    if (input.wholesaleMinValue == null || input.wholesaleMinValue <= 0) {
+      return "Wholesale minimum must be greater than zero.";
+    }
+  }
   return null;
+}
+
+function wholesaleFields(input: ReturnType<typeof readForm>) {
+  if (input.customerType !== "wholesale") {
+    return { wholesale_min_kind: null, wholesale_min_value: null };
+  }
+  return {
+    wholesale_min_kind: input.wholesaleMinKind,
+    wholesale_min_value: input.wholesaleMinValue
+  };
 }
 
 function friendlyError(message: string) {
@@ -103,7 +129,8 @@ export async function createCustomerAction(
       phone: input.phone,
       notes: input.notes,
       customer_type: input.customerType,
-      status: input.status
+      status: input.status,
+      ...wholesaleFields(input)
     })
     .select("id")
     .single();
@@ -155,7 +182,8 @@ export async function updateCustomerAction(
       phone: input.phone,
       notes: input.notes,
       customer_type: input.customerType,
-      status: input.status
+      status: input.status,
+      ...wholesaleFields(input)
     })
     .eq("id", id);
 

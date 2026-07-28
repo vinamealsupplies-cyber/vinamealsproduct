@@ -1,13 +1,13 @@
 "use client";
 
 import { useState } from "react";
-import { Receipt, Store, Truck } from "lucide-react";
+import { BadgeDollarSign, Receipt, Store, Truck } from "lucide-react";
 import { ShippingAddressPicker } from "@/components/shipping-address-picker";
 import type { CustomerAddress } from "@/lib/data/address-types";
 import { usd } from "@/lib/format";
+import type { WholesaleEligibility } from "@/lib/wholesale";
 
 type FulfillmentMethod = "pickup" | "ship";
-type CustomerKind = "retail" | "wholesale";
 
 const SHIPPING_FLAT_RATE = 12.5;
 
@@ -16,26 +16,29 @@ const STORE = { city: "Garden Grove", state: "CA", label: "Vinameals store picku
 /**
  * Chọn nhận tại cửa hàng hay giao hàng, kèm tạm tính.
  *
- * THUẾ: cố ý KHÔNG tính ở đây. Cửa hàng thanh toán qua Stripe và dùng
- * Stripe Tax, nên thuế được xác định ở bước checkout dựa trên địa chỉ thật.
- * Shipping address đã lưu dùng để prefill / chọn nơi giao — Stripe Checkout
- * vẫn là nơi xác nhận thuế cuối cùng.
+ * Wholesale pricing CHỈ hiện khi admin gán mác wholesale và giỏ đạt ngưỡng
+ * (số lượng hoặc số tiền). Khách lẻ không còn nút bấm để xem/chọn giá sỉ.
+ *
+ * THUẾ: không tính ở đây — Stripe Tax ở checkout.
  */
 export function FulfillmentPicker({
   retailSubtotal,
   wholesaleSubtotal,
+  wholesale,
   shippingAddresses = [],
   signedIn = false
 }: {
   retailSubtotal: number;
+  /** Tổng nếu áp giá sỉ (chỉ meaningful khi wholesale.isWholesale). */
   wholesaleSubtotal: number;
+  wholesale: WholesaleEligibility;
   shippingAddresses?: CustomerAddress[];
   signedIn?: boolean;
 }) {
-  const [customerKind, setCustomerKind] = useState<CustomerKind>("retail");
   const [method, setMethod] = useState<FulfillmentMethod>("ship");
 
-  const subtotal = customerKind === "retail" ? retailSubtotal : wholesaleSubtotal;
+  const useWholesale = wholesale.isWholesale && wholesale.qualifies;
+  const subtotal = useWholesale ? wholesaleSubtotal : retailSubtotal;
   const shipping = method === "pickup" ? 0 : SHIPPING_FLAT_RATE;
   const beforeTax = subtotal + shipping;
 
@@ -48,18 +51,38 @@ export function FulfillmentPicker({
         </div>
       </div>
 
-      <div className="filter-chip-row" role="group" aria-label="Account type">
-        {(["retail", "wholesale"] as CustomerKind[]).map((kind) => (
-          <button
-            key={kind}
-            type="button"
-            className={customerKind === kind ? "chip-button active" : "chip-button"}
-            onClick={() => setCustomerKind(kind)}
-          >
-            {kind === "retail" ? "Retail pricing" : "Wholesale pricing"}
-          </button>
-        ))}
-      </div>
+      {wholesale.isWholesale ? (
+        <div
+          className={`wholesale-status-banner ${useWholesale ? "is-active" : "is-locked"}`}
+          role="status"
+        >
+          <BadgeDollarSign size={18} aria-hidden="true" />
+          <div>
+            {useWholesale ? (
+              <>
+                <strong>Wholesale pricing applied</strong>
+                <p>
+                  Your account is marked wholesale and this cart meets the minimum
+                  {wholesale.minKind === "quantity" && wholesale.minValue != null
+                    ? ` (${wholesale.minValue} items)`
+                    : wholesale.minKind === "amount" && wholesale.minValue != null
+                      ? ` ($${wholesale.minValue.toFixed(2)})`
+                      : ""}
+                  .
+                </p>
+              </>
+            ) : (
+              <>
+                <strong>Wholesale pricing locked</strong>
+                <p>
+                  {wholesale.message ??
+                    "Add more items to unlock your wholesale prices on this order."}
+                </p>
+              </>
+            )}
+          </div>
+        </div>
+      ) : null}
 
       <div className="fulfillment-choice">
         <label>
@@ -107,9 +130,15 @@ export function FulfillmentPicker({
 
       <div className="tax-result">
         <div className="tax-result-row">
-          <span>Subtotal ({customerKind})</span>
+          <span>Subtotal {useWholesale ? "(wholesale)" : "(retail)"}</span>
           <strong>{usd.format(subtotal)}</strong>
         </div>
+        {wholesale.isWholesale && !useWholesale && wholesaleSubtotal < retailSubtotal ? (
+          <div className="tax-result-row muted">
+            <span>If wholesale unlocked</span>
+            <span>{usd.format(wholesaleSubtotal)}</span>
+          </div>
+        ) : null}
         <div className="tax-result-row">
           <span>Shipping</span>
           <strong>{shipping === 0 ? "Free (pickup)" : usd.format(shipping)}</strong>

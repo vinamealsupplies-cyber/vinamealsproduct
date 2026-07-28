@@ -81,6 +81,13 @@ function mapProduct(row: ProductRow, stockByProduct: Map<string, number>): Produ
   const onSale = rawSale !== null && rawSale >= 0 && rawSale < retail;
   const price = onSale ? rawSale : retail;
 
+  // Public catalog: không lộ wholesale_price (cột không grant cho anon).
+  // wholesalePrice trên type chỉ dùng nội bộ/admin; storefront luôn = price.
+  const wholesaleFromDb =
+    variant && "wholesale_price" in variant && variant.wholesale_price != null
+      ? num(variant.wholesale_price as number | string)
+      : null;
+
   return {
     id: row.id,
     slug: row.slug,
@@ -90,7 +97,7 @@ function mapProduct(row: ProductRow, stockByProduct: Map<string, number>): Produ
     categorySlug: primaryCategory?.slug ?? "",
     price,
     compareAtPrice: onSale ? retail : null,
-    wholesalePrice: num(variant?.wholesale_price ?? variant?.retail_price),
+    wholesalePrice: wholesaleFromDb ?? price,
     stock: Math.max(0, Math.round(stockByProduct.get(row.id) ?? 0)),
     featured: row.featured,
     // Dùng mốc published_at (epoch giây) làm rank "mới nhất": mới hơn = lớn hơn.
