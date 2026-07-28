@@ -7,6 +7,7 @@ import {
   CheckCircle2,
   ChevronDown,
   ChevronRight,
+  ExternalLink,
   MessageSquareText,
   PackageCheck,
   PackageOpen,
@@ -18,10 +19,16 @@ import {
   cancelOrder,
   confirmDelivered,
   confirmPickup,
+  saveShipmentTracking,
   updateOrderNotes
 } from "@/app/admin/orders/actions";
 import type { StaffOrder } from "@/lib/data/orders";
 import { formatDate, formatDateTime, usd } from "@/lib/format";
+import {
+  carrierLabel,
+  SHIPPING_CARRIERS,
+  type ShippingCarrier
+} from "@/lib/shipping-tracking";
 
 const STATUS_LABEL: Record<string, string> = {
   draft: "Nháp",
@@ -66,6 +73,9 @@ function OrderDetail({ order }: { order: StaffOrder }) {
               : "Ship / giao hàng"}
           </p>
           <p className="field-hint">Đặt lúc {formatDateTime(order.createdAt)}</p>
+          {order.shippedAt ? (
+            <p className="field-hint">Ship lúc {formatDateTime(order.shippedAt)}</p>
+          ) : null}
           {order.fulfilledAt ? (
             <p className="field-hint">Hoàn tất {formatDateTime(order.fulfilledAt)}</p>
           ) : null}
@@ -74,6 +84,19 @@ function OrderDetail({ order }: { order: StaffOrder }) {
           <strong>Trạng thái</strong>
           <p>{STATUS_LABEL[order.status] ?? order.status}</p>
           <p className="field-hint">{fulfillmentLabel(order)}</p>
+          {order.trackingNumber ? (
+            <p className="order-tracking-inline">
+              {carrierLabel(order.shippingCarrier)} · {order.trackingNumber}
+              {order.trackingUrl ? (
+                <>
+                  {" "}
+                  <a href={order.trackingUrl} target="_blank" rel="noopener noreferrer">
+                    Tra cứu <ExternalLink size={12} aria-hidden="true" />
+                  </a>
+                </>
+              ) : null}
+            </p>
+          ) : null}
           {order.notes ? <p className="field-hint">Ghi chú đơn: {order.notes}</p> : null}
         </div>
       </div>
@@ -148,10 +171,12 @@ type RowHandlers = {
   run: (id: string, fn: () => Promise<{ ok: true } | { ok: false; error: string }>) => void;
   onEditNotes: (order: StaffOrder) => void;
   onCancel: (order: StaffOrder) => void;
+  onShipTracking: (order: StaffOrder) => void;
 };
 
 function OrderRows({ orders, handlers }: { orders: StaffOrder[]; handlers: RowHandlers }) {
-  const { expandedId, pendingId, toggleExpand, run, onEditNotes, onCancel } = handlers;
+  const { expandedId, pendingId, toggleExpand, run, onEditNotes, onCancel, onShipTracking } =
+    handlers;
 
   return (
     <>
@@ -235,6 +260,11 @@ function OrderRows({ orders, handlers }: { orders: StaffOrder[]; handlers: RowHa
                 ) : (
                   <span className="muted">—</span>
                 )}
+                {order.trackingNumber ? (
+                  <span className="order-tracking-chip">
+                    {carrierLabel(order.shippingCarrier)} {order.trackingNumber}
+                  </span>
+                ) : null}
               </td>
               <td className="row-actions orders-row-actions">
                 {order.awaitingPickup ? (
@@ -247,14 +277,35 @@ function OrderRows({ orders, handlers }: { orders: StaffOrder[]; handlers: RowHa
                     {pendingId === order.id ? "…" : "Xác nhận pickup"}
                   </button>
                 ) : null}
+                {order.canEditTracking ? (
+                  <button type="button" className="compact" onClick={() => onShipTracking(order)}>
+                    <Truck size={14} aria-hidden="true" />
+                    {order.trackingNumber ? "Sửa tracking" : "Nhập tracking"}
+                  </button>
+                ) : null}
+                {order.trackingUrl ? (
+                  <a
+                    className="button secondary compact"
+                    href={order.trackingUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                  >
+                    <ExternalLink size={14} aria-hidden="true" /> Tra cứu
+                  </a>
+                ) : null}
                 {order.awaitingDelivery ? (
                   <button
                     className="button primary compact"
                     type="button"
-                    disabled={pendingId === order.id}
+                    disabled={pendingId === order.id || !order.trackingNumber}
+                    title={
+                      order.trackingNumber
+                        ? "Xác nhận khách đã nhận hàng"
+                        : "Nhập tracking trước khi xác nhận đã giao"
+                    }
                     onClick={() => run(order.id, () => confirmDelivered(order.id))}
                   >
-                    <Truck size={14} aria-hidden="true" />
+                    <CheckCircle2 size={14} aria-hidden="true" />
                     {pendingId === order.id ? "…" : "Đã giao"}
                   </button>
                 ) : null}
@@ -351,6 +402,10 @@ export function OrdersManager({ orders }: { orders: StaffOrder[] }) {
   const [canceling, setCanceling] = useState<StaffOrder | null>(null);
   const [cancelReason, setCancelReason] = useState("");
   const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [shippingOrder, setShippingOrder] = useState<StaffOrder | null>(null);
+  const [carrier, setCarrier] = useState<ShippingCarrier>("usps");
+  const [trackingNumber, setTrackingNumber] = useState("");
+  const [customUrl, setCustomUrl] = useState("");
 
   // Phần 1: chờ giao / ship / pickup (confirmed).
   const openOrders = orders.filter((o) => o.status === "confirmed");
@@ -367,6 +422,7 @@ export function OrdersManager({ orders }: { orders: StaffOrder[] }) {
       setEditingNotes(null);
       setCanceling(null);
       setCancelReason("");
+      setShippingOrder(null);
       router.refresh();
     } else {
       setError(result.error);
@@ -381,14 +437,30 @@ export function OrdersManager({ orders }: { orders: StaffOrder[] }) {
     onEditNotes: (order) => {
       setError(null);
       setCanceling(null);
+      setShippingOrder(null);
       setEditingNotes(order);
       setNotesDraft(order.notes ?? "");
     },
     onCancel: (order) => {
       setError(null);
       setEditingNotes(null);
+      setShippingOrder(null);
       setCanceling(order);
       setCancelReason("");
+    },
+    onShipTracking: (order) => {
+      setError(null);
+      setEditingNotes(null);
+      setCanceling(null);
+      setShippingOrder(order);
+      setCarrier(
+        (order.shippingCarrier as ShippingCarrier) &&
+          SHIPPING_CARRIERS.some((c) => c.value === order.shippingCarrier)
+          ? (order.shippingCarrier as ShippingCarrier)
+          : "usps"
+      );
+      setTrackingNumber(order.trackingNumber ?? "");
+      setCustomUrl("");
     }
   };
 
@@ -465,6 +537,87 @@ export function OrdersManager({ orders }: { orders: StaffOrder[] }) {
             </button>
             <button className="button secondary" type="button" onClick={() => setCanceling(null)}>
               Không huỷ
+            </button>
+          </div>
+        </div>
+      ) : null}
+
+      {shippingOrder ? (
+        <div className="form-card compact-form-card orders-inline-panel">
+          <h2>
+            <Truck size={18} aria-hidden="true" /> Mã vận đơn — {shippingOrder.number}
+          </h2>
+          <p className="field-hint">
+            Nhập tracking như FedEx / USPS / UPS / DHL. Sau khi lưu, bấm <strong>Tra cứu</strong> để
+            xem hàng đã tới chưa, rồi bấm <strong>Đã giao</strong> khi khách nhận xong.
+          </p>
+          <div className="form-grid two-columns">
+            <label>
+              Hãng vận chuyển
+              <select
+                value={carrier}
+                onChange={(e) => setCarrier(e.target.value as ShippingCarrier)}
+              >
+                {SHIPPING_CARRIERS.map((c) => (
+                  <option key={c.value} value={c.value}>
+                    {c.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label>
+              Mã số giao hàng (tracking)
+              <input
+                value={trackingNumber}
+                onChange={(e) => setTrackingNumber(e.target.value)}
+                placeholder="VD: 9400 1000 0000 0000 0000 00"
+                maxLength={80}
+                autoComplete="off"
+              />
+            </label>
+            <label className="full-width">
+              Link tra cứu tùy chỉnh (tuỳ chọn)
+              <input
+                value={customUrl}
+                onChange={(e) => setCustomUrl(e.target.value)}
+                placeholder="https://… — để trống sẽ dùng link FedEx/USPS/UPS/DHL"
+                maxLength={500}
+              />
+            </label>
+          </div>
+          <div className="button-row">
+            <button
+              className="button primary"
+              type="button"
+              disabled={pendingId === shippingOrder.id}
+              onClick={() =>
+                run(shippingOrder.id, () =>
+                  saveShipmentTracking(shippingOrder.id, carrier, trackingNumber, customUrl)
+                )
+              }
+            >
+              <Truck size={16} aria-hidden="true" />
+              {pendingId === shippingOrder.id ? "Đang lưu…" : "Lưu tracking"}
+            </button>
+            {shippingOrder.trackingUrl || trackingNumber ? (
+              <a
+                className="button secondary"
+                href={
+                  shippingOrder.trackingUrl ||
+                  `https://www.google.com/search?q=${encodeURIComponent(`${carrier} ${trackingNumber}`)}`
+                }
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                <ExternalLink size={16} aria-hidden="true" /> Mở tra cứu
+              </a>
+            ) : null}
+            <button
+              className="button secondary"
+              type="button"
+              onClick={() => setShippingOrder(null)}
+            >
+              Đóng
             </button>
           </div>
         </div>

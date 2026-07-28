@@ -4,9 +4,14 @@ import { revalidatePath } from "next/cache";
 import { getViewer, type Viewer } from "@/lib/auth";
 import { writeAuditLog } from "@/lib/data/audit-log";
 import { callerKey, checkRateLimit, RATE_LIMITS } from "@/lib/rate-limit";
+import {
+  buildTrackingUrl,
+  isShippingCarrier,
+  type ShippingCarrier
+} from "@/lib/shipping-tracking";
 import { createAdminClient } from "@/lib/supabase/admin";
 
-// Seller/staff: xác nhận giao/pickup, huỷ đơn, sửa ghi chú. Mọi thao tác ghi audit_log.
+// Seller/staff: xác nhận giao/pickup, tracking ship, huỷ đơn, ghi chú.
 
 export type OrderActionResult = { ok: true } | { ok: false; error: string };
 
@@ -19,7 +24,14 @@ type OrderSnapshot = {
   picked_up_at: string | null;
   fulfilled_at: string | null;
   total_amount: number | string | null;
+  shipping_carrier?: string | null;
+  tracking_number?: string | null;
+  tracking_url?: string | null;
+  shipped_at?: string | null;
 };
+
+const ORDER_SELECT =
+  "id, order_number, status, fulfillment_method, notes, picked_up_at, fulfilled_at, total_amount, shipping_carrier, tracking_number, tracking_url, shipped_at";
 
 async function requireOps(): Promise<{ viewer: Viewer } | { error: string }> {
   const viewer = await getViewer();
@@ -39,12 +51,94 @@ function revalidateOrders() {
 
 async function loadOrder(id: string): Promise<OrderSnapshot | null> {
   const supabase = createAdminClient();
-  const { data } = await supabase
-    .from("sales_orders")
-    .select("id, order_number, status, fulfillment_method, notes, picked_up_at, fulfilled_at, total_amount")
-    .eq("id", id)
-    .maybeSingle();
+  const { data } = await supabase.from("sales_orders").select(ORDER_SELECT).eq("id", id).maybeSingle();
   return (data as OrderSnapshot | null) ?? null;
+}
+
+/**
+ * Lưu mã vận đơn (ship). Không tự chuyển fulfilled — nhân viên tra cứu FedEx/USPS
+ * rồi bấm "Đã giao" khi hàng tới.
+ */
+export async function saveShipmentTracking(
+  orderId: string,
+  carrier: string,
+  trackingNumber: string,
+  customUrl = ""
+): Promise<OrderActionResult> {
+  const gate = await requireOps();
+  if ("error" in gate) return { ok: false, error: gate.error };
+  if (!orderId) return { ok: false, error: "Thiếu mã đơn." };
+
+  const carrierCode = carrier.trim().toLowerCase();
+  if (!isShippingCarrier(carrierCode)) {
+    return { ok: false, error: "Chọn hãng vận chuyển (USPS, FedEx, UPS, DHL, hoặc Other)." };
+  }
+  const tracking = trackingNumber.trim().slice(0, 80);
+  if (!tracking) return { ok: false, error: "Nhập mã số giao hàng (tracking number)." };
+
+  const override = customUrl.trim().slice(0, 500);
+  if (override && !/^https?:\/\//i.test(override)) {
+    return { ok: false, error: "Link tra cứu tùy chỉnh phải bắt đầu bằng http:// hoặc https://." };
+  }
+
+  const before = await loadOrder(orderId);
+  if (!before) return { ok: false, error: "Không tìm thấy đơn." };
+  if (before.status === "cancelled") return { ok: false, error: "Đơn đã huỷ." };
+  if (before.fulfillment_method !== "ship") {
+    return { ok: false, error: "Chỉ đơn ship mới có mã vận đơn." };
+  }
+
+  const trackingUrl =
+    override || buildTrackingUrl(carrierCode as ShippingCarrier, tracking) || null;
+  const now = new Date().toISOString();
+  const supabase = createAdminClient();
+  const { data, error } = await supabase
+    .from("sales_orders")
+    .update({
+      shipping_carrier: carrierCode,
+      tracking_number: tracking,
+      tracking_url: trackingUrl,
+      shipped_at: before.shipped_at ?? now,
+      updated_at: now
+    })
+    .eq("id", orderId)
+    .select(ORDER_SELECT);
+
+  if (error) {
+    if (error.message.includes("shipping_carrier") || error.message.includes("tracking_number")) {
+      return {
+        ok: false,
+        error: "Database chưa có cột tracking. Chạy migration 20260728220000_order_shipping_tracking.sql."
+      };
+    }
+    return { ok: false, error: "Không lưu mã vận đơn. Thử lại." };
+  }
+  if (!data?.length) return { ok: false, error: "Không tìm thấy đơn." };
+
+  const after = data[0] as OrderSnapshot;
+  await writeAuditLog({
+    actorUserId: gate.viewer.id,
+    action: "order.save_tracking",
+    entityType: "sales_order",
+    entityId: orderId,
+    before: {
+      shipping_carrier: before.shipping_carrier,
+      tracking_number: before.tracking_number
+    },
+    after: {
+      shipping_carrier: after.shipping_carrier,
+      tracking_number: after.tracking_number,
+      tracking_url: after.tracking_url
+    },
+    metadata: {
+      orderNumber: after.order_number,
+      actorRole: gate.viewer.role,
+      actorEmail: gate.viewer.email
+    }
+  });
+
+  revalidateOrders();
+  return { ok: true };
 }
 
 /** Pickup: khách đã lấy hàng → fulfilled. */
@@ -71,7 +165,7 @@ export async function confirmPickup(orderId: string): Promise<OrderActionResult>
     .eq("fulfillment_method", "pickup")
     .eq("status", "confirmed")
     .is("picked_up_at", null)
-    .select("id, order_number, status, fulfillment_method, notes, picked_up_at, fulfilled_at, total_amount");
+    .select(ORDER_SELECT);
 
   if (error) return { ok: false, error: "Không cập nhật được đơn. Thử lại." };
   if (!data || data.length === 0) {
@@ -122,14 +216,30 @@ export async function confirmDelivered(orderId: string): Promise<OrderActionResu
     patch.pickup_ready_at = now;
   }
 
+  // Đơn ship: nên có tracking trước khi đánh dấu đã giao (có thể bỏ qua nếu đã có).
+  if (before.fulfillment_method === "ship" && !before.tracking_number) {
+    return {
+      ok: false,
+      error: "Nhập mã vận đơn (tracking) trước khi xác nhận đã giao — hoặc bấm Lưu tracking."
+    };
+  }
+
   const { data, error } = await supabase
     .from("sales_orders")
     .update(patch)
     .eq("id", orderId)
     .eq("status", "confirmed")
-    .select("id, order_number, status, fulfillment_method, notes, picked_up_at, fulfilled_at, total_amount");
+    .select(ORDER_SELECT);
 
-  if (error) return { ok: false, error: "Không cập nhật được đơn. Thử lại." };
+  if (error) {
+    if (error.message.includes("shipping_address") || error.message.includes("ship_address")) {
+      return {
+        ok: false,
+        error: "Đơn ship cần địa chỉ giao hàng trước khi hoàn tất. Cập nhật địa chỉ rồi thử lại."
+      };
+    }
+    return { ok: false, error: "Không cập nhật được đơn. Thử lại." };
+  }
   if (!data || data.length === 0) {
     return { ok: false, error: "Đơn không còn ở trạng thái confirmed." };
   }
@@ -145,6 +255,7 @@ export async function confirmDelivered(orderId: string): Promise<OrderActionResu
     metadata: {
       orderNumber: after.order_number,
       fulfillmentMethod: after.fulfillment_method,
+      trackingNumber: after.tracking_number,
       actorRole: gate.viewer.role,
       actorEmail: gate.viewer.email
     }
@@ -186,7 +297,7 @@ export async function cancelOrder(orderId: string, reason = ""): Promise<OrderAc
     })
     .eq("id", orderId)
     .eq("status", "confirmed")
-    .select("id, order_number, status, fulfillment_method, notes, picked_up_at, fulfilled_at, total_amount");
+    .select(ORDER_SELECT);
 
   if (error) return { ok: false, error: "Không huỷ được đơn. Thử lại." };
   if (!data || data.length === 0) {
@@ -231,7 +342,7 @@ export async function updateOrderNotes(orderId: string, notes: string): Promise<
     .from("sales_orders")
     .update({ notes: nextNotes, updated_at: new Date().toISOString() })
     .eq("id", orderId)
-    .select("id, order_number, status, fulfillment_method, notes, picked_up_at, fulfilled_at, total_amount");
+    .select(ORDER_SELECT);
 
   if (error) return { ok: false, error: "Không lưu ghi chú. Thử lại." };
   if (!data || data.length === 0) return { ok: false, error: "Không tìm thấy đơn." };

@@ -1,5 +1,6 @@
 import "server-only";
 
+import { buildTrackingUrl, type ShippingCarrier } from "@/lib/shipping-tracking";
 import { createAdminClient } from "@/lib/supabase/admin";
 
 // Đơn hàng cho khu admin/seller. Đọc bằng service role.
@@ -37,6 +38,10 @@ export type StaffOrder = {
   pickedUpAt: string | null;
   fulfilledAt: string | null;
   pickupLocation: string | null;
+  shippingCarrier: ShippingCarrier | string | null;
+  trackingNumber: string | null;
+  trackingUrl: string | null;
+  shippedAt: string | null;
   itemCount: number;
   items: StaffOrderItem[];
   /** Đơn pickup đã xác nhận nhưng CHƯA lấy hàng → cần chú ý (nhấp nháy đỏ). */
@@ -45,6 +50,8 @@ export type StaffOrder = {
   awaitingDelivery: boolean;
   canCancel: boolean;
   canEditNotes: boolean;
+  /** Ship: có thể nhập/sửa tracking. */
+  canEditTracking: boolean;
 };
 
 type DbCustomer = {
@@ -78,6 +85,10 @@ type DbOrder = {
   notes: string | null;
   picked_up_at: string | null;
   fulfilled_at: string | null;
+  shipping_carrier: string | null;
+  tracking_number: string | null;
+  tracking_url: string | null;
+  shipped_at: string | null;
   customer: DbCustomer | DbCustomer[] | null;
   location: { name: string | null } | { name: string | null }[] | null;
   items: DbItem[] | null;
@@ -147,12 +158,21 @@ function mapOrder(row: DbOrder): StaffOrder {
     pickedUpAt: row.picked_up_at,
     fulfilledAt: row.fulfilled_at,
     pickupLocation: location?.name ?? null,
+    shippingCarrier: row.shipping_carrier,
+    trackingNumber: row.tracking_number?.trim() || null,
+    trackingUrl: buildTrackingUrl(
+      row.shipping_carrier,
+      row.tracking_number,
+      row.tracking_url
+    ),
+    shippedAt: row.shipped_at,
     itemCount: items.length,
     items,
     awaitingPickup,
     awaitingDelivery,
     canCancel: row.status === "confirmed",
-    canEditNotes: row.status !== "cancelled"
+    canEditNotes: row.status !== "cancelled",
+    canEditTracking: row.fulfillment_method === "ship" && row.status !== "cancelled"
   };
 }
 
@@ -162,6 +182,7 @@ export async function getOrdersForStaff(): Promise<StaffOrder[]> {
     .from("sales_orders")
     .select(
       `id, order_number, status, channel, fulfillment_method, total_amount, currency, created_at, notes, picked_up_at, fulfilled_at,
+       shipping_carrier, tracking_number, tracking_url, shipped_at,
        customer:customers ( first_name, last_name, company_name, phone, auth_user_id ),
        location:inventory_locations ( name ),
        items:sales_order_items ( id, product_name_snapshot, variant_name_snapshot, sku_snapshot, quantity, unit_price, line_total, line_note )`
