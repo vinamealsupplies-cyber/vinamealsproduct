@@ -19,12 +19,34 @@ function formatTime(iso: string) {
   }
 }
 
+function staffLabel(entry: AuditLogEntry): string {
+  const metaName =
+    typeof entry.metadata?.actorName === "string" ? entry.metadata.actorName.trim() : "";
+  return entry.actorName?.trim() || metaName || entry.actorEmail || "—";
+}
+
+function staffEmail(entry: AuditLogEntry): string | null {
+  if (entry.actorEmail) return entry.actorEmail;
+  const meta =
+    typeof entry.metadata?.actorEmail === "string" ? entry.metadata.actorEmail.trim() : "";
+  return meta || null;
+}
+
+function staffRole(entry: AuditLogEntry): string | null {
+  return typeof entry.metadata?.actorRole === "string" && entry.metadata.actorRole
+    ? String(entry.metadata.actorRole)
+    : null;
+}
+
 function summarize(entry: AuditLogEntry) {
   const meta = entry.metadata ?? {};
   const orderNumber = typeof meta.orderNumber === "string" ? meta.orderNumber : null;
+  const customerLabel = typeof meta.customerLabel === "string" ? meta.customerLabel : null;
   const sku = typeof meta.sku === "string" ? meta.sku : null;
-  const bits = [entry.action, entry.entityType];
+  const who = staffLabel(entry);
+  const bits = [`By ${who}`, entry.action, entry.entityType];
   if (orderNumber) bits.push(`#${orderNumber}`);
+  if (customerLabel) bits.push(customerLabel);
   if (sku) bits.push(sku);
   if (entry.entityId) bits.push(entry.entityId.slice(0, 8));
   return bits.join(" · ");
@@ -44,6 +66,7 @@ export function ActivityLogViewer({ entries }: { entries: AuditLogEntry[] }) {
         entry.entityId,
         entry.actorEmail,
         entry.actorName,
+        staffLabel(entry),
         JSON.stringify(entry.metadata),
         JSON.stringify(entry.beforeData),
         JSON.stringify(entry.afterData)
@@ -59,8 +82,8 @@ export function ActivityLogViewer({ entries }: { entries: AuditLogEntry[] }) {
         <div>
           <h2>Activity log</h2>
           <p>
-            {entries.length} recent action{entries.length === 1 ? "" : "s"} — who changed products,
-            orders, inventory, customers.
+            {entries.length} recent action{entries.length === 1 ? "" : "s"} — each change records
+            which staff member edited products, orders, inventory, or customers.
           </p>
         </div>
       </div>
@@ -71,7 +94,7 @@ export function ActivityLogViewer({ entries }: { entries: AuditLogEntry[] }) {
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           type="search"
-          placeholder="Search action, user, order, SKU…"
+          placeholder="Search staff name, action, order, SKU…"
         />
       </label>
 
@@ -80,65 +103,81 @@ export function ActivityLogViewer({ entries }: { entries: AuditLogEntry[] }) {
           <thead>
             <tr>
               <th>When</th>
-              <th>Who</th>
+              <th>Staff</th>
               <th>Action</th>
               <th>Entity</th>
               <th />
             </tr>
           </thead>
           <tbody>
-            {visible.map((entry) => (
-              <Fragment key={entry.id}>
-                <tr>
-                  <td>{formatTime(entry.createdAt)}</td>
-                  <td>
-                    {entry.actorName || entry.actorEmail || "—"}
-                    {entry.actorEmail && entry.actorName ? (
-                      <span className="field-hint">{entry.actorEmail}</span>
-                    ) : null}
-                    {typeof entry.metadata?.actorRole === "string" ? (
-                      <span className={`status-pill status-${entry.metadata.actorRole}`}>
-                        {String(entry.metadata.actorRole)}
-                      </span>
-                    ) : null}
-                  </td>
-                  <td>
-                    <code className="audit-action">{entry.action}</code>
-                  </td>
-                  <td>
-                    {entry.entityType}
-                    {entry.entityId ? (
-                      <span className="field-hint">{entry.entityId.slice(0, 8)}…</span>
-                    ) : null}
-                  </td>
-                  <td className="row-actions">
-                    <button
-                      type="button"
-                      onClick={() => setExpanded(expanded === entry.id ? null : entry.id)}
-                    >
-                      {expanded === entry.id ? "Hide" : "Details"}
-                    </button>
-                  </td>
-                </tr>
-                {expanded === entry.id ? (
-                  <tr className="audit-detail-row">
-                    <td colSpan={5}>
-                      <p className="field-hint">{summarize(entry)}</p>
-                      <div className="audit-json-grid">
-                        <div>
-                          <strong>Before</strong>
-                          <pre>{JSON.stringify(entry.beforeData, null, 2)}</pre>
-                        </div>
-                        <div>
-                          <strong>After</strong>
-                          <pre>{JSON.stringify(entry.afterData, null, 2)}</pre>
-                        </div>
-                      </div>
+            {visible.map((entry) => {
+              const name = staffLabel(entry);
+              const email = staffEmail(entry);
+              const role = staffRole(entry);
+              const orderNumber =
+                typeof entry.metadata?.orderNumber === "string"
+                  ? entry.metadata.orderNumber
+                  : null;
+              const customerLabel =
+                typeof entry.metadata?.customerLabel === "string"
+                  ? entry.metadata.customerLabel
+                  : null;
+
+              return (
+                <Fragment key={entry.id}>
+                  <tr>
+                    <td>{formatTime(entry.createdAt)}</td>
+                    <td>
+                      <strong className="audit-staff-name">{name}</strong>
+                      {email && email !== name ? (
+                        <span className="field-hint">{email}</span>
+                      ) : null}
+                      {role ? (
+                        <span className={`status-pill status-${role}`}>{role}</span>
+                      ) : null}
+                    </td>
+                    <td>
+                      <code className="audit-action">{entry.action}</code>
+                    </td>
+                    <td>
+                      {entry.entityType}
+                      {orderNumber ? (
+                        <span className="field-hint">#{orderNumber}</span>
+                      ) : customerLabel ? (
+                        <span className="field-hint">{customerLabel}</span>
+                      ) : entry.entityId ? (
+                        <span className="field-hint">{entry.entityId.slice(0, 8)}…</span>
+                      ) : null}
+                    </td>
+                    <td className="row-actions">
+                      <button
+                        type="button"
+                        onClick={() => setExpanded(expanded === entry.id ? null : entry.id)}
+                      >
+                        {expanded === entry.id ? "Hide" : "Details"}
+                      </button>
                     </td>
                   </tr>
-                ) : null}
-              </Fragment>
-            ))}
+                  {expanded === entry.id ? (
+                    <tr className="audit-detail-row">
+                      <td colSpan={5}>
+                        <p className="field-hint">{summarize(entry)}</p>
+                        <div className="audit-json-grid">
+                          <div>
+                            <strong>Before</strong>
+                            <pre>{JSON.stringify(entry.beforeData, null, 2)}</pre>
+                          </div>
+                          <div>
+                            <strong>After</strong>
+                            <pre>{JSON.stringify(entry.afterData, null, 2)}</pre>
+                          </div>
+                        </div>
+                      </td>
+                    </tr>
+                  ) : null}
+                </Fragment>
+              );
+            })}
             {!visible.length ? (
               <tr>
                 <td className="empty-table" colSpan={5}>

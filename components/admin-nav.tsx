@@ -59,7 +59,7 @@ const groups: { label: string; items: NavItem[] }[] = [
     items: [
       { href: "/admin/expenses", label: "Expenses", icon: ReceiptText },
       { href: "/admin/reports", label: "Reports", icon: BarChart3 },
-      { href: "/admin/activity", label: "Activity log", icon: ScrollText },
+      { href: "/admin/activity", label: "Activity log", icon: ScrollText, seller: true },
       { href: "/admin/tax", label: "Sales tax", icon: Percent },
       { href: "/admin/accounts", label: "Accounts", icon: UserCog, adminOnly: true },
       { href: "/admin/settings", label: "Settings", icon: Settings }

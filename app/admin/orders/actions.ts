@@ -2,7 +2,11 @@
 
 import { revalidatePath } from "next/cache";
 import { getViewer, type Viewer } from "@/lib/auth";
-import { writeAuditLog } from "@/lib/data/audit-log";
+import {
+  actorAuditMeta,
+  actorDisplayName,
+  writeAuditLog
+} from "@/lib/data/audit-log";
 import { callerKey, checkRateLimit, RATE_LIMITS } from "@/lib/rate-limit";
 import {
   buildTrackingUrl,
@@ -12,6 +16,7 @@ import {
 import { createAdminClient } from "@/lib/supabase/admin";
 
 // Seller/staff: xác nhận giao/pickup, tracking ship, huỷ đơn, ghi chú.
+// Mọi thao tác ghi audit_log kèm tên nhân viên (actorName).
 
 export type OrderActionResult = { ok: true } | { ok: false; error: string };
 
@@ -34,10 +39,6 @@ type OrderSnapshot = {
 
 const ORDER_SELECT =
   "id, order_number, status, fulfillment_method, notes, picked_up_at, fulfilled_at, total_amount, shipping_carrier, tracking_number, tracking_url, shipped_at, picked_up_by, picked_up_by_name";
-
-function actorDisplayName(viewer: Viewer) {
-  return viewer.fullName?.trim() || viewer.email?.trim() || viewer.id.slice(0, 8);
-}
 
 async function requireOps(): Promise<{ viewer: Viewer } | { error: string }> {
   const viewer = await getViewer();
@@ -159,11 +160,9 @@ export async function saveShipmentTracking(
       fulfilled_at: after.fulfilled_at
     },
     metadata: {
+      ...actorAuditMeta(gate.viewer),
       orderNumber: after.order_number,
-      markShipped,
-      actorRole: gate.viewer.role,
-      actorEmail: gate.viewer.email,
-      actorName: actorDisplayName(gate.viewer)
+      markShipped
     }
   });
 
@@ -222,11 +221,10 @@ export async function confirmPickup(orderId: string): Promise<OrderActionResult>
     before,
     after,
     metadata: {
+      ...actorAuditMeta(gate.viewer),
       orderNumber: after.order_number,
       confirmedByName: confirmerName,
-      confirmedById: gate.viewer.id,
-      actorRole: gate.viewer.role,
-      actorEmail: gate.viewer.email
+      confirmedById: gate.viewer.id
     }
   });
 
@@ -301,14 +299,13 @@ export async function cancelPickup(orderId: string, reason = ""): Promise<OrderA
       fulfilled_at: after.fulfilled_at
     },
     metadata: {
+      ...actorAuditMeta(gate.viewer),
       orderNumber: after.order_number,
       reason: cancelReason || null,
       previousConfirmedByName: before.picked_up_by_name,
       previousConfirmedById: before.picked_up_by,
       cancelledByName: cancellerName,
-      cancelledById: gate.viewer.id,
-      actorRole: gate.viewer.role,
-      actorEmail: gate.viewer.email
+      cancelledById: gate.viewer.id
     }
   });
 
@@ -380,11 +377,10 @@ export async function confirmDelivered(orderId: string): Promise<OrderActionResu
     before,
     after,
     metadata: {
+      ...actorAuditMeta(gate.viewer),
       orderNumber: after.order_number,
       fulfillmentMethod: after.fulfillment_method,
-      trackingNumber: after.tracking_number,
-      actorRole: gate.viewer.role,
-      actorEmail: gate.viewer.email
+      trackingNumber: after.tracking_number
     }
   });
 
@@ -440,10 +436,9 @@ export async function cancelOrder(orderId: string, reason = ""): Promise<OrderAc
     before,
     after,
     metadata: {
+      ...actorAuditMeta(gate.viewer),
       orderNumber: after.order_number,
-      reason: note || null,
-      actorRole: gate.viewer.role,
-      actorEmail: gate.viewer.email
+      reason: note || null
     }
   });
 
@@ -483,9 +478,8 @@ export async function updateOrderNotes(orderId: string, notes: string): Promise<
     before: { notes: before.notes },
     after: { notes: after.notes },
     metadata: {
-      orderNumber: after.order_number,
-      actorRole: gate.viewer.role,
-      actorEmail: gate.viewer.email
+      ...actorAuditMeta(gate.viewer),
+      orderNumber: after.order_number
     }
   });
 

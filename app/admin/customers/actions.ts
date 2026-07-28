@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { getViewer } from "@/lib/auth";
-import { writeAuditLog } from "@/lib/data/audit-log";
+import { actorAuditMeta, writeAuditLog } from "@/lib/data/audit-log";
 import { callerKey, checkRateLimit, RATE_LIMITS } from "@/lib/rate-limit";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { countCustomerReferences } from "@/lib/data/customers";
@@ -137,17 +137,20 @@ export async function createCustomerAction(
 
   if (error) return fail(friendlyError(error.message));
 
+  const label = input.companyName ?? [input.firstName, input.lastName].filter(Boolean).join(" ");
   await writeAuditLog({
     actorUserId: viewer!.id,
     action: "customer.create",
     entityType: "customer",
     entityId: data?.id,
     after: input,
-    metadata: { actorRole: viewer!.role, actorEmail: viewer!.email }
+    metadata: {
+      ...actorAuditMeta(viewer!),
+      customerLabel: label || null
+    }
   });
 
   revalidate();
-  const label = input.companyName ?? [input.firstName, input.lastName].filter(Boolean).join(" ");
   return { status: "success", message: `Added ${label}.` };
 }
 
@@ -189,6 +192,7 @@ export async function updateCustomerAction(
 
   if (error) return fail(friendlyError(error.message));
 
+  const label = input.companyName ?? [input.firstName, input.lastName].filter(Boolean).join(" ");
   await writeAuditLog({
     actorUserId: viewer!.id,
     action: "customer.update",
@@ -196,11 +200,13 @@ export async function updateCustomerAction(
     entityId: id,
     before,
     after: input,
-    metadata: { actorRole: viewer!.role, actorEmail: viewer!.email }
+    metadata: {
+      ...actorAuditMeta(viewer!),
+      customerLabel: label || null
+    }
   });
 
   revalidate();
-  const label = input.companyName ?? [input.firstName, input.lastName].filter(Boolean).join(" ");
   return { status: "success", message: `Saved ${label}.` };
 }
 
@@ -246,6 +252,9 @@ export async function deleteCustomerAction(
     return fail(error.message);
   }
 
+  const label =
+    customer.company_name ??
+    [customer.first_name, customer.last_name].filter(Boolean).join(" ");
   await writeAuditLog({
     actorUserId: viewer.id,
     action: "customer.delete",
@@ -253,10 +262,12 @@ export async function deleteCustomerAction(
     entityId: id,
     before: customer,
     after: null,
-    metadata: { actorRole: viewer.role, actorEmail: viewer.email }
+    metadata: {
+      ...actorAuditMeta(viewer),
+      customerLabel: label || null
+    }
   });
 
   revalidate();
-  const label = customer.company_name ?? [customer.first_name, customer.last_name].filter(Boolean).join(" ");
   return { status: "success", message: `Deleted ${label || "customer"}.` };
 }

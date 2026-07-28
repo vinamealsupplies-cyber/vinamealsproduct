@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { getViewer } from "@/lib/auth";
-import { writeAuditLog } from "@/lib/data/audit-log";
+import { actorAuditMeta, writeAuditLog } from "@/lib/data/audit-log";
 import { callerKey, checkRateLimit, RATE_LIMITS } from "@/lib/rate-limit";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getMovementsForVariant, type MovementRow } from "@/lib/data/inventory";
@@ -98,9 +98,8 @@ export async function adjustInventoryAction(
     before: { onHand: currentOnHand },
     after: { delta, mode, reason, locationId },
     metadata: {
-      sku,
-      actorRole: viewer!.role,
-      actorEmail: viewer!.email
+      ...actorAuditMeta(viewer!),
+      sku
     }
   });
 
@@ -167,8 +166,7 @@ export async function updateInventoryPricingAction(
     before,
     after: { cost_price: nextCost, retail_price: retailPrice, sku },
     metadata: {
-      actorRole: viewer!.role,
-      actorEmail: viewer!.email,
+      ...actorAuditMeta(viewer!),
       costHiddenFromSeller: viewer!.isSeller
     }
   });

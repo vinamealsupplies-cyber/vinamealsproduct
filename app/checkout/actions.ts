@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { getViewer } from "@/lib/auth";
-import { writeAuditLog } from "@/lib/data/audit-log";
+import { actorAuditMeta, writeAuditLog } from "@/lib/data/audit-log";
 import { getOwnWholesaleAccount } from "@/lib/data/wholesale-account";
 import { callerKey, checkRateLimit, RATE_LIMITS } from "@/lib/rate-limit";
 import { createAdminClient } from "@/lib/supabase/admin";
@@ -327,8 +327,7 @@ export async function placeTestOrder(
       }))
     },
     metadata: {
-      actorRole: viewer.role,
-      actorEmail: viewer.email,
+      ...actorAuditMeta(viewer),
       orderNumber: order.order_number,
       wholesaleApplied: useWholesale,
       wholesaleMinKind: eligibility.minKind,

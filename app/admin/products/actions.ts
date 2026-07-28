@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { getViewer } from "@/lib/auth";
-import { writeAuditLog } from "@/lib/data/audit-log";
+import { actorAuditMeta, writeAuditLog } from "@/lib/data/audit-log";
 import { callerKey, checkRateLimit, RATE_LIMITS } from "@/lib/rate-limit";
 import { createAdminClient } from "@/lib/supabase/admin";
 import type { AdminFormState } from "@/lib/data/admin-form";
@@ -12,7 +12,7 @@ import type { AdminFormState } from "@/lib/data/admin-form";
 // đây — không có RLS đỡ phía sau.
 //
 // Seller + staff: add/edit/archive/restore. Xoá vĩnh viễn: manager only.
-// Mọi thao tác ghi audit_log cho admin theo dõi.
+// Mọi thao tác ghi audit_log kèm tên nhân viên.
 
 const STATUSES = new Set(["draft", "active", "archived"]);
 
@@ -31,10 +31,6 @@ async function guard(scope: string, needManager = false) {
     return { viewer: null, error: fail("Too many changes in a short time. Wait a minute and try again.") };
   }
   return { viewer, error: null };
-}
-
-function actorMeta(viewer: { id: string; email: string; role: string }) {
-  return { actorRole: viewer.role, actorEmail: viewer.email };
 }
 
 function slugify(value: string) {
@@ -217,7 +213,7 @@ export async function createProductAction(_prev: AdminFormState, formData: FormD
       costPrice: input.costPrice,
       openingQuantity: input.openingQuantity
     },
-    metadata: actorMeta(viewer!)
+    metadata: actorAuditMeta(viewer!)
   });
 
   revalidate();
@@ -317,7 +313,7 @@ export async function updateProductAction(_prev: AdminFormState, formData: FormD
       salePrice: input.salePrice,
       costPrice: input.costPrice
     },
-    metadata: actorMeta(viewer!)
+    metadata: actorAuditMeta(viewer!)
   });
 
   revalidate();
@@ -349,7 +345,7 @@ export async function archiveProductAction(_prev: AdminFormState, formData: Form
     entityId: id,
     before: { status: "active_or_draft", name: product.name },
     after: { status: "archived", name: product.name },
-    metadata: actorMeta(viewer!)
+    metadata: actorAuditMeta(viewer!)
   });
 
   revalidate();
@@ -383,7 +379,7 @@ export async function restoreProductAction(_prev: AdminFormState, formData: Form
     entityId: id,
     before: { status: "archived", name: product.name },
     after: { status: "active", name: product.name },
-    metadata: actorMeta(viewer!)
+    metadata: actorAuditMeta(viewer!)
   });
 
   revalidate();
@@ -438,7 +434,7 @@ export async function deleteProductForeverAction(
     entityId: id,
     before: { name: product.name, status: product.status },
     after: null,
-    metadata: actorMeta(viewer!)
+    metadata: actorAuditMeta(viewer!)
   });
 
   revalidate();
