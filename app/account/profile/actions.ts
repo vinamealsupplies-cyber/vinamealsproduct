@@ -77,11 +77,12 @@ export async function updateProfileAction(
         company_name: companyName,
         phone,
         email: viewer.email || null
+        // customer_type / wholesale min — chỉ admin gán, không đổi từ profile.
       })
       .eq("id", customer.id);
     if (customerError) return fail(customerError.message);
   } else {
-    // Tạo hồ sơ khách nếu chưa có (đặt hàng sau sẽ có tên sẵn).
+    // Tạo hồ sơ khách retail mặc định (wholesale chỉ admin gán).
     await supabase.from("customers").insert({
       auth_user_id: viewer.id,
       email: viewer.email || null,
@@ -89,7 +90,7 @@ export async function updateProfileAction(
       last_name: lastName,
       company_name: companyName,
       phone,
-      customer_type: companyName ? "wholesale" : "retail",
+      customer_type: "retail",
       status: "active"
     });
   }
