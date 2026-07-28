@@ -59,9 +59,7 @@ function OrderDetail({ order }: { order: StaffOrder }) {
           <p>{order.customer}</p>
           {order.customerCompany ? <p className="field-hint">{order.customerCompany}</p> : null}
           {order.customerPhone ? (
-            <p className="order-customer-phone">
-              <a href={`tel:${order.customerPhone.replace(/[^\d+]/g, "")}`}>{order.customerPhone}</a>
-            </p>
+            <p className="order-customer-phone">{order.customerPhone}</p>
           ) : (
             <p className="field-hint">Chưa có SĐT</p>
           )}
@@ -236,11 +234,7 @@ function OrderRows({ orders, handlers }: { orders: StaffOrder[]; handlers: RowHa
                   <span className="field-hint">{order.customerCompany}</span>
                 ) : null}
                 {order.customerPhone ? (
-                  <span className="order-customer-phone">
-                    <a href={`tel:${order.customerPhone.replace(/[^\d+]/g, "")}`}>
-                      {order.customerPhone}
-                    </a>
-                  </span>
+                  <span className="order-customer-phone">{order.customerPhone}</span>
                 ) : (
                   <span className="field-hint">Chưa có SĐT</span>
                 )}

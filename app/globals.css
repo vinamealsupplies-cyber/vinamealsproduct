@@ -1580,9 +1580,8 @@ a.oauth-button { text-decoration: none; color: inherit; box-sizing: border-box; 
   margin-top: 2px;
   font-size: 12px;
   font-weight: 700;
+  color: var(--muted);
 }
-.order-customer-phone a { color: var(--green-dark, #1b5e40); }
-.order-customer-phone a:hover { text-decoration: underline; }
 .row-order-expanded { background: #f7faf8; }
 .order-detail-row td {
   background: #f4f8f6;
