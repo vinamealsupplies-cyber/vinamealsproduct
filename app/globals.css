@@ -299,6 +299,25 @@ main { min-height: 65vh; }
 .product-price-row { margin-top: 18px; display: flex; align-items: center; justify-content: space-between; gap: 10px; }
 .product-price-row strong { font-size: 21px; }
 .product-price-row a { color: var(--green); font-weight: 800; flex-shrink: 0; }
+.product-card-add {
+  width: 100%;
+  margin-top: 14px;
+  min-height: 44px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  font-size: 14px;
+}
+.product-card-add:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+.product-card-add.is-added {
+  background: var(--mint);
+  color: var(--green-dark);
+  border-color: #b8e0c8;
+}
 .price-stack { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px; }
 .price-compare {
   color: var(--muted);
