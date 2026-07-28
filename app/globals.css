@@ -1407,6 +1407,57 @@ a.oauth-button { text-decoration: none; color: inherit; box-sizing: border-box; 
 .checkout-cta-note { margin: 8px 0 0; text-align: center; color: var(--muted); font-size: 14px; }
 
 /* --- Bảng đơn hàng + trạng thái pickup --- */
+.orders-section { margin-bottom: 28px; }
+.orders-section-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+.orders-section-heading h2 {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 4px;
+  font-size: 18px;
+  letter-spacing: -.02em;
+}
+.orders-section-heading p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 12px;
+  max-width: 640px;
+}
+.orders-section-count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 1.4rem;
+  height: 1.4rem;
+  padding: 0 7px;
+  margin-left: 6px;
+  border-radius: 999px;
+  background: #eef3f0;
+  color: #4d625b;
+  font-size: 12px;
+  font-weight: 850;
+}
+.orders-section-open .orders-section-count {
+  background: #fff0d1;
+  color: #915407;
+}
+.orders-section-done .orders-section-count {
+  background: var(--mint);
+  color: var(--green-dark);
+}
+.orders-section-empty {
+  margin: 0 0 8px;
+  padding: 14px 16px;
+  border: 1px dashed var(--line);
+  border-radius: 14px;
+  background: #fbfdfc;
+}
 .orders-table-wrap {
   overflow-x: auto; border: 1px solid var(--line);
   border-radius: var(--radius-small); background: var(--surface);
