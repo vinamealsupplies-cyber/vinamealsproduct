@@ -2,14 +2,13 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { CheckCircle2, ShoppingBag, Store } from "lucide-react";
+import { CheckCircle2, MessageSquareText, ShoppingBag, Store } from "lucide-react";
 import { placeTestOrder } from "@/app/checkout/actions";
 import { useCart } from "@/lib/cart";
 import type { Product } from "@/lib/sample-data";
 import { usd } from "@/lib/format";
 
-// Bước xác nhận đơn (đọc giỏ từ localStorage). Gọi server action placeTestOrder
-// để tạo đơn pickup không thanh toán, rồi xoá giỏ và hiện mã đơn.
+// Bước xác nhận đơn. Ghi chú từng món (từ giỏ) gửi kèm placeTestOrder.
 export function CheckoutView({
   catalog,
   customerName,
@@ -19,7 +18,7 @@ export function CheckoutView({
   customerName: string;
   pickupLocationName: string;
 }) {
-  const { items, ready, clear } = useCart();
+  const { items, ready, clear, setNote } = useCart();
   const [placing, setPlacing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [done, setDone] = useState<{ orderNumber: string; total: number } | null>(null);
@@ -48,7 +47,7 @@ export function CheckoutView({
               Tiếp tục mua
             </Link>
             <Link className="button secondary" href="/account">
-              Xem tài khoản
+              Xem đơn hàng
             </Link>
           </div>
         </div>
@@ -75,7 +74,11 @@ export function CheckoutView({
     setPlacing(true);
     setError(null);
     const result = await placeTestOrder(
-      lines.map((line) => ({ productId: line.product.id, quantity: line.quantity }))
+      lines.map((line) => ({
+        productId: line.product.id,
+        quantity: line.quantity,
+        note: line.note
+      }))
     );
     setPlacing(false);
     if (result.ok) {
@@ -91,7 +94,10 @@ export function CheckoutView({
       <header className="page-heading">
         <span className="kicker">Checkout</span>
         <h1>Xác nhận đơn hàng</h1>
-        <p>Đặt hàng thử — không cần thanh toán. Đơn sẽ ở trạng thái đã xác nhận, chờ pickup.</p>
+        <p>
+          Đặt hàng thử — không cần thanh toán. Thêm ghi chú từng món nếu có yêu cầu đặc biệt (nhân
+          viên sẽ thấy khi chuẩn bị giao).
+        </p>
       </header>
 
       <div className="checkout-pickup">
@@ -102,13 +108,25 @@ export function CheckoutView({
       </div>
 
       <ul className="cart-items checkout-lines">
-        {lines.map(({ product, quantity }) => (
-          <li className="checkout-line" key={product.id}>
+        {lines.map(({ product, quantity, note }) => (
+          <li className="checkout-line checkout-line-with-note" key={product.id}>
             <div className="checkout-line-info">
               <span className="checkout-line-name">{product.name}</span>
               <span className="cart-unit-price">
                 {usd.format(product.price)} × {quantity}
               </span>
+              <label className="cart-line-note">
+                <span>
+                  <MessageSquareText size={13} aria-hidden="true" /> Special request
+                </span>
+                <textarea
+                  rows={2}
+                  maxLength={300}
+                  placeholder="e.g. ripe fruit, pack separately…"
+                  defaultValue={note ?? ""}
+                  onBlur={(event) => setNote(product.id, event.target.value)}
+                />
+              </label>
             </div>
             <strong className="cart-line-total">{usd.format(product.price * quantity)}</strong>
           </li>

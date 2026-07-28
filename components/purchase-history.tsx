@@ -65,6 +65,7 @@ function OrderCard({ order }: { order: CustomerOrder }) {
               <th className="num">Qty</th>
               <th className="num">Price</th>
               <th className="num">Total</th>
+              <th>Note</th>
             </tr>
           </thead>
           <tbody>
@@ -80,6 +81,13 @@ function OrderCard({ order }: { order: CustomerOrder }) {
                 <td className="num">{item.quantity}</td>
                 <td className="num">{usd.format(item.unitPrice)}</td>
                 <td className="num">{usd.format(item.lineTotal)}</td>
+                <td>
+                  {item.lineNote ? (
+                    <span className="line-note-text">{item.lineNote}</span>
+                  ) : (
+                    <span className="muted">—</span>
+                  )}
+                </td>
               </tr>
             ))}
           </tbody>

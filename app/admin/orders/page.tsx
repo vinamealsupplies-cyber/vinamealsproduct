@@ -15,7 +15,7 @@ export default async function OrdersPage() {
       <AdminPageHeader
         eyebrow="Sales"
         title="Orders"
-        description="Theo dõi đơn và xác nhận pickup. Đơn nhận-tại-cửa-hàng chưa lấy sẽ nhấp nháy đỏ cho tới khi xác nhận."
+        description="Bấm vào đơn để xem chi tiết món cần giao và ghi chú/yêu cầu đặc biệt của khách. Đơn pickup chưa lấy nhấp nháy đỏ."
       />
       <OrdersManager orders={orders} />
     </>

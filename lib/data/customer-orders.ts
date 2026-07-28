@@ -13,6 +13,7 @@ export type CustomerOrderItem = {
   quantity: number;
   unitPrice: number;
   lineTotal: number;
+  lineNote: string | null;
 };
 
 export type CustomerOrder = {
@@ -47,6 +48,7 @@ type DbItem = {
   quantity: number | string;
   unit_price: number | string;
   line_total?: number | string;
+  line_note?: string | null;
 };
 
 type DbPayment = {
@@ -182,7 +184,8 @@ function mapOrder(row: DbOrder): CustomerOrder {
       sku: item.sku_snapshot,
       quantity,
       unitPrice,
-      lineTotal
+      lineTotal,
+      lineNote: item.line_note?.trim() || null
     };
   });
 
@@ -240,7 +243,7 @@ export async function getOwnOrders(authUserId: string): Promise<CustomerOrder[]>
     .from("sales_orders")
     .select(
       `id, order_number, status, fulfillment_method, total_amount, currency, placed_at, created_at, notes, picked_up_at, fulfilled_at,
-       items:sales_order_items ( id, product_name_snapshot, variant_name_snapshot, sku_snapshot, quantity, unit_price, line_total ),
+       items:sales_order_items ( id, product_name_snapshot, variant_name_snapshot, sku_snapshot, quantity, unit_price, line_total, line_note ),
        invoices ( id, amount_paid, total_amount, status, payments ( received_at, status, amount, payment_method, created_at ) )`
     )
     .eq("customer_id", customerId)

@@ -2,16 +2,18 @@
 
 import { useSyncExternalStore } from "react";
 
-// Giỏ hàng client-side, lưu localStorage theo máy, expose qua
-// useSyncExternalStore (localStorage là "external system" đúng nghĩa — không
-// dùng setState-trong-effect). Chỉ giữ productId + số lượng; giá/tên/tồn kho
-// luôn tra lại từ catalog DB (truyền qua props) để không bao giờ lệch giá.
-// Tồn kho để kẹp số lượng được truyền vào lúc thêm/sửa (maxStock) vì store
-// client không tự biết dữ liệu DB. Checkout/payment vẫn thuộc phase sau.
+// Giỏ hàng client-side, lưu localStorage. productId + quantity + note (ghi chú
+// từng món). Giá/tên/tồn luôn lấy từ catalog DB.
 
-export type CartItem = { productId: string; quantity: number };
+export type CartItem = {
+  productId: string;
+  quantity: number;
+  /** Yêu cầu đặc biệt cho món này (tùy chọn). */
+  note?: string;
+};
 
 const STORAGE_KEY = "vinameals-cart-v1";
+const NOTE_MAX = 300;
 
 type CartSnapshot = {
   items: CartItem[];
@@ -25,11 +27,16 @@ let snapshot: CartSnapshot = SERVER_SNAPSHOT;
 let hydrated = false;
 const listeners = new Set<() => void>();
 
-// Kẹp số lượng: tối thiểu 1; nếu biết tồn kho (maxStock) thì kẹp trần theo đó.
 function normalizeQuantity(quantity: number, maxStock?: number) {
   const q = Math.max(1, Math.floor(Number.isFinite(quantity) ? quantity : 1));
   if (typeof maxStock === "number" && maxStock > 0) return Math.min(q, Math.floor(maxStock));
   return q;
+}
+
+export function normalizeCartNote(note: string | null | undefined): string | undefined {
+  if (typeof note !== "string") return undefined;
+  const trimmed = note.trim().slice(0, NOTE_MAX);
+  return trimmed || undefined;
 }
 
 function restore(raw: string | null): CartItem[] {
@@ -40,10 +47,15 @@ function restore(raw: string | null): CartItem[] {
     const restored: CartItem[] = [];
     for (const entry of parsed) {
       if (!entry || typeof entry !== "object") continue;
-      const { productId, quantity } = entry as Partial<CartItem>;
+      const { productId, quantity, note } = entry as Partial<CartItem>;
       if (typeof productId !== "string" || typeof quantity !== "number") continue;
       if (restored.some((item) => item.productId === productId)) continue;
-      restored.push({ productId, quantity: normalizeQuantity(quantity) });
+      const cleanNote = normalizeCartNote(note);
+      restored.push({
+        productId,
+        quantity: normalizeQuantity(quantity),
+        ...(cleanNote ? { note: cleanNote } : {})
+      });
     }
     return restored;
   } catch {
@@ -60,7 +72,7 @@ function setItems(items: CartItem[]) {
   try {
     window.localStorage.setItem(STORAGE_KEY, JSON.stringify(items));
   } catch {
-    // Hết quota / private mode → giỏ chỉ sống trong phiên, vẫn dùng được.
+    // Hết quota / private mode → giỏ chỉ sống trong phiên.
   }
   emit();
 }
@@ -72,7 +84,7 @@ function hydrate() {
   try {
     items = restore(window.localStorage.getItem(STORAGE_KEY));
   } catch {
-    // localStorage bị chặn → bắt đầu với giỏ trống.
+    // localStorage bị chặn.
   }
   snapshot = { items, ready: true };
 }
@@ -92,7 +104,6 @@ function subscribe(listener: () => void) {
   listeners.add(listener);
   if (!storageListenerAttached) {
     storageListenerAttached = true;
-    // Tab khác sửa giỏ → đồng bộ theo (storage event chỉ bắn cho tab khác).
     window.addEventListener("storage", (event) => {
       if (event.key !== STORAGE_KEY) return;
       snapshot = { items: restore(event.newValue), ready: true };
@@ -110,7 +121,9 @@ export function addToCart(productId: string, quantity = 1, maxStock?: number) {
   const normalized = normalizeQuantity((existing?.quantity ?? 0) + quantity, maxStock);
   setItems(
     existing
-      ? current.map((item) => (item.productId === productId ? { ...item, quantity: normalized } : item))
+      ? current.map((item) =>
+          item.productId === productId ? { ...item, quantity: normalized } : item
+        )
       : [...current, { productId, quantity: normalized }]
   );
 }
@@ -122,7 +135,24 @@ export function setCartQuantity(productId: string, quantity: number, maxStock?: 
     return;
   }
   const normalized = normalizeQuantity(quantity, maxStock);
-  setItems(current.map((item) => (item.productId === productId ? { ...item, quantity: normalized } : item)));
+  setItems(
+    current.map((item) => (item.productId === productId ? { ...item, quantity: normalized } : item))
+  );
+}
+
+export function setCartNote(productId: string, note: string) {
+  const current = getSnapshot().items;
+  const cleanNote = normalizeCartNote(note);
+  setItems(
+    current.map((item) => {
+      if (item.productId !== productId) return item;
+      if (!cleanNote) {
+        const { note: _drop, ...rest } = item;
+        return rest;
+      }
+      return { ...item, note: cleanNote };
+    })
+  );
 }
 
 export function removeFromCart(productId: string) {
@@ -142,6 +172,7 @@ export function useCart() {
     ready,
     add: addToCart,
     setQuantity: setCartQuantity,
+    setNote: setCartNote,
     remove: removeFromCart,
     clear: clearCart
   };

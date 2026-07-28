@@ -2,16 +2,29 @@ import "server-only";
 
 import { createAdminClient } from "@/lib/supabase/admin";
 
-// Đơn hàng cho khu admin/seller. Đọc bằng service role (như customers.ts) —
-// trang gọi đã qua gate ở app/admin/layout.tsx (canAccessAdmin).
+// Đơn hàng cho khu admin/seller. Đọc bằng service role.
 
 export type SalesOrderStatus = "draft" | "confirmed" | "fulfilled" | "cancelled";
 export type FulfillmentMethod = "pickup" | "ship";
+
+export type StaffOrderItem = {
+  id: string;
+  productName: string;
+  variantName: string | null;
+  sku: string;
+  quantity: number;
+  unitPrice: number;
+  lineTotal: number;
+  /** Yêu cầu đặc biệt của khách cho món này. */
+  lineNote: string | null;
+};
 
 export type StaffOrder = {
   id: string;
   number: string;
   customer: string;
+  customerEmail: string | null;
+  customerPhone: string | null;
   status: SalesOrderStatus;
   channel: string;
   fulfillmentMethod: FulfillmentMethod;
@@ -23,6 +36,7 @@ export type StaffOrder = {
   fulfilledAt: string | null;
   pickupLocation: string | null;
   itemCount: number;
+  items: StaffOrderItem[];
   /** Đơn pickup đã xác nhận nhưng CHƯA lấy hàng → cần chú ý (nhấp nháy đỏ). */
   awaitingPickup: boolean;
   /** Đơn ship confirmed — chờ xác nhận đã giao. */
@@ -36,6 +50,18 @@ type DbCustomer = {
   last_name: string | null;
   company_name: string | null;
   email: string | null;
+  phone: string | null;
+};
+
+type DbItem = {
+  id: string;
+  product_name_snapshot: string;
+  variant_name_snapshot: string | null;
+  sku_snapshot: string;
+  quantity: number | string;
+  unit_price: number | string;
+  line_total?: number | string;
+  line_note: string | null;
 };
 
 type DbOrder = {
@@ -52,7 +78,7 @@ type DbOrder = {
   fulfilled_at: string | null;
   customer: DbCustomer | DbCustomer[] | null;
   location: { name: string | null } | { name: string | null }[] | null;
-  items: { id: string }[] | null;
+  items: DbItem[] | null;
 };
 
 function one<T>(value: T | T[] | null): T | null {
@@ -74,9 +100,28 @@ function num(value: number | string | null | undefined): number {
   return typeof parsed === "number" && Number.isFinite(parsed) ? parsed : 0;
 }
 
+function mapItems(items: DbItem[] | null): StaffOrderItem[] {
+  return (items ?? []).map((item) => {
+    const quantity = num(item.quantity);
+    const unitPrice = num(item.unit_price);
+    const lineTotal = item.line_total != null ? num(item.line_total) : quantity * unitPrice;
+    return {
+      id: item.id,
+      productName: item.product_name_snapshot,
+      variantName: item.variant_name_snapshot,
+      sku: item.sku_snapshot,
+      quantity,
+      unitPrice,
+      lineTotal,
+      lineNote: item.line_note?.trim() || null
+    };
+  });
+}
+
 function mapOrder(row: DbOrder): StaffOrder {
   const customer = one(row.customer);
   const location = one(row.location);
+  const items = mapItems(row.items);
   const awaitingPickup =
     row.fulfillment_method === "pickup" && row.status === "confirmed" && row.picked_up_at == null;
   const awaitingDelivery = row.fulfillment_method === "ship" && row.status === "confirmed";
@@ -84,6 +129,8 @@ function mapOrder(row: DbOrder): StaffOrder {
     id: row.id,
     number: row.order_number ?? row.id.slice(0, 8),
     customer: customerName(customer),
+    customerEmail: customer?.email ?? null,
+    customerPhone: customer?.phone ?? null,
     status: row.status,
     channel: row.channel,
     fulfillmentMethod: row.fulfillment_method,
@@ -94,7 +141,8 @@ function mapOrder(row: DbOrder): StaffOrder {
     pickedUpAt: row.picked_up_at,
     fulfilledAt: row.fulfilled_at,
     pickupLocation: location?.name ?? null,
-    itemCount: row.items?.length ?? 0,
+    itemCount: items.length,
+    items,
     awaitingPickup,
     awaitingDelivery,
     canCancel: row.status === "confirmed",
@@ -107,7 +155,10 @@ export async function getOrdersForStaff(): Promise<StaffOrder[]> {
   const { data, error } = await supabase
     .from("sales_orders")
     .select(
-      "id, order_number, status, channel, fulfillment_method, total_amount, currency, created_at, notes, picked_up_at, fulfilled_at, customer:customers ( first_name, last_name, company_name, email ), location:inventory_locations ( name ), items:sales_order_items ( id )"
+      `id, order_number, status, channel, fulfillment_method, total_amount, currency, created_at, notes, picked_up_at, fulfilled_at,
+       customer:customers ( first_name, last_name, company_name, email, phone ),
+       location:inventory_locations ( name ),
+       items:sales_order_items ( id, product_name_snapshot, variant_name_snapshot, sku_snapshot, quantity, unit_price, line_total, line_note )`
     )
     .neq("status", "draft")
     .order("created_at", { ascending: false })

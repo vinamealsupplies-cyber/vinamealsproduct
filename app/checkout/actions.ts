@@ -6,17 +6,18 @@ import { writeAuditLog } from "@/lib/data/audit-log";
 import { callerKey, checkRateLimit, RATE_LIMITS } from "@/lib/rate-limit";
 import { createAdminClient } from "@/lib/supabase/admin";
 
-// Checkout "đặt thử" — KHÔNG thu tiền. Mục tiêu: tạo một sales_orders có thật ở
-// trạng thái `confirmed`, phương thức `pickup` tại địa điểm nhận hàng mặc định,
-// để seller thấy trong /admin/orders và bấm xác nhận đã pickup. Thanh toán
-// online (Stripe) là phase sau — chưa nối ở đây.
-//
-// Ghi/đọc bằng service role (bypass RLS) đúng như mọi luồng nghiệp vụ khác của
-// khu này; gate ở tầng app (viewer phải đăng nhập thật).
+// Checkout "đặt thử" — KHÔNG thu tiền. Mục tiêu: tạo sales_orders confirmed +
+// pickup, kèm line_note từng món (yêu cầu đặc biệt của khách).
 
 const PICKUP_LOCATION_CODE = "STORE-PICKUP";
+const LINE_NOTE_MAX = 300;
 
-export type CheckoutItem = { productId: string; quantity: number };
+export type CheckoutItem = {
+  productId: string;
+  quantity: number;
+  /** Yêu cầu đặc biệt cho món (tùy chọn). */
+  note?: string;
+};
 
 export type CheckoutResult =
   | { ok: true; orderNumber: string; total: number }
@@ -44,6 +45,12 @@ function num(value: number | string | null | undefined): number {
   return typeof parsed === "number" && Number.isFinite(parsed) ? parsed : 0;
 }
 
+function cleanNote(note: unknown): string | null {
+  if (typeof note !== "string") return null;
+  const trimmed = note.trim().slice(0, LINE_NOTE_MAX);
+  return trimmed || null;
+}
+
 export async function placeTestOrder(items: CheckoutItem[]): Promise<CheckoutResult> {
   const viewer = await getViewer();
   if (!viewer || viewer.demo) {
@@ -56,19 +63,25 @@ export async function placeTestOrder(items: CheckoutItem[]): Promise<CheckoutRes
     return { ok: false, error: "Bạn thao tác quá nhanh. Đợi một phút rồi thử lại." };
   }
 
-  // Gộp trùng + chuẩn hoá số lượng.
-  const wanted = new Map<string, number>();
+  // Gộp trùng productId: cộng qty, gộp ghi chú (nếu khác nhau).
+  const wanted = new Map<string, { quantity: number; notes: string[] }>();
   for (const item of items) {
     const id = String(item?.productId ?? "").trim();
     const qty = Math.floor(Number(item?.quantity));
     if (!id || !Number.isFinite(qty) || qty <= 0) continue;
-    wanted.set(id, (wanted.get(id) ?? 0) + qty);
+    const note = cleanNote(item?.note);
+    const existing = wanted.get(id);
+    if (existing) {
+      existing.quantity += qty;
+      if (note && !existing.notes.includes(note)) existing.notes.push(note);
+    } else {
+      wanted.set(id, { quantity: qty, notes: note ? [note] : [] });
+    }
   }
   if (wanted.size === 0) return { ok: false, error: "Giỏ hàng không hợp lệ." };
 
   const supabase = createAdminClient();
 
-  // Giá/tên/sku lấy lại từ DB (không tin giá client gửi lên).
   const { data: productRows, error: prodErr } = await supabase
     .from("products")
     .select(
@@ -85,12 +98,13 @@ export async function placeTestOrder(items: CheckoutItem[]): Promise<CheckoutRes
     quantity: number;
     unit_price: number;
     unit_cost_snapshot: number;
+    line_note: string | null;
   }[] = [];
 
   for (const row of (productRows ?? []) as unknown as ProductRow[]) {
     if (row.status !== "active") continue;
-    const qty = wanted.get(row.id);
-    if (!qty) continue;
+    const wantedLine = wanted.get(row.id);
+    if (!wantedLine) continue;
     const variants = row.product_variants ?? [];
     const variant =
       variants.find((v) => v.is_default) ?? variants.find((v) => v.is_active) ?? variants[0];
@@ -106,15 +120,15 @@ export async function placeTestOrder(items: CheckoutItem[]): Promise<CheckoutRes
       variant_id: variant.id ?? null,
       product_name_snapshot: row.name,
       sku_snapshot: variant.sku ?? "",
-      quantity: qty,
+      quantity: wantedLine.quantity,
       unit_price: unitPrice,
-      unit_cost_snapshot: num(variant.cost_price)
+      unit_cost_snapshot: num(variant.cost_price),
+      line_note: wantedLine.notes.length ? wantedLine.notes.join("; ").slice(0, LINE_NOTE_MAX) : null
     });
   }
 
   if (orderItems.length === 0) return { ok: false, error: "Không có sản phẩm hợp lệ trong giỏ." };
 
-  // Địa điểm nhận hàng mặc định (migration 20260723090500 đã seed STORE-PICKUP).
   const { data: location } = await supabase
     .from("inventory_locations")
     .select("id")
@@ -124,7 +138,6 @@ export async function placeTestOrder(items: CheckoutItem[]): Promise<CheckoutRes
     return { ok: false, error: "Chưa cấu hình địa điểm nhận hàng (STORE-PICKUP)." };
   }
 
-  // Lấy hoặc tạo hồ sơ khách gắn với tài khoản đăng nhập.
   let customerId: string | null = null;
   const { data: existingCustomer } = await supabase
     .from("customers")
@@ -148,8 +161,6 @@ export async function placeTestOrder(items: CheckoutItem[]): Promise<CheckoutRes
 
   const subtotal = orderItems.reduce((sum, item) => sum + item.unit_price * item.quantity, 0);
 
-  // Tạo đơn: confirmed + pickup (đủ điều kiện constraint pickup_location_required
-  // vì đã set pickup_location_id và status <> draft; shipping = 0 cho pickup).
   const { data: order, error: orderErr } = await supabase
     .from("sales_orders")
     .insert({
@@ -170,13 +181,18 @@ export async function placeTestOrder(items: CheckoutItem[]): Promise<CheckoutRes
     .single();
   if (orderErr || !order) return { ok: false, error: "Không tạo được đơn hàng. Thử lại." };
 
-  // Thêm dòng hàng — trigger sẽ tự tính lại subtotal/total của đơn.
   const { error: itemsErr } = await supabase
     .from("sales_order_items")
     .insert(orderItems.map((item) => ({ ...item, order_id: order.id })));
   if (itemsErr) {
-    // Tránh để lại một đơn confirmed rỗng nếu chèn item lỗi.
     await supabase.from("sales_orders").delete().eq("id", order.id);
+    // Cột line_note chưa migration → báo rõ.
+    if (itemsErr.message.includes("line_note")) {
+      return {
+        ok: false,
+        error: "Database chưa có cột line_note. Chạy migration 20260728210000_order_item_line_note.sql."
+      };
+    }
     return { ok: false, error: "Không lưu được chi tiết đơn. Thử lại." };
   }
 
@@ -191,7 +207,12 @@ export async function placeTestOrder(items: CheckoutItem[]): Promise<CheckoutRes
       fulfillmentMethod: "pickup",
       total: subtotal,
       itemCount: orderItems.length,
-      channel: "web"
+      channel: "web",
+      items: orderItems.map((i) => ({
+        name: i.product_name_snapshot,
+        qty: i.quantity,
+        note: i.line_note
+      }))
     },
     metadata: {
       actorRole: viewer.role,

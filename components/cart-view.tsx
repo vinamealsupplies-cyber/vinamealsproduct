@@ -22,7 +22,7 @@ export function CartView({
   shippingAddresses?: CustomerAddress[];
   signedIn?: boolean;
 }) {
-  const { items, setQuantity, remove, clear, ready } = useCart();
+  const { items, setQuantity, setNote, remove, clear, ready } = useCart();
   const byId = new Map(catalog.map((product) => [product.id, product]));
 
   // Chờ đọc xong localStorage để không flash "giỏ trống" rồi mới hiện hàng.
@@ -71,10 +71,10 @@ export function CartView({
       </header>
 
       <ul className="cart-items">
-        {lines.map(({ product, quantity }) => {
+        {lines.map(({ product, quantity, note }) => {
           const image = product.media.find((item) => item.type === "image" && item.src);
           return (
-            <li className="cart-item" key={product.id}>
+            <li className="cart-item cart-item-with-note" key={product.id}>
               <Link className="cart-item-image" href={`/products/${product.slug}`}>
                 {image?.src ? (
                   <Image src={image.src} alt={image.alt} fill sizes="90px" />
@@ -94,6 +94,16 @@ export function CartView({
                     <>{usd.format(product.price)} each</>
                   )}
                 </span>
+                <label className="cart-line-note">
+                  <span>Special request for this item</span>
+                  <textarea
+                    rows={2}
+                    maxLength={300}
+                    placeholder="e.g. ripe fruit, no ice, call on arrival…"
+                    defaultValue={note ?? ""}
+                    onBlur={(event) => setNote(product.id, event.target.value)}
+                  />
+                </label>
               </div>
               <div className="quantity-control" aria-label={`Quantity for ${product.name}`}>
                 <button
