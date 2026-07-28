@@ -201,5 +201,6 @@ export async function placeTestOrder(items: CheckoutItem[]): Promise<CheckoutRes
   });
 
   revalidatePath("/admin/orders");
+  revalidatePath("/account");
   return { ok: true, orderNumber: order.order_number ?? order.id, total: subtotal };
 }

@@ -33,6 +33,8 @@ async function requireOps(): Promise<{ viewer: Viewer } | { error: string }> {
 function revalidateOrders() {
   revalidatePath("/admin/orders");
   revalidatePath("/admin");
+  // Khách xem trạng thái trên /account — làm mới sau pickup/giao/huỷ.
+  revalidatePath("/account");
 }
 
 async function loadOrder(id: string): Promise<OrderSnapshot | null> {

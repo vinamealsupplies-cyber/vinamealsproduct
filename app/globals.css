@@ -501,6 +501,89 @@ a.oauth-button { text-decoration: none; color: inherit; box-sizing: border-box; 
 .account-card dt { color: var(--muted); }
 .account-card dd { margin: 0; font-weight: 700; }
 
+/* Purchase history on /account */
+.purchase-history { margin: 8px 0 28px; }
+.purchase-history > .section-heading h2 {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 4px;
+  font-size: 22px;
+  letter-spacing: -.03em;
+}
+.purchase-history > .section-heading p { margin: 0; color: var(--muted); font-size: 13px; }
+.purchase-history.empty { margin-top: 8px; }
+.purchase-group { margin-top: 18px; }
+.purchase-group h3 {
+  margin: 0 0 10px;
+  font-size: 14px;
+  letter-spacing: -.01em;
+  color: var(--ink);
+}
+.purchase-order-list { display: grid; gap: 14px; }
+.purchase-order-card {
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  background: white;
+  padding: 16px 18px 14px;
+}
+.purchase-order-card.is-open {
+  border-color: #c5d9ef;
+  box-shadow: 0 0 0 1px #e3f0ff inset;
+}
+.purchase-order-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  align-items: flex-start;
+  margin-bottom: 12px;
+  flex-wrap: wrap;
+}
+.purchase-order-number {
+  margin: 0;
+  font-weight: 800;
+  font-size: 15px;
+  letter-spacing: -.02em;
+}
+.purchase-order-meta {
+  margin: 3px 0 0;
+  color: var(--muted);
+  font-size: 12px;
+}
+.purchase-order-status {
+  text-align: right;
+  max-width: 280px;
+}
+.purchase-order-status p {
+  margin: 6px 0 0;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.35;
+}
+.purchase-items-table { margin: 0; }
+.purchase-items-table td strong { display: block; font-size: 13px; }
+.purchase-order-foot {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px solid var(--line);
+  font-size: 12px;
+  color: var(--muted);
+}
+.purchase-order-foot strong {
+  color: var(--ink);
+  font-size: 16px;
+  letter-spacing: -.02em;
+}
+.status-badge.status-confirmed { background: #e3f0ff; color: #1d4ed8; }
+.status-badge.status-fulfilled { background: var(--mint); color: var(--green-dark); }
+.status-badge.status-cancelled { background: #ececec; color: #6b7280; }
+.status-pill.status-confirmed { background: #e3f0ff; color: #1d4ed8; }
+.status-pill.status-fulfilled { background: var(--mint); color: var(--green-dark); }
+
 /* Shipping addresses */
 .address-list { display: grid; gap: 12px; margin: 0; padding: 0; list-style: none; }
 .address-card { display: grid; grid-template-columns: 1fr auto; gap: 16px; align-items: start; padding: 16px; border: 1px solid var(--line); border-radius: 16px; background: #fafcfb; }

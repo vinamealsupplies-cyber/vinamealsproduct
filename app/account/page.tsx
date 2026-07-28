@@ -1,11 +1,13 @@
 import Link from "next/link";
-import { Building2, FileText, MapPin, ShieldCheck, UserRound } from "lucide-react";
+import { Building2, FileText, MapPin, Package, ShieldCheck, UserRound } from "lucide-react";
+import { PurchaseHistory } from "@/components/purchase-history";
+import { SetupNotice } from "@/components/setup-notice";
 import { getViewer } from "@/lib/auth";
 import { getOwnShippingAddresses } from "@/lib/data/addresses";
+import { getOwnOrders } from "@/lib/data/customer-orders";
 import { getOwnCustomer } from "@/lib/data/tax-exemption";
 import { formatUsPhoneDisplay } from "@/lib/data/us-states";
 import { isSupabaseAdminConfigured } from "@/lib/env";
-import { SetupNotice } from "@/components/setup-notice";
 
 const TAX_STATUS_COPY: Record<string, string> = {
   not_requested: "Not requested",
@@ -23,7 +25,7 @@ export default async function AccountPage() {
         <div className="empty-state large">
           <UserRound size={36} />
           <h1>Sign in to view your account</h1>
-          <p>Access your profile, business status, invoices, and order history.</p>
+          <p>Access your profile, purchase history, business status, and addresses.</p>
           <Link className="button primary" href="/login?next=/account">
             Sign in
           </Link>
@@ -33,12 +35,15 @@ export default async function AccountPage() {
   }
 
   const canLoad = !viewer.demo && isSupabaseAdminConfigured();
-  const [customer, addresses] = await Promise.all([
+  const [customer, addresses, orders] = await Promise.all([
     canLoad ? getOwnCustomer(viewer.id) : Promise.resolve(null),
-    canLoad ? getOwnShippingAddresses(viewer.id) : Promise.resolve([])
+    canLoad ? getOwnShippingAddresses(viewer.id) : Promise.resolve([]),
+    canLoad ? getOwnOrders(viewer.id) : Promise.resolve([])
   ]);
   const taxStatus = customer?.tax_exempt_status ?? "not_requested";
   const defaultAddress = addresses.find((a) => a.isDefault) ?? addresses[0] ?? null;
+  const openCount = orders.filter((o) => o.isOpen).length;
+  const pastCount = orders.length - openCount;
 
   return (
     <div className="page-shell shell account-page">
@@ -46,11 +51,15 @@ export default async function AccountPage() {
         <div>
           <span className="kicker">My account</span>
           <h1>Hello, {viewer.fullName || "customer"}.</h1>
-          <p>Manage profile and business account information.</p>
+          <p>Profile, purchase history, and business account information.</p>
         </div>
         {viewer.isStaff ? (
           <Link className="button primary" href="/admin">
             <ShieldCheck size={17} /> Open Admin
+          </Link>
+        ) : viewer.isSeller ? (
+          <Link className="button primary" href="/admin">
+            <ShieldCheck size={17} /> Seller workspace
           </Link>
         ) : null}
       </header>
@@ -59,6 +68,7 @@ export default async function AccountPage() {
           Demo admin is active locally. Connect Supabase to use real accounts and persistence.
         </SetupNotice>
       ) : null}
+
       <div className="account-grid">
         <section className="account-card">
           <UserRound />
@@ -80,6 +90,32 @@ export default async function AccountPage() {
         </section>
 
         <section className="account-card">
+          <Package />
+          <h2>Orders</h2>
+          {orders.length ? (
+            <>
+              <p>
+                {openCount > 0
+                  ? `${openCount} order${openCount === 1 ? "" : "s"} in progress`
+                  : "No open orders right now"}
+                {pastCount > 0 ? ` · ${pastCount} completed or cancelled` : ""}.
+              </p>
+              <span className={`status-pill ${openCount ? "status-confirmed" : "status-fulfilled"}`}>
+                {openCount ? "In progress" : "All caught up"}
+              </span>
+            </>
+          ) : (
+            <>
+              <p>Your purchase history and live order status appear below after you place an order.</p>
+              <span className="status-pill status-not-requested">No orders yet</span>
+            </>
+          )}
+          <a className="text-link" href="#purchase-history">
+            View purchase history
+          </a>
+        </section>
+
+        <section className="account-card">
           <MapPin />
           <h2>Shipping addresses</h2>
           {defaultAddress ? (
@@ -90,9 +126,7 @@ export default async function AccountPage() {
                 {defaultAddress.postalCode}
                 {defaultAddress.phone ? ` · ${formatUsPhoneDisplay(defaultAddress.phone)}` : ""}
               </p>
-              <span className="status-pill status-approved">
-                {addresses.length} saved
-              </span>
+              <span className="status-pill status-approved">{addresses.length} saved</span>
             </>
           ) : (
             <>
@@ -122,10 +156,15 @@ export default async function AccountPage() {
         <section className="account-card">
           <FileText />
           <h2>Invoices</h2>
-          <p>Customer-visible invoice history will appear here after sales are connected.</p>
+          <p>Customer-visible invoice history will appear here after billing is fully connected.</p>
           <span className="status-pill status-not-requested">Coming soon</span>
         </section>
       </div>
+
+      <div id="purchase-history">
+        <PurchaseHistory orders={orders} />
+      </div>
+
       <form action="/auth/signout" method="post">
         <button className="button secondary" type="submit">
           Sign out
