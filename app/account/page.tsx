@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { Building2, FileText, MapPin, Package, ShieldCheck, UserRound } from "lucide-react";
+import { ProfileEditor } from "@/components/profile-editor";
 import { PurchaseHistory } from "@/components/purchase-history";
 import { SetupNotice } from "@/components/setup-notice";
 import { getViewer } from "@/lib/auth";
@@ -8,6 +9,7 @@ import { getOwnOrders } from "@/lib/data/customer-orders";
 import { getOwnCustomer } from "@/lib/data/tax-exemption";
 import { formatUsPhoneDisplay } from "@/lib/data/us-states";
 import { isSupabaseAdminConfigured } from "@/lib/env";
+import { createAdminClient } from "@/lib/supabase/admin";
 
 const TAX_STATUS_COPY: Record<string, string> = {
   not_requested: "Not requested",
@@ -35,15 +37,31 @@ export default async function AccountPage() {
   }
 
   const canLoad = !viewer.demo && isSupabaseAdminConfigured();
-  const [customer, addresses, orders] = await Promise.all([
+  const [customer, addresses, orders, profileRow] = await Promise.all([
     canLoad ? getOwnCustomer(viewer.id) : Promise.resolve(null),
     canLoad ? getOwnShippingAddresses(viewer.id) : Promise.resolve([]),
-    canLoad ? getOwnOrders(viewer.id) : Promise.resolve([])
+    canLoad ? getOwnOrders(viewer.id) : Promise.resolve([]),
+    canLoad
+      ? createAdminClient()
+          .from("profiles")
+          .select("full_name, phone")
+          .eq("id", viewer.id)
+          .maybeSingle()
+          .then((r) => r.data)
+      : Promise.resolve(null)
   ]);
   const taxStatus = customer?.tax_exempt_status ?? "not_requested";
   const defaultAddress = addresses.find((a) => a.isDefault) ?? addresses[0] ?? null;
   const openCount = orders.filter((o) => o.isOpen).length;
   const pastCount = orders.length - openCount;
+
+  const profileFullName =
+    profileRow?.full_name?.trim() ||
+    [customer?.first_name, customer?.last_name].filter(Boolean).join(" ") ||
+    viewer.fullName ||
+    "";
+  const profilePhone = profileRow?.phone?.trim() || customer?.phone?.trim() || "";
+  const profileCompany = customer?.company_name?.trim() || "";
 
   return (
     <div className="page-shell shell account-page">
@@ -69,26 +87,27 @@ export default async function AccountPage() {
         </SetupNotice>
       ) : null}
 
-      <div className="account-grid">
-        <section className="account-card">
-          <UserRound />
-          <h2>Profile</h2>
-          <dl>
-            <div>
-              <dt>Name</dt>
-              <dd>{viewer.fullName || "Not provided"}</dd>
-            </div>
-            <div>
-              <dt>Email</dt>
-              <dd>{viewer.email}</dd>
-            </div>
-            <div>
-              <dt>Role</dt>
-              <dd>{viewer.role}</dd>
-            </div>
-          </dl>
-        </section>
+      <div id="profile" className="account-profile-block">
+        {viewer.demo ? (
+          <section className="account-card">
+            <UserRound />
+            <h2>Profile</h2>
+            <p>Connect Supabase (turn off demo mode) to edit your name, phone, and company.</p>
+          </section>
+        ) : (
+          <ProfileEditor
+            initial={{
+              fullName: profileFullName,
+              email: viewer.email,
+              phone: profilePhone ? formatUsPhoneDisplay(profilePhone) || profilePhone : "",
+              companyName: profileCompany,
+              role: viewer.role
+            }}
+          />
+        )}
+      </div>
 
+      <div className="account-grid">
         <section className="account-card">
           <Package />
           <h2 className="orders-heading-with-badge">
