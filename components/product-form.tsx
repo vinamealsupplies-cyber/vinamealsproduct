@@ -37,10 +37,13 @@ function serializeForm(form: HTMLFormElement) {
 
 export function ProductForm({
   categories,
-  product
+  product,
+  isSeller = false
 }: {
   categories: CategoryNode[];
   product?: AdminProduct;
+  /** Seller: ẩn cost + location (dùng MAIN ẩn). */
+  isSeller?: boolean;
 }) {
   const isEdit = Boolean(product);
   const formRef = useRef<HTMLFormElement>(null);
@@ -226,21 +229,26 @@ export function ProductForm({
               placeholder="6.25"
             />
           </label>
-          <label>
-            Unit cost (USD) *
-            <input
-              required
-              name="costPrice"
-              type="number"
-              min="0"
-              step="0.01"
-              defaultValue={product?.costPrice ?? ""}
-              placeholder="3.40"
-            />
-          </label>
+          {isSeller ? (
+            <input type="hidden" name="costPrice" value={product?.costPrice ?? 0} />
+          ) : (
+            <label>
+              Unit cost (USD) *
+              <input
+                required
+                name="costPrice"
+                type="number"
+                min="0"
+                step="0.01"
+                defaultValue={product?.costPrice ?? ""}
+                placeholder="3.40"
+              />
+            </label>
+          )}
           <p className="field-hint full-width">
             Sale price is optional. When set lower than retail, the storefront shows retail struck through and charges
             the sale price in cart totals.
+            {isSeller ? " Unit cost is managed by admin only." : ""}
           </p>
           {isEdit ? (
             <label>
@@ -253,10 +261,14 @@ export function ProductForm({
               <input name="openingQuantity" type="number" min="0" step="1" defaultValue="0" />
             </label>
           )}
-          <label>
-            Location code
-            <input name="locationCode" defaultValue="MAIN" />
-          </label>
+          {isSeller ? (
+            <input type="hidden" name="locationCode" value="MAIN" />
+          ) : (
+            <label>
+              Location code
+              <input name="locationCode" defaultValue="MAIN" />
+            </label>
+          )}
         </div>
         {isEdit ? (
           <p className="field-hint">

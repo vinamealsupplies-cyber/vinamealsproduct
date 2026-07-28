@@ -8,7 +8,7 @@ import { getAdminProductById } from "@/lib/data/admin-products";
 import { getCategoryTree } from "@/lib/data/categories";
 
 export default async function EditProductPage({ params }: { params: Promise<{ id: string }> }) {
-  await requireAdminAccessPage();
+  const viewer = await requireAdminAccessPage();
   const { id } = await params;
   const [product, categories] = await Promise.all([getAdminProductById(id), getCategoryTree()]);
   if (!product) notFound();
@@ -25,7 +25,7 @@ export default async function EditProductPage({ params }: { params: Promise<{ id
           </Link>
         }
       />
-      <ProductForm categories={categories} product={product} />
+      <ProductForm categories={categories} product={product} isSeller={viewer.isSeller} />
     </>
   );
 }

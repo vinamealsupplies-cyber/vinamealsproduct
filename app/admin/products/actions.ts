@@ -88,6 +88,7 @@ function validate(input: ReturnType<typeof readForm>) {
   if (!input.shortDescription) return "Short description is required.";
   if (!input.sku) return "SKU is required.";
   if (input.retailPrice === null || input.retailPrice < 0) return "Enter a retail price of 0 or more.";
+  // Seller gửi cost 0 ẩn — staff phải nhập cost hợp lệ.
   if (input.costPrice === null || input.costPrice < 0) return "Enter a unit cost of 0 or more.";
   if (input.wholesalePrice !== null && input.wholesalePrice < 0) return "Wholesale price cannot be negative.";
   if (input.salePrice !== null) {
@@ -125,6 +126,10 @@ export async function createProductAction(_prev: AdminFormState, formData: FormD
   if (denied) return denied;
 
   const input = readForm(formData);
+  // Seller không nhập cost — cho phép 0; staff bắt buộc cost hợp lệ đã check trong validate.
+  if (viewer?.isSeller && (input.costPrice === null || input.costPrice < 0)) {
+    input.costPrice = 0;
+  }
   const invalid = validate(input);
   if (invalid) return fail(invalid);
 
@@ -228,9 +233,6 @@ export async function updateProductAction(_prev: AdminFormState, formData: FormD
   if (!id) return fail("Missing product id.");
 
   const input = readForm(formData);
-  const invalid = validate(input);
-  if (invalid) return fail(invalid);
-
   const supabase = createAdminClient();
   const { data: current } = await supabase
     .from("products")
@@ -245,6 +247,16 @@ export async function updateProductAction(_prev: AdminFormState, formData: FormD
         .eq("id", variantId)
         .maybeSingle()
     : { data: null };
+
+  // Seller không đổi cost — giữ cost hiện tại.
+  if (viewer?.isSeller && currentVariant?.cost_price != null) {
+    input.costPrice = Number(currentVariant.cost_price);
+  } else if (viewer?.isSeller) {
+    input.costPrice = input.costPrice ?? 0;
+  }
+
+  const invalid = validate(input);
+  if (invalid) return fail(invalid);
 
   const { error: productError } = await supabase
     .from("products")

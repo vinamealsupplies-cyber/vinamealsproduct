@@ -6,7 +6,7 @@ import { requireAdminAccessPage } from "@/lib/auth";
 import { getCategoryTree } from "@/lib/data/categories";
 
 export default async function NewProductPage() {
-  await requireAdminAccessPage();
+  const viewer = await requireAdminAccessPage();
   const categories = await getCategoryTree();
   return (
     <>
@@ -20,7 +20,7 @@ export default async function NewProductPage() {
           </Link>
         }
       />
-      <ProductForm categories={categories} />
+      <ProductForm categories={categories} isSeller={viewer.isSeller} />
     </>
   );
 }

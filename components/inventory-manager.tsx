@@ -38,15 +38,15 @@ type SortKey =
   | "inventoryValue"
   | "stockStatus";
 
-const SORT_COLUMNS: { key: SortKey; label: string; align?: "right" }[] = [
+const ALL_SORT_COLUMNS: { key: SortKey; label: string; align?: "right"; staffOnly?: boolean }[] = [
   { key: "productName", label: "Product" },
   { key: "sku", label: "SKU" },
-  { key: "locationCode", label: "Location" },
+  { key: "locationCode", label: "Location", staffOnly: true },
   { key: "onHand", label: "On hand", align: "right" },
   { key: "available", label: "Available", align: "right" },
-  { key: "costPrice", label: "Cost", align: "right" },
+  { key: "costPrice", label: "Cost", staffOnly: true, align: "right" },
   { key: "retailPrice", label: "Retail", align: "right" },
-  { key: "inventoryValue", label: "Value", align: "right" },
+  { key: "inventoryValue", label: "Value", staffOnly: true, align: "right" },
   { key: "stockStatus", label: "Status" }
 ];
 
@@ -67,11 +67,15 @@ function sortValue(row: InventoryRow, key: SortKey): string | number {
 
 export function InventoryManager({
   rows,
-  movements
+  movements,
+  isSeller = false
 }: {
   rows: InventoryRow[];
   movements: MovementRow[];
+  /** Seller: ẩn cost + location (chỉ 1 kho) + inventory value. */
+  isSeller?: boolean;
 }) {
+  const sortColumns = ALL_SORT_COLUMNS.filter((c) => !isSeller || !c.staffOnly);
   // Chỉ giữ KHOÁ của dòng đang chọn rồi suy ra dữ liệu từ `rows`. Nhờ vậy panel
   // luôn khớp dữ liệu server mới nhất sau revalidate mà không cần effect đồng bộ
   // (setState trong effect gây cascading render).
@@ -86,6 +90,10 @@ export function InventoryManager({
   const [query, setQuery] = useState("");
   const [sortKey, setSortKey] = useState<SortKey>("productName");
   const [ascending, setAscending] = useState(true);
+  const activeSortKey: SortKey =
+    isSeller && (sortKey === "locationCode" || sortKey === "costPrice" || sortKey === "inventoryValue")
+      ? "productName"
+      : sortKey;
 
   async function selectRow(row: InventoryRow) {
     setNotice(initialAdminFormState);
@@ -138,18 +146,18 @@ export function InventoryManager({
       : rows;
 
     return [...filtered].sort((a, b) => {
-      const left = sortValue(a, sortKey);
-      const right = sortValue(b, sortKey);
+      const left = sortValue(a, activeSortKey);
+      const right = sortValue(b, activeSortKey);
       if (typeof left === "number" && typeof right === "number") {
         return ascending ? left - right : right - left;
       }
       const result = String(left).localeCompare(String(right), undefined, { numeric: true });
       return ascending ? result : -result;
     });
-  }, [ascending, query, rows, sortKey]);
+  }, [activeSortKey, ascending, query, rows]);
 
   function changeSort(key: SortKey) {
-    if (key === sortKey) setAscending((value) => !value);
+    if (key === activeSortKey) setAscending((value) => !value);
     else {
       setSortKey(key);
       setAscending(true);
@@ -163,8 +171,9 @@ export function InventoryManager({
           <div>
             <h2>Stock on hand</h2>
             <p>
-              {rows.length} SKU{rows.length === 1 ? "" : "s"} · {usd.format(totalValue)} inventory value ·{" "}
-              {lowStock} needing attention
+              {rows.length} SKU{rows.length === 1 ? "" : "s"}
+              {!isSeller ? ` · ${usd.format(totalValue)} inventory value` : ""} · {lowStock} needing
+              attention
             </p>
           </div>
         </div>
@@ -176,7 +185,11 @@ export function InventoryManager({
               value={query}
               onChange={(event) => setQuery(event.target.value)}
               type="search"
-              placeholder="Search product, SKU, location, category…"
+              placeholder={
+                isSeller
+                  ? "Search product, SKU, category…"
+                  : "Search product, SKU, location, category…"
+              }
             />
           </label>
           <span className="toolbar-side">
@@ -189,11 +202,11 @@ export function InventoryManager({
           <table className="data-table">
             <thead>
               <tr>
-                {SORT_COLUMNS.map((column) => (
+                {sortColumns.map((column) => (
                   <th className={column.align === "right" ? "numeric" : ""} key={column.key}>
                     <button type="button" onClick={() => changeSort(column.key)}>
                       {column.label}
-                      {sortKey === column.key ? (
+                      {activeSortKey === column.key ? (
                         <ArrowDownAZ className={ascending ? "" : "sort-desc"} size={15} aria-hidden="true" />
                       ) : (
                         <ArrowUpDown size={14} aria-hidden="true" />
@@ -223,12 +236,12 @@ export function InventoryManager({
                     </span>
                   </td>
                   <td>{row.sku}</td>
-                  <td>{row.locationCode}</td>
+                  {!isSeller ? <td>{row.locationCode}</td> : null}
                   <td className="numeric">{integer.format(row.onHand)}</td>
                   <td className="numeric">{integer.format(row.available)}</td>
-                  <td className="numeric">{usd.format(row.costPrice)}</td>
+                  {!isSeller ? <td className="numeric">{usd.format(row.costPrice)}</td> : null}
                   <td className="numeric">{usd.format(row.retailPrice)}</td>
-                  <td className="numeric">{usd.format(row.inventoryValue)}</td>
+                  {!isSeller ? <td className="numeric">{usd.format(row.inventoryValue)}</td> : null}
                   <td>
                     <span className={`status-pill status-${row.stockStatus.replaceAll("_", "-")}`}>
                       {STATUS_COPY[row.stockStatus] ?? row.stockStatus}
@@ -246,14 +259,14 @@ export function InventoryManager({
               ))}
               {!rows.length ? (
                 <tr>
-                  <td className="empty-table" colSpan={10}>
+                  <td className="empty-table" colSpan={sortColumns.length + 1}>
                     No inventory records yet. Add a product with an opening quantity first.
                   </td>
                 </tr>
               ) : null}
               {rows.length && !visibleRows.length ? (
                 <tr>
-                  <td className="empty-table" colSpan={10}>
+                  <td className="empty-table" colSpan={sortColumns.length + 1}>
                     No products match “{query.trim()}”.
                   </td>
                 </tr>
@@ -335,24 +348,30 @@ export function InventoryManager({
             >
               <input type="hidden" name="variantId" value={selected.variantId} />
               <input type="hidden" name="sku" value={selected.sku} />
+              {isSeller ? (
+                <input type="hidden" name="costPrice" value={String(selected.costPrice)} />
+              ) : null}
               <h3 className="panel-subheading">
                 <DollarSign size={15} aria-hidden="true" /> Pricing
               </h3>
               <p className="field-hint">
-                Giá nhập (unit cost) và giá bán (retail). Đổi trên SKU — áp dụng mọi kho. Inventory value =
-                on hand × cost.
+                {isSeller
+                  ? "Chỉnh giá bán (retail). Giá nhập chỉ admin/staff thấy."
+                  : "Giá nhập (unit cost) và giá bán (retail). Đổi trên SKU — áp dụng mọi kho. Inventory value = on hand × cost."}
               </p>
-              <label>
-                Unit cost / giá nhập (USD)
-                <input
-                  name="costPrice"
-                  type="number"
-                  min="0"
-                  step="0.01"
-                  required
-                  defaultValue={selected.costPrice}
-                />
-              </label>
+              {!isSeller ? (
+                <label>
+                  Unit cost / giá nhập (USD)
+                  <input
+                    name="costPrice"
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    required
+                    defaultValue={selected.costPrice}
+                  />
+                </label>
+              ) : null}
               <label>
                 Retail price / giá bán (USD)
                 <input

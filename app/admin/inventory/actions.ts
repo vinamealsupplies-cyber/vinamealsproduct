@@ -127,13 +127,9 @@ export async function updateInventoryPricingAction(
 
   const variantId = String(formData.get("variantId") ?? "").trim();
   const sku = String(formData.get("sku") ?? "").trim();
-  const costPrice = Number.parseFloat(String(formData.get("costPrice") ?? ""));
   const retailPrice = Number.parseFloat(String(formData.get("retailPrice") ?? ""));
 
   if (!variantId) return fail("Missing inventory row.");
-  if (!Number.isFinite(costPrice) || costPrice < 0) {
-    return fail("Unit cost (giá nhập) must be 0 or more.");
-  }
   if (!Number.isFinite(retailPrice) || retailPrice < 0) {
     return fail("Retail price (giá bán) must be 0 or more.");
   }
@@ -145,10 +141,18 @@ export async function updateInventoryPricingAction(
     .eq("id", variantId)
     .maybeSingle();
 
+  // Seller không được đổi giá nhập — chỉ staff/manager/admin.
+  const nextCost = viewer!.isSeller
+    ? Number(before?.cost_price ?? 0)
+    : Number.parseFloat(String(formData.get("costPrice") ?? ""));
+  if (!viewer!.isSeller && (!Number.isFinite(nextCost) || nextCost < 0)) {
+    return fail("Unit cost (giá nhập) must be 0 or more.");
+  }
+
   const { error } = await supabase
     .from("product_variants")
     .update({
-      cost_price: costPrice,
+      cost_price: nextCost,
       retail_price: retailPrice
     })
     .eq("id", variantId);
@@ -161,8 +165,12 @@ export async function updateInventoryPricingAction(
     entityType: "product_variant",
     entityId: variantId,
     before,
-    after: { cost_price: costPrice, retail_price: retailPrice, sku },
-    metadata: { actorRole: viewer!.role, actorEmail: viewer!.email }
+    after: { cost_price: nextCost, retail_price: retailPrice, sku },
+    metadata: {
+      actorRole: viewer!.role,
+      actorEmail: viewer!.email,
+      costHiddenFromSeller: viewer!.isSeller
+    }
   });
 
   revalidatePath("/admin/inventory");
@@ -173,6 +181,8 @@ export async function updateInventoryPricingAction(
 
   return {
     status: "success",
-    message: `Updated pricing for ${sku || "item"}: cost $${costPrice.toFixed(2)}, retail $${retailPrice.toFixed(2)}.`
+    message: viewer!.isSeller
+      ? `Updated retail price for ${sku || "item"}: $${retailPrice.toFixed(2)}.`
+      : `Updated pricing for ${sku || "item"}: cost $${nextCost.toFixed(2)}, retail $${retailPrice.toFixed(2)}.`
   };
 }
