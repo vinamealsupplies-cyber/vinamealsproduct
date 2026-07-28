@@ -1423,6 +1423,15 @@ a.oauth-button { text-decoration: none; color: inherit; box-sizing: border-box; 
 .order-expand-btn:hover { background: #f0f5f2; color: var(--ink); }
 .order-number-btn .order-number { display: block; font-weight: 800; }
 .order-number-btn:hover .order-number { color: var(--green); }
+.order-customer-name { display: block; font-weight: 750; }
+.order-customer-phone {
+  display: block;
+  margin-top: 2px;
+  font-size: 12px;
+  font-weight: 700;
+}
+.order-customer-phone a { color: var(--green-dark, #1b5e40); }
+.order-customer-phone a:hover { text-decoration: underline; }
 .row-order-expanded { background: #f7faf8; }
 .order-detail-row td {
   background: #f4f8f6;

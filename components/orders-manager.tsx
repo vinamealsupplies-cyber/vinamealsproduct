@@ -37,8 +37,14 @@ function OrderDetail({ order }: { order: StaffOrder }) {
         <div>
           <strong>Khách</strong>
           <p>{order.customer}</p>
-          {order.customerEmail ? <p className="field-hint">{order.customerEmail}</p> : null}
-          {order.customerPhone ? <p className="field-hint">{order.customerPhone}</p> : null}
+          {order.customerCompany ? <p className="field-hint">{order.customerCompany}</p> : null}
+          {order.customerPhone ? (
+            <p className="order-customer-phone">
+              <a href={`tel:${order.customerPhone.replace(/[^\d+]/g, "")}`}>{order.customerPhone}</a>
+            </p>
+          ) : (
+            <p className="field-hint">Chưa có SĐT</p>
+          )}
         </div>
         <div>
           <strong>Nhận hàng</strong>
@@ -278,7 +284,21 @@ export function OrdersManager({ orders }: { orders: StaffOrder[] }) {
                         </span>
                       </button>
                     </td>
-                    <td>{order.customer}</td>
+                    <td>
+                      <span className="order-customer-name">{order.customer}</span>
+                      {order.customerCompany ? (
+                        <span className="field-hint">{order.customerCompany}</span>
+                      ) : null}
+                      {order.customerPhone ? (
+                        <span className="order-customer-phone">
+                          <a href={`tel:${order.customerPhone.replace(/[^\d+]/g, "")}`}>
+                            {order.customerPhone}
+                          </a>
+                        </span>
+                      ) : (
+                        <span className="field-hint">Chưa có SĐT</span>
+                      )}
+                    </td>
                     <td>{formatDate(order.createdAt)}</td>
                     <td>
                       {order.fulfillmentMethod === "pickup"

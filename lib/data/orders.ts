@@ -22,8 +22,10 @@ export type StaffOrderItem = {
 export type StaffOrder = {
   id: string;
   number: string;
+  /** Tên đầy đủ khách (không dùng email/username). */
   customer: string;
-  customerEmail: string | null;
+  /** Tên công ty nếu wholesale — hiển thị phụ. */
+  customerCompany: string | null;
   customerPhone: string | null;
   status: SalesOrderStatus;
   channel: string;
@@ -49,8 +51,8 @@ type DbCustomer = {
   first_name: string | null;
   last_name: string | null;
   company_name: string | null;
-  email: string | null;
   phone: string | null;
+  auth_user_id: string | null;
 };
 
 type DbItem = {
@@ -86,13 +88,15 @@ function one<T>(value: T | T[] | null): T | null {
   return value ?? null;
 }
 
-function customerName(customer: DbCustomer | null): string {
+/** Tên đầy đủ — không fallback email/username. */
+function customerFullName(customer: DbCustomer | null): string {
   if (!customer) return "Khách lẻ";
-  const company = customer.company_name?.trim();
-  if (company) return company;
   const full = [customer.first_name, customer.last_name].filter(Boolean).join(" ").trim();
   if (full) return full;
-  return customer.email?.trim() || "Khách lẻ";
+  // Wholesale đôi khi chỉ có company — dùng tạm khi chưa có họ tên.
+  const company = customer.company_name?.trim();
+  if (company) return company;
+  return "Khách lẻ";
 }
 
 function num(value: number | string | null | undefined): number {
@@ -125,12 +129,14 @@ function mapOrder(row: DbOrder): StaffOrder {
   const awaitingPickup =
     row.fulfillment_method === "pickup" && row.status === "confirmed" && row.picked_up_at == null;
   const awaitingDelivery = row.fulfillment_method === "ship" && row.status === "confirmed";
+  const fullName = customerFullName(customer);
+  const company = customer?.company_name?.trim() || null;
   return {
     id: row.id,
     number: row.order_number ?? row.id.slice(0, 8),
-    customer: customerName(customer),
-    customerEmail: customer?.email ?? null,
-    customerPhone: customer?.phone ?? null,
+    customer: fullName,
+    customerCompany: company && company !== fullName ? company : null,
+    customerPhone: customer?.phone?.trim() || null,
     status: row.status,
     channel: row.channel,
     fulfillmentMethod: row.fulfillment_method,
@@ -156,7 +162,7 @@ export async function getOrdersForStaff(): Promise<StaffOrder[]> {
     .from("sales_orders")
     .select(
       `id, order_number, status, channel, fulfillment_method, total_amount, currency, created_at, notes, picked_up_at, fulfilled_at,
-       customer:customers ( first_name, last_name, company_name, email, phone ),
+       customer:customers ( first_name, last_name, company_name, phone, auth_user_id ),
        location:inventory_locations ( name ),
        items:sales_order_items ( id, product_name_snapshot, variant_name_snapshot, sku_snapshot, quantity, unit_price, line_total, line_note )`
     )
@@ -165,5 +171,41 @@ export async function getOrdersForStaff(): Promise<StaffOrder[]> {
     .limit(200);
 
   if (error) throw new Error(`Failed to load orders: ${error.message}`);
-  return ((data ?? []) as unknown as DbOrder[]).map(mapOrder);
+
+  const rows = (data ?? []) as unknown as DbOrder[];
+
+  // Bổ sung họ tên / SĐT từ profiles khi hồ sơ customers còn trống.
+  const authIds = [
+    ...new Set(
+      rows
+        .map((row) => one(row.customer)?.auth_user_id)
+        .filter((id): id is string => Boolean(id))
+    )
+  ];
+  const profileById = new Map<string, { full_name: string | null; phone: string | null }>();
+  if (authIds.length) {
+    const { data: profiles } = await supabase
+      .from("profiles")
+      .select("id, full_name, phone")
+      .in("id", authIds);
+    for (const p of profiles ?? []) {
+      profileById.set(p.id, { full_name: p.full_name, phone: p.phone });
+    }
+  }
+
+  return rows.map((row) => {
+    const customer = one(row.customer);
+    if (customer?.auth_user_id) {
+      const profile = profileById.get(customer.auth_user_id);
+      if (profile) {
+        if (!customer.first_name && !customer.last_name && profile.full_name) {
+          const parts = profile.full_name.trim().split(/\s+/);
+          customer.first_name = parts[0] ?? null;
+          customer.last_name = parts.length > 1 ? parts.slice(1).join(" ") : null;
+        }
+        if (!customer.phone && profile.phone) customer.phone = profile.phone;
+      }
+    }
+    return mapOrder(row);
+  });
 }

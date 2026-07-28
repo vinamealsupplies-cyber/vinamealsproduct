@@ -138,10 +138,22 @@ export async function placeTestOrder(items: CheckoutItem[]): Promise<CheckoutRes
     return { ok: false, error: "Chưa cấu hình địa điểm nhận hàng (STORE-PICKUP)." };
   }
 
+  // Đồng bộ họ tên + SĐT từ profile (không hiện email trên Orders).
+  const { data: profile } = await supabase
+    .from("profiles")
+    .select("full_name, phone, email")
+    .eq("id", viewer.id)
+    .maybeSingle();
+  const fullName = (profile?.full_name ?? viewer.fullName ?? "").trim();
+  const nameParts = fullName ? fullName.split(/\s+/) : [];
+  const firstName = nameParts[0] || null;
+  const lastName = nameParts.length > 1 ? nameParts.slice(1).join(" ") : null;
+  const phone = (profile?.phone ?? "").trim() || null;
+
   let customerId: string | null = null;
   const { data: existingCustomer } = await supabase
     .from("customers")
-    .select("id")
+    .select("id, first_name, last_name, phone")
     .eq("auth_user_id", viewer.id)
     .maybeSingle();
   customerId = existingCustomer?.id ?? null;
@@ -150,13 +162,25 @@ export async function placeTestOrder(items: CheckoutItem[]): Promise<CheckoutRes
       .from("customers")
       .insert({
         auth_user_id: viewer.id,
-        email: viewer.email || null,
+        email: viewer.email || profile?.email || null,
+        first_name: firstName,
+        last_name: lastName,
+        phone,
         customer_type: "retail",
         status: "active"
       })
       .select("id")
       .single();
     customerId = createdCustomer?.id ?? null;
+  } else {
+    // Bổ sung tên/SĐT nếu hồ sơ khách còn trống.
+    const patch: Record<string, string> = {};
+    if (!existingCustomer?.first_name && firstName) patch.first_name = firstName;
+    if (!existingCustomer?.last_name && lastName) patch.last_name = lastName;
+    if (!existingCustomer?.phone && phone) patch.phone = phone;
+    if (Object.keys(patch).length) {
+      await supabase.from("customers").update(patch).eq("id", customerId);
+    }
   }
 
   const subtotal = orderItems.reduce((sum, item) => sum + item.unit_price * item.quantity, 0);
