@@ -28,10 +28,16 @@ type OrderSnapshot = {
   tracking_number?: string | null;
   tracking_url?: string | null;
   shipped_at?: string | null;
+  picked_up_by?: string | null;
+  picked_up_by_name?: string | null;
 };
 
 const ORDER_SELECT =
-  "id, order_number, status, fulfillment_method, notes, picked_up_at, fulfilled_at, total_amount, shipping_carrier, tracking_number, tracking_url, shipped_at";
+  "id, order_number, status, fulfillment_method, notes, picked_up_at, fulfilled_at, total_amount, shipping_carrier, tracking_number, tracking_url, shipped_at, picked_up_by, picked_up_by_name";
+
+function actorDisplayName(viewer: Viewer) {
+  return viewer.fullName?.trim() || viewer.email?.trim() || viewer.id.slice(0, 8);
+}
 
 async function requireOps(): Promise<{ viewer: Viewer } | { error: string }> {
   const viewer = await getViewer();
@@ -141,7 +147,7 @@ export async function saveShipmentTracking(
   return { ok: true };
 }
 
-/** Pickup: khách đã lấy hàng → fulfilled. */
+/** Pickup: khách đã lấy hàng → fulfilled. Ghi tên người xác nhận để kiểm tra. */
 export async function confirmPickup(orderId: string): Promise<OrderActionResult> {
   const gate = await requireOps();
   if ("error" in gate) return { ok: false, error: gate.error };
@@ -150,6 +156,7 @@ export async function confirmPickup(orderId: string): Promise<OrderActionResult>
   const before = await loadOrder(orderId);
   if (!before) return { ok: false, error: "Không tìm thấy đơn." };
 
+  const confirmerName = actorDisplayName(gate.viewer);
   const supabase = createAdminClient();
   const now = new Date().toISOString();
   const { data, error } = await supabase
@@ -159,6 +166,8 @@ export async function confirmPickup(orderId: string): Promise<OrderActionResult>
       pickup_ready_at: now,
       status: "fulfilled",
       fulfilled_at: now,
+      picked_up_by: gate.viewer.id,
+      picked_up_by_name: confirmerName,
       updated_at: now
     })
     .eq("id", orderId)
@@ -167,7 +176,15 @@ export async function confirmPickup(orderId: string): Promise<OrderActionResult>
     .is("picked_up_at", null)
     .select(ORDER_SELECT);
 
-  if (error) return { ok: false, error: "Không cập nhật được đơn. Thử lại." };
+  if (error) {
+    if (error.message.includes("picked_up_by")) {
+      return {
+        ok: false,
+        error: "Database chưa có cột picked_up_by. Chạy migration 20260728230000_pickup_confirmed_by.sql."
+      };
+    }
+    return { ok: false, error: "Không cập nhật được đơn. Thử lại." };
+  }
   if (!data || data.length === 0) {
     return { ok: false, error: "Đơn không ở trạng thái chờ pickup (có thể đã xác nhận trước đó)." };
   }
@@ -182,6 +199,90 @@ export async function confirmPickup(orderId: string): Promise<OrderActionResult>
     after,
     metadata: {
       orderNumber: after.order_number,
+      confirmedByName: confirmerName,
+      confirmedById: gate.viewer.id,
+      actorRole: gate.viewer.role,
+      actorEmail: gate.viewer.email
+    }
+  });
+
+  revalidateOrders();
+  return { ok: true };
+}
+
+/**
+ * Huỷ pickup đã xác nhận → trả đơn về confirmed (chờ pickup lại).
+ * Ghi log người huỷ + người đã xác nhận trước đó.
+ */
+export async function cancelPickup(orderId: string, reason = ""): Promise<OrderActionResult> {
+  const gate = await requireOps();
+  if ("error" in gate) return { ok: false, error: gate.error };
+  if (!orderId) return { ok: false, error: "Thiếu mã đơn." };
+
+  const before = await loadOrder(orderId);
+  if (!before) return { ok: false, error: "Không tìm thấy đơn." };
+  if (before.fulfillment_method !== "pickup") {
+    return { ok: false, error: "Chỉ huỷ pickup cho đơn nhận tại cửa hàng." };
+  }
+  if (before.status !== "fulfilled" || !before.picked_up_at) {
+    return { ok: false, error: "Đơn chưa được xác nhận pickup." };
+  }
+
+  const cancelReason = reason.trim().slice(0, 500);
+  const cancellerName = actorDisplayName(gate.viewer);
+  const now = new Date().toISOString();
+  const supabase = createAdminClient();
+
+  // Trả về confirmed để nhân viên có thể pickup lại; xóa mốc + người xác nhận.
+  const { data, error } = await supabase
+    .from("sales_orders")
+    .update({
+      status: "confirmed",
+      picked_up_at: null,
+      fulfilled_at: null,
+      // Giữ pickup_ready_at nếu có — đơn vẫn sẵn sàng lấy lại.
+      picked_up_by: null,
+      picked_up_by_name: null,
+      updated_at: now
+    })
+    .eq("id", orderId)
+    .eq("fulfillment_method", "pickup")
+    .eq("status", "fulfilled")
+    .not("picked_up_at", "is", null)
+    .select(ORDER_SELECT);
+
+  if (error) return { ok: false, error: "Không huỷ pickup được. Thử lại." };
+  if (!data?.length) {
+    return { ok: false, error: "Đơn không còn ở trạng thái đã pickup." };
+  }
+
+  const after = data[0] as OrderSnapshot;
+  await writeAuditLog({
+    actorUserId: gate.viewer.id,
+    action: "order.cancel_pickup",
+    entityType: "sales_order",
+    entityId: orderId,
+    before: {
+      status: before.status,
+      picked_up_at: before.picked_up_at,
+      picked_up_by: before.picked_up_by,
+      picked_up_by_name: before.picked_up_by_name,
+      fulfilled_at: before.fulfilled_at
+    },
+    after: {
+      status: after.status,
+      picked_up_at: after.picked_up_at,
+      picked_up_by: after.picked_up_by,
+      picked_up_by_name: after.picked_up_by_name,
+      fulfilled_at: after.fulfilled_at
+    },
+    metadata: {
+      orderNumber: after.order_number,
+      reason: cancelReason || null,
+      previousConfirmedByName: before.picked_up_by_name,
+      previousConfirmedById: before.picked_up_by,
+      cancelledByName: cancellerName,
+      cancelledById: gate.viewer.id,
       actorRole: gate.viewer.role,
       actorEmail: gate.viewer.email
     }
@@ -210,10 +311,12 @@ export async function confirmDelivered(orderId: string): Promise<OrderActionResu
     fulfilled_at: now,
     updated_at: now
   };
-  // Pickup chưa có picked_up_at thì ghi luôn khi "đã giao/đã lấy".
+  // Pickup chưa có picked_up_at thì ghi luôn khi "đã giao/đã lấy" + người xác nhận.
   if (before.fulfillment_method === "pickup" && !before.picked_up_at) {
     patch.picked_up_at = now;
     patch.pickup_ready_at = now;
+    patch.picked_up_by = gate.viewer.id;
+    patch.picked_up_by_name = actorDisplayName(gate.viewer);
   }
 
   // Đơn ship: nên có tracking trước khi đánh dấu đã giao (có thể bỏ qua nếu đã có).

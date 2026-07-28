@@ -17,6 +17,7 @@ import {
 } from "lucide-react";
 import {
   cancelOrder,
+  cancelPickup,
   confirmDelivered,
   confirmPickup,
   saveShipmentTracking,
@@ -78,6 +79,12 @@ function OrderDetail({ order }: { order: StaffOrder }) {
           ) : null}
           {order.fulfilledAt ? (
             <p className="field-hint">Hoàn tất {formatDateTime(order.fulfilledAt)}</p>
+          ) : null}
+          {order.pickedUpByName ? (
+            <p className="order-pickup-by">
+              Pickup xác nhận bởi <strong>{order.pickedUpByName}</strong>
+              {order.pickedUpAt ? ` · ${formatDateTime(order.pickedUpAt)}` : ""}
+            </p>
           ) : null}
         </div>
         <div>
@@ -172,11 +179,20 @@ type RowHandlers = {
   onEditNotes: (order: StaffOrder) => void;
   onCancel: (order: StaffOrder) => void;
   onShipTracking: (order: StaffOrder) => void;
+  onCancelPickup: (order: StaffOrder) => void;
 };
 
 function OrderRows({ orders, handlers }: { orders: StaffOrder[]; handlers: RowHandlers }) {
-  const { expandedId, pendingId, toggleExpand, run, onEditNotes, onCancel, onShipTracking } =
-    handlers;
+  const {
+    expandedId,
+    pendingId,
+    toggleExpand,
+    run,
+    onEditNotes,
+    onCancel,
+    onShipTracking,
+    onCancelPickup
+  } = handlers;
 
   return (
     <>
@@ -265,6 +281,9 @@ function OrderRows({ orders, handlers }: { orders: StaffOrder[]; handlers: RowHa
                     {carrierLabel(order.shippingCarrier)} {order.trackingNumber}
                   </span>
                 ) : null}
+                {order.pickedUpByName ? (
+                  <span className="order-pickup-by-chip">Bởi {order.pickedUpByName}</span>
+                ) : null}
               </td>
               <td className="row-actions orders-row-actions">
                 {order.awaitingPickup ? (
@@ -275,6 +294,15 @@ function OrderRows({ orders, handlers }: { orders: StaffOrder[]; handlers: RowHa
                     onClick={() => run(order.id, () => confirmPickup(order.id))}
                   >
                     {pendingId === order.id ? "…" : "Xác nhận pickup"}
+                  </button>
+                ) : null}
+                {order.canCancelPickup ? (
+                  <button
+                    type="button"
+                    className="danger compact"
+                    onClick={() => onCancelPickup(order)}
+                  >
+                    Huỷ pickup
                   </button>
                 ) : null}
                 {order.canEditTracking ? (
@@ -406,6 +434,8 @@ export function OrdersManager({ orders }: { orders: StaffOrder[] }) {
   const [carrier, setCarrier] = useState<ShippingCarrier>("usps");
   const [trackingNumber, setTrackingNumber] = useState("");
   const [customUrl, setCustomUrl] = useState("");
+  const [cancelPickupOrder, setCancelPickupOrder] = useState<StaffOrder | null>(null);
+  const [cancelPickupReason, setCancelPickupReason] = useState("");
 
   // Phần 1: chờ giao / ship / pickup (confirmed).
   const openOrders = orders.filter((o) => o.status === "confirmed");
@@ -423,6 +453,8 @@ export function OrdersManager({ orders }: { orders: StaffOrder[] }) {
       setCanceling(null);
       setCancelReason("");
       setShippingOrder(null);
+      setCancelPickupOrder(null);
+      setCancelPickupReason("");
       router.refresh();
     } else {
       setError(result.error);
@@ -438,6 +470,7 @@ export function OrdersManager({ orders }: { orders: StaffOrder[] }) {
       setError(null);
       setCanceling(null);
       setShippingOrder(null);
+      setCancelPickupOrder(null);
       setEditingNotes(order);
       setNotesDraft(order.notes ?? "");
     },
@@ -445,6 +478,7 @@ export function OrdersManager({ orders }: { orders: StaffOrder[] }) {
       setError(null);
       setEditingNotes(null);
       setShippingOrder(null);
+      setCancelPickupOrder(null);
       setCanceling(order);
       setCancelReason("");
     },
@@ -452,6 +486,7 @@ export function OrdersManager({ orders }: { orders: StaffOrder[] }) {
       setError(null);
       setEditingNotes(null);
       setCanceling(null);
+      setCancelPickupOrder(null);
       setShippingOrder(order);
       setCarrier(
         (order.shippingCarrier as ShippingCarrier) &&
@@ -461,6 +496,14 @@ export function OrdersManager({ orders }: { orders: StaffOrder[] }) {
       );
       setTrackingNumber(order.trackingNumber ?? "");
       setCustomUrl("");
+    },
+    onCancelPickup: (order) => {
+      setError(null);
+      setEditingNotes(null);
+      setCanceling(null);
+      setShippingOrder(null);
+      setCancelPickupOrder(order);
+      setCancelPickupReason("");
     }
   };
 
@@ -536,6 +579,46 @@ export function OrdersManager({ orders }: { orders: StaffOrder[] }) {
               {pendingId === canceling.id ? "Đang huỷ…" : "Xác nhận huỷ đơn"}
             </button>
             <button className="button secondary" type="button" onClick={() => setCanceling(null)}>
+              Không huỷ
+            </button>
+          </div>
+        </div>
+      ) : null}
+
+      {cancelPickupOrder ? (
+        <div className="form-card compact-form-card orders-inline-panel">
+          <h2>Huỷ pickup — {cancelPickupOrder.number}?</h2>
+          <p className="field-hint">
+            Đơn sẽ trở lại <strong>chờ pickup</strong>.
+            {cancelPickupOrder.pickedUpByName
+              ? ` Trước đó do ${cancelPickupOrder.pickedUpByName} xác nhận.`
+              : ""}{" "}
+            Thao tác được ghi log (ai huỷ + ai đã xác nhận trước).
+          </p>
+          <input
+            value={cancelPickupReason}
+            onChange={(e) => setCancelPickupReason(e.target.value)}
+            placeholder="Lý do huỷ pickup (vd. nhầm đơn, khách chưa lấy…)"
+            maxLength={500}
+          />
+          <div className="button-row">
+            <button
+              className="button danger"
+              type="button"
+              disabled={pendingId === cancelPickupOrder.id}
+              onClick={() =>
+                run(cancelPickupOrder.id, () =>
+                  cancelPickup(cancelPickupOrder.id, cancelPickupReason)
+                )
+              }
+            >
+              {pendingId === cancelPickupOrder.id ? "Đang huỷ…" : "Xác nhận huỷ pickup"}
+            </button>
+            <button
+              className="button secondary"
+              type="button"
+              onClick={() => setCancelPickupOrder(null)}
+            >
               Không huỷ
             </button>
           </div>

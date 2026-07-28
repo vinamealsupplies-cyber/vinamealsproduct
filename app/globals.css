@@ -1479,6 +1479,19 @@ a.oauth-button { text-decoration: none; color: inherit; box-sizing: border-box; 
   font-weight: 800;
 }
 .order-tracking-inline a:hover { text-decoration: underline; }
+.order-pickup-by {
+  margin: 6px 0 0;
+  font-size: 12px;
+  font-weight: 650;
+  color: var(--green-dark, #1b5e40);
+}
+.order-pickup-by-chip {
+  display: block;
+  margin-top: 4px;
+  font-size: 11px;
+  font-weight: 750;
+  color: var(--green-dark, #1b5e40);
+}
 .orders-table-wrap {
   overflow-x: auto; border: 1px solid var(--line);
   border-radius: var(--radius-small); background: var(--surface);

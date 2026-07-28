@@ -38,6 +38,9 @@ export type StaffOrder = {
   pickedUpAt: string | null;
   fulfilledAt: string | null;
   pickupLocation: string | null;
+  /** Tên người xác nhận pickup (snapshot). */
+  pickedUpByName: string | null;
+  pickedUpById: string | null;
   shippingCarrier: ShippingCarrier | string | null;
   trackingNumber: string | null;
   trackingUrl: string | null;
@@ -52,6 +55,8 @@ export type StaffOrder = {
   canEditNotes: boolean;
   /** Ship: có thể nhập/sửa tracking. */
   canEditTracking: boolean;
+  /** Pickup đã xác nhận → có thể huỷ pickup (trả về chờ lấy). */
+  canCancelPickup: boolean;
 };
 
 type DbCustomer = {
@@ -89,6 +94,8 @@ type DbOrder = {
   tracking_number: string | null;
   tracking_url: string | null;
   shipped_at: string | null;
+  picked_up_by: string | null;
+  picked_up_by_name: string | null;
   customer: DbCustomer | DbCustomer[] | null;
   location: { name: string | null } | { name: string | null }[] | null;
   items: DbItem[] | null;
@@ -158,6 +165,8 @@ function mapOrder(row: DbOrder): StaffOrder {
     pickedUpAt: row.picked_up_at,
     fulfilledAt: row.fulfilled_at,
     pickupLocation: location?.name ?? null,
+    pickedUpByName: row.picked_up_by_name?.trim() || null,
+    pickedUpById: row.picked_up_by,
     shippingCarrier: row.shipping_carrier,
     trackingNumber: row.tracking_number?.trim() || null,
     trackingUrl: buildTrackingUrl(
@@ -172,7 +181,11 @@ function mapOrder(row: DbOrder): StaffOrder {
     awaitingDelivery,
     canCancel: row.status === "confirmed",
     canEditNotes: row.status !== "cancelled",
-    canEditTracking: row.fulfillment_method === "ship" && row.status !== "cancelled"
+    canEditTracking: row.fulfillment_method === "ship" && row.status !== "cancelled",
+    canCancelPickup:
+      row.fulfillment_method === "pickup" &&
+      row.status === "fulfilled" &&
+      row.picked_up_at != null
   };
 }
 
@@ -182,7 +195,7 @@ export async function getOrdersForStaff(): Promise<StaffOrder[]> {
     .from("sales_orders")
     .select(
       `id, order_number, status, channel, fulfillment_method, total_amount, currency, created_at, notes, picked_up_at, fulfilled_at,
-       shipping_carrier, tracking_number, tracking_url, shipped_at,
+       shipping_carrier, tracking_number, tracking_url, shipped_at, picked_up_by, picked_up_by_name,
        customer:customers ( first_name, last_name, company_name, phone, auth_user_id ),
        location:inventory_locations ( name ),
        items:sales_order_items ( id, product_name_snapshot, variant_name_snapshot, sku_snapshot, quantity, unit_price, line_total, line_note )`
