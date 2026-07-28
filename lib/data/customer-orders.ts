@@ -27,6 +27,10 @@ export type CustomerOrder = {
   notes: string | null;
   pickedUpAt: string | null;
   fulfilledAt: string | null;
+  /** Thời điểm thanh toán thành công (payments.received_at), null nếu chưa thanh toán. */
+  paidAt: string | null;
+  paymentMethod: string | null;
+  paymentStatus: "paid" | "pending" | "partial" | "none";
   itemCount: number;
   items: CustomerOrderItem[];
   /** Đơn còn mở — khách đang mua / chờ nhận. */
@@ -45,6 +49,22 @@ type DbItem = {
   line_total?: number | string;
 };
 
+type DbPayment = {
+  received_at: string | null;
+  status: string;
+  amount: number | string;
+  payment_method: string | null;
+  created_at: string;
+};
+
+type DbInvoice = {
+  id: string;
+  amount_paid: number | string | null;
+  total_amount: number | string | null;
+  status: string;
+  payments: DbPayment[] | DbPayment | null;
+};
+
 type DbOrder = {
   id: string;
   order_number: string | null;
@@ -58,11 +78,17 @@ type DbOrder = {
   picked_up_at: string | null;
   fulfilled_at: string | null;
   items: DbItem[] | null;
+  invoices: DbInvoice[] | DbInvoice | null;
 };
 
 function num(value: number | string | null | undefined): number {
   const parsed = typeof value === "string" ? Number.parseFloat(value) : value;
   return typeof parsed === "number" && Number.isFinite(parsed) ? parsed : 0;
+}
+
+function asArray<T>(value: T | T[] | null | undefined): T[] {
+  if (!value) return [];
+  return Array.isArray(value) ? value : [value];
 }
 
 function statusCopy(order: {
@@ -102,6 +128,48 @@ function statusCopy(order: {
   return { label: "Draft", detail: "Not submitted yet.", isOpen: false };
 }
 
+function paymentInfo(row: DbOrder): {
+  paidAt: string | null;
+  paymentMethod: string | null;
+  paymentStatus: CustomerOrder["paymentStatus"];
+} {
+  const invoices = asArray(row.invoices);
+  const payments = invoices.flatMap((inv) => asArray(inv.payments));
+  const succeeded = payments
+    .filter((p) => p.status === "succeeded")
+    .sort((a, b) => {
+      const ta = new Date(a.received_at ?? a.created_at).getTime();
+      const tb = new Date(b.received_at ?? b.created_at).getTime();
+      return tb - ta;
+    });
+
+  if (succeeded.length) {
+    const latest = succeeded[0];
+    return {
+      paidAt: latest.received_at ?? latest.created_at,
+      paymentMethod: latest.payment_method,
+      paymentStatus: "paid"
+    };
+  }
+
+  const amountPaid = invoices.reduce((sum, inv) => sum + num(inv.amount_paid), 0);
+  if (amountPaid > 0 && amountPaid < num(row.total_amount)) {
+    return { paidAt: null, paymentMethod: null, paymentStatus: "partial" };
+  }
+  if (payments.some((p) => p.status === "pending")) {
+    return { paidAt: null, paymentMethod: null, paymentStatus: "pending" };
+  }
+  // Checkout thử hiện tại không tạo payment — coi như pending cho đơn còn mở.
+  if (row.status === "confirmed") {
+    return { paidAt: null, paymentMethod: null, paymentStatus: "pending" };
+  }
+  if (row.status === "fulfilled") {
+    // Đã hoàn tất nhưng chưa có bản ghi payment (pickup thử) — vẫn hiện pending.
+    return { paidAt: null, paymentMethod: null, paymentStatus: "pending" };
+  }
+  return { paidAt: null, paymentMethod: null, paymentStatus: "none" };
+}
+
 function mapOrder(row: DbOrder): CustomerOrder {
   const items = (row.items ?? []).map((item) => {
     const quantity = num(item.quantity);
@@ -124,6 +192,7 @@ function mapOrder(row: DbOrder): CustomerOrder {
     fulfillmentMethod,
     pickedUpAt: row.picked_up_at
   });
+  const payment = paymentInfo(row);
 
   return {
     id: row.id,
@@ -137,6 +206,9 @@ function mapOrder(row: DbOrder): CustomerOrder {
     notes: row.notes,
     pickedUpAt: row.picked_up_at,
     fulfilledAt: row.fulfilled_at,
+    paidAt: payment.paidAt,
+    paymentMethod: payment.paymentMethod,
+    paymentStatus: payment.paymentStatus,
     itemCount: items.length,
     items,
     isOpen: copy.isOpen,
@@ -145,31 +217,53 @@ function mapOrder(row: DbOrder): CustomerOrder {
   };
 }
 
-/**
- * Đơn hàng của tài khoản đang đăng nhập (qua customers.auth_user_id).
- * Service role + filter theo user — khách chỉ thấy đơn của mình.
- */
-export async function getOwnOrders(authUserId: string): Promise<CustomerOrder[]> {
+async function getCustomerId(authUserId: string): Promise<string | null> {
   const supabase = createAdminClient();
-
   const { data: customer } = await supabase
     .from("customers")
     .select("id")
     .eq("auth_user_id", authUserId)
     .maybeSingle();
+  return customer?.id ?? null;
+}
 
-  if (!customer?.id) return [];
+/**
+ * Đơn hàng của tài khoản đang đăng nhập (qua customers.auth_user_id).
+ * Service role + filter theo user — khách chỉ thấy đơn của mình.
+ */
+export async function getOwnOrders(authUserId: string): Promise<CustomerOrder[]> {
+  const customerId = await getCustomerId(authUserId);
+  if (!customerId) return [];
 
+  const supabase = createAdminClient();
   const { data, error } = await supabase
     .from("sales_orders")
     .select(
-      "id, order_number, status, fulfillment_method, total_amount, currency, placed_at, created_at, notes, picked_up_at, fulfilled_at, items:sales_order_items ( id, product_name_snapshot, variant_name_snapshot, sku_snapshot, quantity, unit_price, line_total )"
+      `id, order_number, status, fulfillment_method, total_amount, currency, placed_at, created_at, notes, picked_up_at, fulfilled_at,
+       items:sales_order_items ( id, product_name_snapshot, variant_name_snapshot, sku_snapshot, quantity, unit_price, line_total ),
+       invoices ( id, amount_paid, total_amount, status, payments ( received_at, status, amount, payment_method, created_at ) )`
     )
-    .eq("customer_id", customer.id)
+    .eq("customer_id", customerId)
     .neq("status", "draft")
     .order("created_at", { ascending: false })
     .limit(50);
 
   if (error) throw new Error(`Failed to load orders: ${error.message}`);
   return ((data ?? []) as unknown as DbOrder[]).map(mapOrder);
+}
+
+/** Số đơn chưa hoàn tất (confirmed) — badge đỏ trên Account / Orders. */
+export async function getOwnOpenOrderCount(authUserId: string): Promise<number> {
+  const customerId = await getCustomerId(authUserId);
+  if (!customerId) return 0;
+
+  const supabase = createAdminClient();
+  const { count, error } = await supabase
+    .from("sales_orders")
+    .select("id", { count: "exact", head: true })
+    .eq("customer_id", customerId)
+    .eq("status", "confirmed");
+
+  if (error) return 0;
+  return count ?? 0;
 }

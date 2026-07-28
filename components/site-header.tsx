@@ -7,9 +7,15 @@ import { CategoryMenu } from "@/components/category-menu";
 import { HeaderSearch } from "@/components/header-search";
 import { getViewer } from "@/lib/auth";
 import { getStorefrontCategories } from "@/lib/data/categories";
+import { getOwnOpenOrderCount } from "@/lib/data/customer-orders";
+import { isSupabaseAdminConfigured } from "@/lib/env";
 
 export async function SiteHeader() {
   const [viewer, categories] = await Promise.all([getViewer(), getStorefrontCategories()]);
+  const openOrders =
+    viewer && !viewer.demo && isSupabaseAdminConfigured()
+      ? await getOwnOpenOrderCount(viewer.id)
+      : 0;
 
   return (
     <header className="site-header">
@@ -51,9 +57,26 @@ export async function SiteHeader() {
               <span>Seller</span>
             </Link>
           ) : null}
-          <Link className="header-action" href={viewer ? "/account" : "/login"}>
+          <Link
+            className="header-action"
+            href={viewer ? "/account#purchase-history" : "/login"}
+            aria-label={
+              viewer
+                ? openOrders > 0
+                  ? `Account, ${openOrders} incomplete orders`
+                  : "Account"
+                : "Sign in"
+            }
+          >
             <UserRound size={19} aria-hidden="true" />
-            <span>{viewer ? "Account" : "Sign in"}</span>
+            <span className="header-account-label">
+              {viewer ? "Account" : "Sign in"}
+              {viewer && openOrders > 0 ? (
+                <span className="order-count-badge header-order-badge" aria-hidden="true">
+                  {openOrders}
+                </span>
+              ) : null}
+            </span>
           </Link>
           <CartLink />
         </nav>

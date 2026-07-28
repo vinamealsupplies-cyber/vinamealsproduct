@@ -584,6 +584,61 @@ a.oauth-button { text-decoration: none; color: inherit; box-sizing: border-box; 
 .status-pill.status-confirmed { background: #e3f0ff; color: #1d4ed8; }
 .status-pill.status-fulfilled { background: var(--mint); color: var(--green-dark); }
 
+/* Badge đỏ: số đơn chưa hoàn tất cạnh chữ Orders / Account */
+.order-count-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 1.35rem;
+  height: 1.35rem;
+  padding: 0 6px;
+  margin-left: 8px;
+  border-radius: 999px;
+  background: var(--red, #c62828);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 850;
+  line-height: 1;
+  letter-spacing: 0;
+  vertical-align: middle;
+}
+.order-count-badge.inline { margin-left: 6px; }
+.orders-heading-with-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0;
+}
+.purchase-history > .section-heading h2 .order-count-badge { margin-left: 10px; }
+.header-account-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 0;
+  position: relative;
+}
+.header-order-badge {
+  margin-left: 6px;
+  min-width: 1.15rem;
+  height: 1.15rem;
+  font-size: 10px;
+  padding: 0 5px;
+}
+.purchase-payment-line {
+  margin: 6px 0 0;
+  font-size: 12px;
+  font-weight: 700;
+}
+.purchase-payment-line.is-paid { color: var(--green-dark, #1b5e40); }
+.purchase-payment-line.is-pending { color: #a16207; }
+.order-open-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  margin-left: 8px;
+  border-radius: 50%;
+  background: var(--red, #c62828);
+  vertical-align: middle;
+}
+
 /* Shipping addresses */
 .address-list { display: grid; gap: 12px; margin: 0; padding: 0; list-style: none; }
 .address-card { display: grid; grid-template-columns: 1fr auto; gap: 16px; align-items: start; padding: 16px; border: 1px solid var(--line); border-radius: 16px; background: #fafcfb; }

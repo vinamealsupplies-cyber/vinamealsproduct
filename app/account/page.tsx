@@ -91,12 +91,19 @@ export default async function AccountPage() {
 
         <section className="account-card">
           <Package />
-          <h2>Orders</h2>
+          <h2 className="orders-heading-with-badge">
+            Orders
+            {openCount > 0 ? (
+              <span className="order-count-badge" aria-label={`${openCount} incomplete orders`}>
+                {openCount}
+              </span>
+            ) : null}
+          </h2>
           {orders.length ? (
             <>
               <p>
                 {openCount > 0
-                  ? `${openCount} order${openCount === 1 ? "" : "s"} in progress`
+                  ? `${openCount} order${openCount === 1 ? "" : "s"} not completed yet`
                   : "No open orders right now"}
                 {pastCount > 0 ? ` · ${pastCount} completed or cancelled` : ""}.
               </p>

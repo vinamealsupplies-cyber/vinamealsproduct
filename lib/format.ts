@@ -14,3 +14,14 @@ export function formatDate(value: string | Date) {
     year: "numeric"
   }).format(new Date(value));
 }
+
+/** Ngày + giờ (local) — dùng cho thanh toán / đặt hàng. */
+export function formatDateTime(value: string | Date) {
+  return new Intl.DateTimeFormat("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+    hour: "numeric",
+    minute: "2-digit"
+  }).format(new Date(value));
+}

@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { Package, PackageOpen, ShoppingBag } from "lucide-react";
 import type { CustomerOrder } from "@/lib/data/customer-orders";
-import { formatDate, usd } from "@/lib/format";
+import { formatDate, formatDateTime, usd } from "@/lib/format";
 
 function statusClass(status: CustomerOrder["status"], isOpen: boolean) {
   if (status === "cancelled") return "status-cancelled";
@@ -10,18 +10,43 @@ function statusClass(status: CustomerOrder["status"], isOpen: boolean) {
   return "status-draft";
 }
 
+function paymentLine(order: CustomerOrder) {
+  if (order.paidAt) {
+    const method = order.paymentMethod ? ` · ${order.paymentMethod}` : "";
+    return `Paid ${formatDateTime(order.paidAt)}${method}`;
+  }
+  if (order.paymentStatus === "partial") {
+    return "Partially paid — remaining balance due";
+  }
+  if (order.paymentStatus === "pending") {
+    return "Payment pending";
+  }
+  if (order.status === "cancelled") {
+    return "No payment";
+  }
+  return "Payment not recorded";
+}
+
 function OrderCard({ order }: { order: CustomerOrder }) {
   return (
     <article className={`purchase-order-card ${order.isOpen ? "is-open" : ""}`}>
       <header className="purchase-order-head">
         <div>
-          <p className="purchase-order-number">Order {order.number}</p>
+          <p className="purchase-order-number">
+            Order {order.number}
+            {order.isOpen ? (
+              <span className="order-open-dot" title="In progress" aria-label="In progress" />
+            ) : null}
+          </p>
           <p className="purchase-order-meta">
-            Placed {formatDate(order.placedAt)}
+            Placed {formatDateTime(order.placedAt)}
             {" · "}
             {order.fulfillmentMethod === "pickup" ? "Store pickup" : "Shipping"}
             {" · "}
             {order.itemCount} item{order.itemCount === 1 ? "" : "s"}
+          </p>
+          <p className={`purchase-payment-line ${order.paidAt ? "is-paid" : "is-pending"}`}>
+            {paymentLine(order)}
           </p>
         </div>
         <div className="purchase-order-status">
@@ -80,6 +105,7 @@ function OrderCard({ order }: { order: CustomerOrder }) {
 export function PurchaseHistory({ orders }: { orders: CustomerOrder[] }) {
   const openOrders = orders.filter((o) => o.isOpen);
   const pastOrders = orders.filter((o) => !o.isOpen);
+  const openCount = openOrders.length;
 
   if (!orders.length) {
     return (
@@ -102,14 +128,24 @@ export function PurchaseHistory({ orders }: { orders: CustomerOrder[] }) {
         <div>
           <h2>
             <Package size={20} aria-hidden="true" /> Purchase history
+            {openCount > 0 ? (
+              <span className="order-count-badge" aria-label={`${openCount} open orders`}>
+                {openCount}
+              </span>
+            ) : null}
           </h2>
-          <p>Orders you placed — in progress and completed.</p>
+          <p>Orders you placed — in progress and completed. Payment time shows when paid.</p>
         </div>
       </div>
 
       {openOrders.length ? (
         <div className="purchase-group">
-          <h3>In progress ({openOrders.length})</h3>
+          <h3>
+            In progress{" "}
+            <span className="order-count-badge inline" aria-hidden="true">
+              {openCount}
+            </span>
+          </h3>
           <div className="purchase-order-list">
             {openOrders.map((order) => (
               <OrderCard key={order.id} order={order} />
