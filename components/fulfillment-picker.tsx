@@ -1,13 +1,16 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { BadgeDollarSign, Receipt, Store, Truck } from "lucide-react";
 import { ShippingAddressPicker } from "@/components/shipping-address-picker";
 import type { CustomerAddress } from "@/lib/data/address-types";
+import {
+  getFulfillmentMethod,
+  setFulfillmentMethod,
+  type FulfillmentMethod
+} from "@/lib/fulfillment-preference";
 import { usd } from "@/lib/format";
 import type { WholesaleEligibility } from "@/lib/wholesale";
-
-type FulfillmentMethod = "pickup" | "ship";
 
 const SHIPPING_FLAT_RATE = 12.5;
 
@@ -15,6 +18,7 @@ const STORE = { city: "Garden Grove", state: "CA", label: "Vinameals store picku
 
 /**
  * Chọn nhận tại cửa hàng hay giao hàng, kèm tạm tính.
+ * Lựa chọn được lưu localStorage và checkout đọc lại.
  *
  * Wholesale pricing CHỈ hiện khi admin gán mác wholesale và giỏ đạt ngưỡng
  * (số lượng hoặc số tiền). Khách lẻ không còn nút bấm để xem/chọn giá sỉ.
@@ -36,6 +40,17 @@ export function FulfillmentPicker({
   signedIn?: boolean;
 }) {
   const [method, setMethod] = useState<FulfillmentMethod>("ship");
+  const [hydrated, setHydrated] = useState(false);
+
+  useEffect(() => {
+    setMethod(getFulfillmentMethod());
+    setHydrated(true);
+  }, []);
+
+  function choose(next: FulfillmentMethod) {
+    setMethod(next);
+    setFulfillmentMethod(next);
+  }
 
   const useWholesale = wholesale.isWholesale && wholesale.qualifies;
   const subtotal = useWholesale ? wholesaleSubtotal : retailSubtotal;
@@ -84,14 +99,14 @@ export function FulfillmentPicker({
         </div>
       ) : null}
 
-      <div className="fulfillment-choice">
+      <div className="fulfillment-choice" data-hydrated={hydrated ? "true" : "false"}>
         <label>
           <input
             type="radio"
             name="fulfillment"
             value="pickup"
             checked={method === "pickup"}
-            onChange={() => setMethod("pickup")}
+            onChange={() => choose("pickup")}
           />
           <span>
             <strong>
@@ -109,7 +124,7 @@ export function FulfillmentPicker({
             name="fulfillment"
             value="ship"
             checked={method === "ship"}
-            onChange={() => setMethod("ship")}
+            onChange={() => choose("ship")}
           />
           <span>
             <strong>

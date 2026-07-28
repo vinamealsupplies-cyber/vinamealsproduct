@@ -1,18 +1,22 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { CheckCircle2, MessageSquareText, ShoppingBag, Store, Truck } from "lucide-react";
 import { placeTestOrder } from "@/app/checkout/actions";
 import { ShippingAddressPicker } from "@/components/shipping-address-picker";
 import type { CustomerAddress } from "@/lib/data/address-types";
 import { useCart } from "@/lib/cart";
+import {
+  getFulfillmentMethod,
+  setFulfillmentMethod,
+  type FulfillmentMethod
+} from "@/lib/fulfillment-preference";
 import type { Product } from "@/lib/sample-data";
 import { usd } from "@/lib/format";
 
-type FulfillmentMethod = "pickup" | "ship";
-
 // Bước xác nhận đơn: chọn pickup hoặc ship + địa chỉ, ghi chú từng món.
+// Method mặc định lấy từ cart (localStorage) — không reset về pickup.
 export function CheckoutView({
   catalog,
   customerName,
@@ -27,7 +31,8 @@ export function CheckoutView({
   const { items, ready, clear, setNote } = useCart();
   const [placing, setPlacing] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [method, setMethod] = useState<FulfillmentMethod>("pickup");
+  const [method, setMethod] = useState<FulfillmentMethod>("ship");
+  const [methodReady, setMethodReady] = useState(false);
   const [shippingAddressId, setShippingAddressId] = useState<string | null>(
     shippingAddresses.find((a) => a.isDefault)?.id ?? shippingAddresses[0]?.id ?? null
   );
@@ -37,9 +42,21 @@ export function CheckoutView({
     fulfillmentMethod: FulfillmentMethod;
   } | null>(null);
 
+  useEffect(() => {
+    setMethod(getFulfillmentMethod());
+    setMethodReady(true);
+  }, []);
+
+  function chooseMethod(next: FulfillmentMethod) {
+    setMethod(next);
+    setFulfillmentMethod(next);
+  }
+
   const byId = new Map(catalog.map((product) => [product.id, product]));
 
-  if (!ready) return <div className="page-shell shell narrow-page" aria-busy="true" />;
+  if (!ready || !methodReady) {
+    return <div className="page-shell shell narrow-page" aria-busy="true" />;
+  }
 
   const lines = items
     .map((item) => ({ ...item, product: byId.get(item.productId) }))
@@ -145,7 +162,7 @@ export function CheckoutView({
               name="checkout-fulfillment"
               value="pickup"
               checked={method === "pickup"}
-              onChange={() => setMethod("pickup")}
+              onChange={() => chooseMethod("pickup")}
             />
             <span>
               <strong>
@@ -160,7 +177,7 @@ export function CheckoutView({
               name="checkout-fulfillment"
               value="ship"
               checked={method === "ship"}
-              onChange={() => setMethod("ship")}
+              onChange={() => chooseMethod("ship")}
             />
             <span>
               <strong>
