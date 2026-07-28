@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
-import { Check, PackageCheck, ShoppingBag } from "lucide-react";
+import { Check, Minus, PackageCheck, Plus, ShoppingBag } from "lucide-react";
 import { useCart } from "@/lib/cart";
 import type { Product } from "@/lib/sample-data";
 import { usd } from "@/lib/format";
@@ -12,6 +12,7 @@ export function ProductCard({ product }: { product: Product }) {
   const image = product.media.find((item) => item.type === "image" && item.src);
   const lowStock = product.stock > 0 && product.stock <= 10;
   const { add } = useCart();
+  const [quantity, setQuantity] = useState(1);
   const [justAdded, setJustAdded] = useState(false);
 
   useEffect(() => {
@@ -20,12 +21,23 @@ export function ProductCard({ product }: { product: Product }) {
     return () => window.clearTimeout(timer);
   }, [justAdded]);
 
+  // Stock giảm / hết → kẹp số lượng.
+  useEffect(() => {
+    if (product.stock <= 0) {
+      setQuantity(1);
+      return;
+    }
+    setQuantity((q) => Math.min(Math.max(1, q), product.stock));
+  }, [product.stock]);
+
   function handleAdd(event: React.MouseEvent) {
     event.preventDefault();
     event.stopPropagation();
     if (product.stock <= 0) return;
-    add(product.id, 1, product.stock);
+    const qty = Math.min(Math.max(1, quantity), product.stock);
+    add(product.id, qty, product.stock);
     setJustAdded(true);
+    setQuantity(1);
   }
 
   return (
@@ -75,31 +87,67 @@ export function ProductCard({ product }: { product: Product }) {
             Details
           </Link>
         </div>
-        <button
-          className={`button product-card-add ${justAdded ? "is-added" : "primary"}`}
-          type="button"
-          disabled={product.stock <= 0}
-          onClick={handleAdd}
-          aria-label={
-            product.stock <= 0
-              ? `${product.name} is out of stock`
-              : justAdded
-                ? `${product.name} added to cart`
-                : `Add ${product.name} to cart`
-          }
-        >
-          {product.stock <= 0 ? (
-            "Out of stock"
-          ) : justAdded ? (
-            <>
-              <Check size={16} aria-hidden="true" /> Added
-            </>
-          ) : (
-            <>
-              <ShoppingBag size={16} aria-hidden="true" /> Add to cart
-            </>
-          )}
-        </button>
+
+        {product.stock <= 0 ? (
+          <button className="button product-card-add" type="button" disabled>
+            Out of stock
+          </button>
+        ) : (
+          <div className="product-card-cart-row">
+            <div
+              className="quantity-control product-card-qty"
+              role="group"
+              aria-label={`Quantity for ${product.name}`}
+            >
+              <button
+                type="button"
+                aria-label="Decrease quantity"
+                disabled={quantity <= 1}
+                onClick={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  setQuantity((q) => Math.max(1, q - 1));
+                }}
+              >
+                <Minus size={15} />
+              </button>
+              <span aria-live="polite">{quantity}</span>
+              <button
+                type="button"
+                aria-label="Increase quantity"
+                disabled={quantity >= product.stock}
+                onClick={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  setQuantity((q) => Math.min(product.stock, q + 1));
+                }}
+              >
+                <Plus size={15} />
+              </button>
+            </div>
+            <button
+              className={`button product-card-add ${justAdded ? "is-added" : "primary"}`}
+              type="button"
+              onClick={handleAdd}
+              aria-label={
+                justAdded
+                  ? `${product.name} added to cart`
+                  : `Add ${quantity} ${product.name} to cart`
+              }
+            >
+              {justAdded ? (
+                <>
+                  <Check size={16} aria-hidden="true" /> Added
+                </>
+              ) : (
+                <>
+                  <ShoppingBag size={16} aria-hidden="true" /> Add
+                  {quantity > 1 ? ` (${quantity})` : ""}
+                </>
+              )}
+            </button>
+          </div>
+        )}
       </div>
     </article>
   );

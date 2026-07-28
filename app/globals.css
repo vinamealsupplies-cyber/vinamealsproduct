@@ -299,9 +299,26 @@ main { min-height: 65vh; }
 .product-price-row { margin-top: 18px; display: flex; align-items: center; justify-content: space-between; gap: 10px; }
 .product-price-row strong { font-size: 21px; }
 .product-price-row a { color: var(--green); font-weight: 800; flex-shrink: 0; }
+.product-card-cart-row {
+  margin-top: 14px;
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 10px;
+  align-items: center;
+}
+.product-card-qty {
+  min-height: 44px;
+  width: 112px;
+  grid-template-columns: 32px 1fr 32px;
+  font-weight: 800;
+  font-size: 14px;
+}
+.product-card-qty button:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
 .product-card-add {
   width: 100%;
-  margin-top: 14px;
   min-height: 44px;
   display: inline-flex;
   align-items: center;
@@ -312,6 +329,7 @@ main { min-height: 65vh; }
 .product-card-add:disabled {
   opacity: 0.55;
   cursor: not-allowed;
+  margin-top: 14px;
 }
 .product-card-add.is-added {
   background: var(--mint);
