@@ -1,27 +1,31 @@
-import { signInWithApple, signInWithGoogle } from "@/app/login/actions";
+"use client";
 
-/** Nút đăng nhập Google / Apple — dùng chung Sign in và Create account. */
+/** Nút đăng nhập Google / Apple — chuyển tới Route Handler OAuth (PKCE cookies). */
 export function OAuthButtons({ next }: { next: string }) {
+  const safeNext = next.startsWith("/") && !next.startsWith("//") ? next : "/account";
+
+  function href(provider: "google" | "apple") {
+    const params = new URLSearchParams({
+      provider,
+      next: safeNext
+    });
+    return `/auth/oauth?${params.toString()}`;
+  }
+
   return (
     <div className="oauth-block">
       <p className="oauth-divider">
         <span>Or continue with</span>
       </p>
       <div className="oauth-buttons">
-        <form action={signInWithGoogle}>
-          <input type="hidden" name="next" value={next} />
-          <button className="button oauth-button oauth-google" type="submit">
-            <GoogleIcon />
-            Google
-          </button>
-        </form>
-        <form action={signInWithApple}>
-          <input type="hidden" name="next" value={next} />
-          <button className="button oauth-button oauth-apple" type="submit">
-            <AppleIcon />
-            Apple
-          </button>
-        </form>
+        <a className="button oauth-button oauth-google" href={href("google")}>
+          <GoogleIcon />
+          Google
+        </a>
+        <a className="button oauth-button oauth-apple" href={href("apple")}>
+          <AppleIcon />
+          Apple
+        </a>
       </div>
     </div>
   );

@@ -5,6 +5,7 @@ import { PerformanceChart } from "@/components/performance-chart";
 import { ReportPeriodPicker } from "@/components/report-period-picker";
 import { SearchableTable } from "@/components/searchable-table";
 import { resolveReportPeriod } from "@/lib/data/report-period";
+import { requireStaffPage } from "@/lib/auth";
 import { getMonthlyPerformance, toMonthStart } from "@/lib/data/reporting";
 import { usd } from "@/lib/format";
 
@@ -15,6 +16,7 @@ export default async function ReportsPage({
 }: {
   searchParams: Promise<{ preset?: string; from?: string; to?: string }>;
 }) {
+  await requireStaffPage();
   const params = await searchParams;
   const period = resolveReportPeriod(params.preset, params.from, params.to);
 

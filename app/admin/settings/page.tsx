@@ -1,7 +1,9 @@
 import { Save } from "lucide-react";
 import { AdminPageHeader } from "@/components/admin-page-header";
+import { requireStaffPage } from "@/lib/auth";
 
-export default function SettingsPage() {
+export default async function SettingsPage() {
+  await requireStaffPage();
   return (
     <>
       <AdminPageHeader eyebrow="Configuration" title="Store settings" description="Centralize storefront, inventory, invoice, media, and account controls." />

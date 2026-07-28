@@ -127,9 +127,16 @@ export function CartView({
         })}
       </ul>
 
+      <div className="checkout-cta">
+        <Link className="button primary block" href="/checkout">
+          Tiến hành đặt hàng (thử — không thanh toán)
+        </Link>
+        {!signedIn ? <p className="checkout-cta-note">Cần đăng nhập để đặt hàng.</p> : null}
+      </div>
+
       <SetupNotice>
-        Checkout and payment are not connected yet. Sales tax is applied at checkout by Stripe Tax using your
-        delivery or pickup address, so the totals below are shown before tax.
+        Đang bật chế độ đặt hàng thử: bấm “Tiến hành đặt hàng” để tạo đơn nhận tại cửa hàng mà KHÔNG cần
+        thanh toán. Thanh toán online (Stripe Tax + thẻ) sẽ được nối ở phase sau.
       </SetupNotice>
 
       <FulfillmentPicker

@@ -10,34 +10,46 @@ import {
   FileText,
   FolderTree,
   LayoutDashboard,
+  type LucideIcon,
   PackagePlus,
   Percent,
   ReceiptText,
   Settings,
   ShieldCheck,
   ShoppingBasket,
+  UserCog,
   UsersRound
 } from "lucide-react";
 
-const groups = [
+type NavItem = {
+  href: string;
+  label: string;
+  icon: LucideIcon;
+  /** Hiện với role seller (seller chỉ quản lý inventory/orders/invoices/payments). */
+  seller?: boolean;
+  /** Chỉ hiện với role admin (quản lý tài khoản / role). */
+  adminOnly?: boolean;
+};
+
+const groups: { label: string; items: NavItem[] }[] = [
   {
     label: "Operate",
     items: [
       { href: "/admin", label: "Dashboard", icon: LayoutDashboard },
       { href: "/admin/products", label: "Products", icon: ShoppingBasket },
       { href: "/admin/categories", label: "Categories", icon: FolderTree },
-      { href: "/admin/inventory", label: "Inventory", icon: Boxes },
+      { href: "/admin/inventory", label: "Inventory", icon: Boxes, seller: true },
       { href: "/admin/imports", label: "Imports", icon: FileSpreadsheet }
     ]
   },
   {
     label: "Sell",
     items: [
-      { href: "/admin/orders", label: "Orders", icon: PackagePlus },
-      { href: "/admin/invoices", label: "Invoices", icon: FileText },
+      { href: "/admin/orders", label: "Orders", icon: PackagePlus, seller: true },
+      { href: "/admin/invoices", label: "Invoices", icon: FileText, seller: true },
       { href: "/admin/customers", label: "Customers", icon: UsersRound },
       { href: "/admin/tax-exemptions", label: "Tax exemptions", icon: ShieldCheck },
-      { href: "/admin/payments", label: "Payments", icon: CircleDollarSign }
+      { href: "/admin/payments", label: "Payments", icon: CircleDollarSign, seller: true }
     ]
   },
   {
@@ -46,18 +58,37 @@ const groups = [
       { href: "/admin/expenses", label: "Expenses", icon: ReceiptText },
       { href: "/admin/reports", label: "Reports", icon: BarChart3 },
       { href: "/admin/tax", label: "Sales tax", icon: Percent },
+      { href: "/admin/accounts", label: "Accounts", icon: UserCog, adminOnly: true },
       { href: "/admin/settings", label: "Settings", icon: Settings }
     ]
   }
 ];
 
-export function AdminNav() {
+export function AdminNav({
+  isSeller = false,
+  isAdmin = false
+}: {
+  isSeller?: boolean;
+  isAdmin?: boolean;
+}) {
   const pathname = usePathname();
+
+  // Seller chỉ thấy các mục fulfillment; Accounts chỉ admin; nhóm rỗng thì ẩn.
+  const visibleGroups = groups
+    .map((group) => ({
+      ...group,
+      items: group.items.filter((item) => {
+        if (isSeller) return Boolean(item.seller);
+        if (item.adminOnly && !isAdmin) return false;
+        return true;
+      })
+    }))
+    .filter((group) => group.items.length > 0);
 
   return (
     <aside className="admin-sidebar">
-      <div className="admin-sidebar-title">Store administration</div>
-      {groups.map((group) => (
+      <div className="admin-sidebar-title">{isSeller ? "Seller workspace" : "Store administration"}</div>
+      {visibleGroups.map((group) => (
         <nav key={group.label} aria-label={`${group.label} administration`}>
           <span className="admin-nav-label">{group.label}</span>
           {group.items.map((item) => {

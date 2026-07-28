@@ -19,7 +19,8 @@ function fail(message: string): AdminFormState {
 
 async function guard(scope: string) {
   const viewer = await getViewer();
-  if (!viewer?.isStaff) return { viewer: null, error: fail("Staff access is required.") };
+  // Seller cũng quản lý kho → cho phép staff HOẶC seller (canAccessAdmin).
+  if (!viewer?.canAccessAdmin) return { viewer: null, error: fail("Staff access is required.") };
   if (!(await checkRateLimit(await callerKey(scope, viewer.id), RATE_LIMITS.mutation))) {
     return { viewer: null, error: fail("Too many changes in a short time. Wait a minute and try again.") };
   }
@@ -36,7 +37,7 @@ export async function fetchVariantHistory(
   locationId: string
 ): Promise<{ ok: true; movements: MovementRow[] } | { ok: false; message: string }> {
   const viewer = await getViewer();
-  if (!viewer?.isStaff) return { ok: false, message: "Staff access is required." };
+  if (!viewer?.canAccessAdmin) return { ok: false, message: "Staff access is required." };
   if (!variantId || !locationId) return { ok: false, message: "Missing inventory row." };
 
   try {

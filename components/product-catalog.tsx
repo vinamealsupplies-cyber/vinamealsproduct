@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { usePathname, useRouter } from "next/navigation";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { Search, SlidersHorizontal, X } from "lucide-react";
 import { ProductCard } from "@/components/product-card";
 import { SearchHistoryPanel } from "@/components/search-history-panel";
@@ -23,6 +23,12 @@ const sortOptions = [
   { value: "price-desc", label: "Price: high to low" },
   { value: "stock-desc", label: "Stock: high to low" }
 ];
+
+const SORT_VALUES = new Set(sortOptions.map((option) => option.value));
+
+function normalizeSort(value: string | null | undefined) {
+  return value && SORT_VALUES.has(value) ? value : "featured";
+}
 
 /** Resolve slug/name from URL/dropdown → set of product categorySlug + names that match. */
 function matchKeysForCategory(categories: CategoryNode[], selected: string): Set<string> {
@@ -68,6 +74,7 @@ export function ProductCatalog({
 }: {
   products: Product[];
   categories?: CategoryNode[];
+  /** SSR seed — client luôn ưu tiên useSearchParams (đúng sau soft nav). */
   initialQuery?: string;
   initialCategory?: string;
   initialSort?: string;
@@ -75,14 +82,23 @@ export function ProductCatalog({
 }) {
   const router = useRouter();
   const pathname = usePathname();
+  // URL trên client là nguồn sự thật. Server props đôi khi không refresh khi
+  // soft-nav từ trang khác → /products?sort=newest (lần bấm New arrivals đầu
+  // sau refresh "không phản hồi"). useSearchParams luôn khớp thanh địa chỉ.
+  const searchParams = useSearchParams();
   const searchWrapRef = useRef<HTMLDivElement>(null);
 
-  const [query, setQuery] = useState(initialQuery);
-  const [category, setCategory] = useState(initialCategory);
-  const [saleOnly, setSaleOnly] = useState(initialSaleOnly);
-  const [sort, setSort] = useState(
-    sortOptions.some((option) => option.value === initialSort) ? initialSort : "featured"
-  );
+  // Chỉ đọc từ URL (không fallback sang props cũ — props stale sau soft-nav).
+  // initial* chỉ seed SSR lần đầu qua useState; sau đó URL dẫn dắt.
+  const urlQuery = searchParams.get("q") ?? "";
+  const urlCategory = searchParams.get("category") ?? "";
+  const urlSort = normalizeSort(searchParams.get("sort"));
+  const urlSaleOnly = searchParams.get("sale") === "1" || searchParams.get("sale") === "true";
+
+  const [query, setQuery] = useState(() => urlQuery || initialQuery);
+  const [category, setCategory] = useState(() => urlCategory || initialCategory);
+  const [saleOnly, setSaleOnly] = useState(() => urlSaleOnly || initialSaleOnly);
+  const [sort, setSort] = useState(() => (searchParams.get("sort") ? urlSort : normalizeSort(initialSort)));
   const [searchHistory, setSearchHistory] = useState<string[]>([]);
   const [openHistory, setOpenHistory] = useState(false);
 
@@ -100,31 +116,25 @@ export function ProductCatalog({
   }, [openHistory]);
   // Panel filter: mở khi URL có category/sort/sale khác mặc định.
   const [showFilters, setShowFilters] = useState(
-    Boolean(initialCategory) ||
-      initialSaleOnly ||
-      (initialSort !== "" && initialSort !== "featured")
+    Boolean(urlCategory) || urlSaleOnly || (urlSort !== "" && urlSort !== "featured")
   );
 
   // Đồng bộ khi URL đổi (bấm Shop all / Categories / Sale / New arrivals).
-  //
-  // Trang là server component đọc searchParams rồi truyền xuống qua props, nên
-  // props CHÍNH LÀ trạng thái URL — trước đây có hai effect làm cùng một việc
-  // (một đọc searchParams, một đọc props). Giờ gộp lại và chỉnh state ngay
-  // trong render: setState trong effect gây cascading render.
-  const urlSignature = `${initialQuery}|${initialCategory}|${initialSort}|${initialSaleOnly}`;
+  // Chỉnh state ngay trong render — không dùng effect (tránh cascading render).
+  const urlSignature = `${urlQuery}|${urlCategory}|${urlSort}|${urlSaleOnly}`;
   const [syncedSignature, setSyncedSignature] = useState(urlSignature);
 
   if (urlSignature !== syncedSignature) {
     setSyncedSignature(urlSignature);
-    setQuery(initialQuery);
-    setCategory(initialCategory);
-    setSaleOnly(initialSaleOnly);
-    setSort(sortOptions.some((option) => option.value === initialSort) ? initialSort : "featured");
+    setQuery(urlQuery);
+    setCategory(urlCategory);
+    setSaleOnly(urlSaleOnly);
+    setSort(urlSort);
 
     const hasFilter =
-      Boolean(initialCategory) || initialSaleOnly || (initialSort !== "" && initialSort !== "featured");
+      Boolean(urlCategory) || urlSaleOnly || (urlSort !== "" && urlSort !== "featured");
     if (hasFilter) setShowFilters(true);
-    else if (!initialQuery) setShowFilters(false);
+    else if (!urlQuery) setShowFilters(false);
   }
 
   function pushCatalogParams(next: {
@@ -149,7 +159,9 @@ export function ProductCatalog({
       setOpenHistory(false);
     }
     const qs = params.toString();
-    router.push(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
+    // Luôn đẩy về /products (không phụ thuộc pathname nếu soft-nav lệch).
+    const base = pathname.startsWith("/products") ? pathname : "/products";
+    router.push(qs ? `${base}?${qs}` : base, { scroll: false });
   }
 
   const categoryKeys = matchKeysForCategory(categories, category);

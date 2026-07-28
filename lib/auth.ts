@@ -1,10 +1,16 @@
 import "server-only";
 
+import { redirect } from "next/navigation";
 import { NextResponse } from "next/server";
 import { isLocalDemoMode, isSupabaseConfigured } from "@/lib/env";
+import type { AppRole } from "@/lib/roles";
 import { createOptionalClient } from "@/lib/supabase/server";
 
-export type AppRole = "customer" | "staff" | "manager" | "admin";
+// "seller" = vai trò fulfillment: chỉ quản lý inventory, orders, invoices,
+// payments. KHÔNG nằm trong chuỗi staff/manager/admin (không thấy products,
+// customers, expenses, reports, settings…). Quyền vào khu /admin của seller đi
+// qua canAccessAdmin, còn từng trang cấm seller tự chặn bằng requireStaffPage().
+export type { AppRole };
 
 export type Viewer = {
   id: string;
@@ -14,6 +20,9 @@ export type Viewer = {
   isStaff: boolean;
   isManager: boolean;
   isAdmin: boolean;
+  isSeller: boolean;
+  /** Được vào khu /admin (staff-trở-lên HOẶC seller). */
+  canAccessAdmin: boolean;
   demo: boolean;
 };
 
@@ -26,6 +35,7 @@ function viewerFromRole(input: {
 }): Viewer {
   const isStaff = ["staff", "manager", "admin"].includes(input.role);
   const isManager = ["manager", "admin"].includes(input.role);
+  const isSeller = input.role === "seller";
   return {
     id: input.id,
     email: input.email ?? "",
@@ -34,6 +44,8 @@ function viewerFromRole(input: {
     isStaff,
     isManager,
     isAdmin: input.role === "admin",
+    isSeller,
+    canAccessAdmin: isStaff || isSeller,
     demo: input.demo ?? false
   };
 }
@@ -93,4 +105,38 @@ export async function requireStaffApi(minimum: "staff" | "manager" | "admin" = "
   }
 
   return { ok: true as const, viewer };
+}
+
+/**
+ * Guard cho các trang khu /admin mà SELLER KHÔNG được vào (products, categories,
+ * imports, customers, tax-exemptions, expenses, reports, tax, settings). Seller
+ * đăng nhập → đẩy về /admin/orders; khách/chưa đăng nhập → /login. Staff trở lên
+ * đi tiếp bình thường. Dùng ở đầu mỗi trang admin dành riêng cho staff.
+ */
+export async function requireStaffPage(): Promise<Viewer> {
+  const viewer = await getViewer();
+  if (!viewer?.isStaff) {
+    redirect(
+      viewer?.isSeller
+        ? "/admin/orders"
+        : "/login?next=/admin&message=Staff%20access%20is%20required."
+    );
+  }
+  return viewer;
+}
+
+/**
+ * Chỉ role admin. Dùng cho quản lý tài khoản / role (tránh staff tự nâng quyền).
+ * Staff/manager/seller → /admin; khách → /login.
+ */
+export async function requireAdminPage(): Promise<Viewer> {
+  const viewer = await getViewer();
+  if (!viewer?.isAdmin) {
+    redirect(
+      viewer?.canAccessAdmin
+        ? "/admin"
+        : "/login?next=/admin&message=Admin%20access%20is%20required."
+    );
+  }
+  return viewer;
 }

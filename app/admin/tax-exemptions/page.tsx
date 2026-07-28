@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { AdminPageHeader } from "@/components/admin-page-header";
+import { requireStaffPage } from "@/lib/auth";
 import { getApplicationsForStaff } from "@/lib/data/tax-exemption";
 import { formatDate } from "@/lib/format";
 
@@ -12,6 +13,7 @@ const STATUS_COPY: Record<string, string> = {
 };
 
 export default async function TaxExemptionsPage() {
+  await requireStaffPage();
   const applications = await getApplicationsForStaff();
   const pending = applications.filter((application) => application.status === "pending");
 

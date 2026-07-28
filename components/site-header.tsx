@@ -56,12 +56,14 @@ export async function SiteHeader() {
 
       <div className="category-strip">
         <div className="shell category-strip-inner">
-          {/* Shop all: URL sạch — catalog clear search/category/sort. */}
+          {/* prefetch=false: tránh RSC cache nhầm /products với /products?sort=… */}
           <Link href="/products" prefetch={false}>
             Shop all
           </Link>
           <CategoryMenu categories={categories} />
-          <Link href="/products?sort=newest">New arrivals</Link>
+          <Link href="/products?sort=newest" prefetch={false}>
+            New arrivals
+          </Link>
           <Link className="nav-sale-link" href="/products?sale=1" prefetch={false}>
             <Star className="sale-star-blink" size={15} aria-hidden="true" fill="currentColor" />
             Sale

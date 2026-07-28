@@ -1,3 +1,16 @@
+import type { Metadata } from "next";
+import { StorePolicies } from "@/components/store-policies";
+
+export const metadata: Metadata = {
+  title: "Store policies",
+  description:
+    "Vinameals store policies: privacy, cookies, terms of sale, shipping, returns, payments, promotions, accessibility, and contact."
+};
+
 export default function PoliciesPage() {
-  return <div className="page-shell shell narrow-page"><header className="page-heading"><span className="kicker">Store policies</span><h1>Shipping, returns, privacy, and terms</h1><p>Publish attorney-reviewed policies before launch, including food handling, cold-chain delivery, return eligibility, privacy, accessibility, and terms of sale.</p></header></div>;
+  return (
+    <div className="page-shell shell policy-shell" id="top">
+      <StorePolicies />
+    </div>
+  );
 }

@@ -6,11 +6,11 @@ import { getViewer } from "@/lib/auth";
 
 export default async function AdminLayout({ children }: { children: React.ReactNode }) {
   const viewer = await getViewer();
-  if (!viewer?.isStaff) redirect("/login?next=/admin&message=Staff%20access%20is%20required.");
+  if (!viewer?.canAccessAdmin) redirect("/login?next=/admin&message=Staff%20access%20is%20required.");
 
   return (
     <div className="admin-shell shell-wide">
-      <AdminNav />
+      <AdminNav isSeller={viewer.isSeller} isAdmin={viewer.isAdmin} />
       <div className="admin-content">
         <AdminScaffoldNotice demo={viewer.demo} />
         <TaxExemptionAlert />

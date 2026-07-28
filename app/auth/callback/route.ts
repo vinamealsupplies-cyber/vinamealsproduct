@@ -1,18 +1,20 @@
 import { NextResponse, type NextRequest } from "next/server";
-import { createClient } from "@/lib/supabase/server";
+import { createServerClient } from "@supabase/ssr";
 import { isSupabaseConfigured } from "@/lib/env";
+import { requestPublicOrigin, safeNextPath } from "@/lib/supabase/route";
 
 /**
  * OAuth callback (Google / Apple).
- * Supabase redirect về đây với ?code=… → exchangeCodeForSession (PKCE cookies).
+ * Supabase redirect về đây với ?code=… → exchangeCodeForSession (PKCE).
+ * Session cookies PHẢI gắn vào response redirect (không tạo redirect mới sau).
  */
 export async function GET(request: NextRequest) {
-  const { searchParams, origin } = new URL(request.url);
-  const code = searchParams.get("code");
-  const oauthError = searchParams.get("error_description") ?? searchParams.get("error");
-  const requestedNext = searchParams.get("next") ?? "/account";
-  const next =
-    requestedNext.startsWith("/") && !requestedNext.startsWith("//") ? requestedNext : "/account";
+  const url = new URL(request.url);
+  const origin = requestPublicOrigin(request);
+  const code = url.searchParams.get("code");
+  const oauthError =
+    url.searchParams.get("error_description") ?? url.searchParams.get("error");
+  const next = safeNextPath(url.searchParams.get("next"));
 
   if (oauthError) {
     return NextResponse.redirect(
@@ -32,7 +34,25 @@ export async function GET(request: NextRequest) {
     );
   }
 
-  const supabase = await createClient();
+  // Response cuối cùng: redirect về app + cookie session.
+  const response = NextResponse.redirect(`${origin}${next}`);
+  const supabase = createServerClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY!,
+    {
+      cookies: {
+        getAll() {
+          return request.cookies.getAll();
+        },
+        setAll(cookiesToSet) {
+          cookiesToSet.forEach(({ name, value, options }) => {
+            response.cookies.set(name, value, options);
+          });
+        }
+      }
+    }
+  );
+
   const { error } = await supabase.auth.exchangeCodeForSession(code);
 
   if (error) {
@@ -41,5 +61,5 @@ export async function GET(request: NextRequest) {
     );
   }
 
-  return NextResponse.redirect(`${origin}${next}`);
+  return response;
 }

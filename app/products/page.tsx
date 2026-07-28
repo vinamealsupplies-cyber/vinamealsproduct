@@ -18,34 +18,53 @@ export default async function ProductsPage({
   ]);
 
   const saleOnly = params.sale === "1" || params.sale === "true";
+  const sort = params.sort ?? "featured";
+  // Key buộc remount khi query đổi — tránh catalog giữ state cũ sau soft nav.
+  const catalogKey = [
+    params.q ?? "",
+    params.category ?? "",
+    sort,
+    saleOnly ? "1" : "0"
+  ].join("|");
 
   const heading = saleOnly
     ? "Sale"
-    : params.category && !params.q
-      ? "Shop by category"
-      : params.q
-        ? "Search results"
-        : "Shop all products";
+    : params.sort === "newest" && !params.q && !params.category
+      ? "New arrivals"
+      : params.category && !params.q
+        ? "Shop by category"
+        : params.q
+          ? "Search results"
+          : "Shop all products";
 
   return (
     <div className="page-shell shell">
       <header className="page-heading">
-        <span className="kicker">{saleOnly ? "Limited-time deals" : "The full collection"}</span>
+        <span className="kicker">
+          {saleOnly
+            ? "Limited-time deals"
+            : params.sort === "newest"
+              ? "Just added"
+              : "The full collection"}
+        </span>
         <h1>{heading}</h1>
         <p>
           {saleOnly
             ? "Products with an active sale price — retail is struck through on each card."
-            : "Search by product name or SKU, filter by category, and sort the catalog."}
+            : params.sort === "newest"
+              ? "Newest products first — sorted by publish date."
+              : "Search by product name or SKU, filter by category, and sort the catalog."}
         </p>
       </header>
       {/* Suspense: useSearchParams trong ProductCatalog cần boundary. */}
       <Suspense fallback={<p className="field-hint">Loading catalog…</p>}>
         <ProductCatalog
+          key={catalogKey}
           products={products}
           categories={categories}
           initialQuery={params.q ?? ""}
           initialCategory={params.category ?? ""}
-          initialSort={params.sort ?? "featured"}
+          initialSort={sort}
           initialSaleOnly={saleOnly}
         />
       </Suspense>

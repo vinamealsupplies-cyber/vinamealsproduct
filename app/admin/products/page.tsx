@@ -2,12 +2,13 @@ import Link from "next/link";
 import { FileSpreadsheet, Plus } from "lucide-react";
 import { AdminPageHeader } from "@/components/admin-page-header";
 import { ProductManager } from "@/components/product-manager";
-import { getViewer } from "@/lib/auth";
+import { getViewer, requireStaffPage } from "@/lib/auth";
 import { getAdminProductList } from "@/lib/data/admin-products";
 
 export const metadata = { title: "Products" };
 
 export default async function AdminProductsPage() {
+  await requireStaffPage();
   const [viewer, products] = await Promise.all([getViewer(), getAdminProductList()]);
 
   return (

@@ -449,6 +449,7 @@ textarea { resize: vertical; }
   gap: 10px;
 }
 .oauth-buttons form { margin: 0; }
+a.oauth-button { text-decoration: none; color: inherit; box-sizing: border-box; }
 .oauth-button {
   width: 100%;
   min-height: 44px;
@@ -461,6 +462,7 @@ textarea { resize: vertical; }
   background: white;
   font-size: 14px;
   font-weight: 800;
+  cursor: pointer;
 }
 .oauth-button:hover { border-color: #b7cfc4; background: #fbfdfc; }
 .oauth-apple {
@@ -534,6 +536,119 @@ textarea { resize: vertical; }
 .setup-notice p { font-size: 13px; }
 .setup-notice span { display: block; font-size: 13px; }
 .setup-notice.warning { border-color: #f2b8ae; background: #fff2ef; color: #7d2d1d; }
+
+/* Store policies */
+.policy-shell { max-width: 920px; }
+.policy-page { display: grid; gap: 22px; }
+.policy-meta { margin: 8px 0 0; color: var(--muted); font-size: 13px; }
+.policy-disclaimer { align-items: flex-start; }
+.policy-disclaimer strong { margin-bottom: 4px; }
+.policy-search-bar {
+  position: sticky;
+  top: 12px;
+  z-index: 8;
+  padding: 14px 16px;
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.94);
+  box-shadow: var(--shadow-small);
+  backdrop-filter: blur(10px);
+}
+.policy-search-field {
+  display: flex !important;
+  align-items: center;
+  gap: 10px;
+  margin: 0;
+  padding: 0 12px;
+  min-height: 48px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: #f7fbf9;
+  color: var(--green);
+}
+.policy-search-field input {
+  flex: 1;
+  min-width: 0;
+  border: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  padding: 0 !important;
+  font-size: 15px;
+  font-weight: 650;
+}
+.policy-search-clear {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+}
+.policy-search-clear:hover { background: #eef4f1; color: var(--ink); }
+.policy-search-bar .field-hint { margin: 8px 2px 0; }
+.policy-toc {
+  padding: 20px 22px;
+  border: 1px solid var(--line);
+  border-radius: 20px;
+  background: white;
+}
+.policy-toc h2 { margin: 0 0 14px; font-size: 18px; letter-spacing: -0.03em; }
+.policy-toc ol { display: grid; gap: 8px; margin: 0; padding: 0; list-style: none; counter-reset: none; }
+.policy-toc li a {
+  display: grid;
+  grid-template-columns: 36px 1fr;
+  gap: 12px;
+  align-items: start;
+  padding: 11px 12px;
+  border-radius: 14px;
+  border: 1px solid transparent;
+  transition: background .15s ease, border-color .15s ease;
+}
+.policy-toc li a:hover { background: var(--mint); border-color: #cfe6da; }
+.policy-toc-num {
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 12px;
+  background: var(--mint);
+  color: var(--green-dark);
+  font-size: 13px;
+  font-weight: 850;
+}
+.policy-toc strong { display: block; font-size: 14px; letter-spacing: -0.02em; }
+.policy-toc small { display: block; margin-top: 3px; color: var(--muted); font-size: 12px; line-height: 1.4; }
+.policy-sections { display: grid; gap: 16px; scroll-margin-top: 100px; }
+.policy-section { scroll-margin-top: 100px; }
+.policy-section-kicker {
+  margin: 0 0 4px;
+  color: var(--green);
+  font-size: 11px;
+  font-weight: 850;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.policy-top-link { white-space: nowrap; font-size: 12px; }
+.policy-body { display: grid; gap: 12px; }
+.policy-body p { margin: 0; color: #2a3b36; font-size: 14px; line-height: 1.65; }
+.policy-body ul { margin: 0; padding-left: 1.15rem; display: grid; gap: 7px; }
+.policy-body li { color: #2a3b36; font-size: 14px; line-height: 1.55; }
+.policy-group { display: grid; gap: 8px; margin-top: 4px; padding-top: 12px; border-top: 1px solid var(--line); }
+.policy-group h3 { margin: 0; font-size: 15px; letter-spacing: -0.02em; }
+.policy-mark {
+  padding: 0 3px;
+  border-radius: 4px;
+  background: #ffe8a3;
+  color: inherit;
+  font-weight: 750;
+}
+@media (max-width: 620px) {
+  .policy-toc li a { grid-template-columns: 32px 1fr; gap: 10px; padding: 10px; }
+  .policy-search-bar { top: 8px; padding: 12px; }
+}
 
 .cart-items { display: grid; gap: 12px; margin: 0 0 22px; padding: 0; list-style: none; }
 .cart-item { display: grid; grid-template-columns: 76px minmax(0, 1fr) auto auto auto; grid-template-areas: "img info qty total remove"; align-items: center; gap: 16px; padding: 14px; border: 1px solid var(--line); border-radius: 18px; background: white; }
@@ -700,6 +815,14 @@ textarea { resize: vertical; }
 .status-retail { background: var(--lavender); color: #5e3d8a; }
 .status-guest, .status-not-requested { background: #edf1ef; color: #5b6c66; }
 .status-rejected, .status-expired { background: #fff0ef; color: var(--red); }
+/* Account roles / status on /admin/accounts */
+.status-admin { background: #1f2937; color: #f9fafb; }
+.status-manager { background: #1e3a5f; color: #dbeafe; }
+.status-staff { background: var(--blue); color: #19526a; }
+.status-seller { background: #fff0d1; color: #915407; }
+.status-customer { background: #edf1ef; color: #5b6c66; }
+.status-disabled { background: #f1ece4; color: #7a6a52; }
+.muted-copy { margin: 0; color: var(--muted); font-size: 13px; line-height: 1.5; }
 
 /* Tax exemption — form khách nộp đơn + màn duyệt của admin. */
 .upload-drop { display: inline-flex; align-items: center; gap: 9px; margin-top: 14px; padding: 13px 18px; border: 2px dashed #bad1c6; border-radius: 15px; background: #f7fbf9; color: var(--green-dark); font-weight: 800; cursor: pointer; }
@@ -999,4 +1122,87 @@ textarea { resize: vertical; }
 
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { scroll-behavior: auto !important; transition-duration: .01ms !important; animation-duration: .01ms !important; animation-iteration-count: 1 !important; }
+}
+
+/* ===== Seller role · checkout đặt thử · xác nhận pickup (2026-07-28) ===== */
+
+/* Bổ sung biến thể nút cho .button hiện có. */
+.button.block { width: 100%; }
+.button.ghost { background: transparent; border-color: transparent; color: var(--green-dark); }
+.button.ghost:hover:not(:disabled) { background: var(--mint); }
+
+.muted { color: var(--muted); }
+
+/* --- Checkout --- */
+.checkout-pickup {
+  display: flex; align-items: center; gap: 9px;
+  padding: 12px 16px; margin-bottom: 18px;
+  border: 1px solid var(--line); border-radius: var(--radius-small);
+  background: var(--mint); color: var(--ink); font-weight: 700;
+}
+.checkout-lines { list-style: none; margin: 0 0 18px; padding: 0; }
+.checkout-line {
+  display: flex; align-items: center; justify-content: space-between; gap: 14px;
+  padding: 13px 0; border-bottom: 1px solid var(--line);
+}
+.checkout-line-info { display: flex; flex-direction: column; gap: 3px; }
+.checkout-line-name { font-weight: 750; letter-spacing: -0.01em; }
+.checkout-summary { margin: 0 0 20px; }
+.checkout-summary-row { display: flex; justify-content: space-between; padding: 6px 0; }
+.checkout-summary-row.muted { color: var(--muted); }
+.checkout-summary-row.total {
+  margin-top: 6px; padding-top: 12px; border-top: 1px solid var(--line);
+  font-size: 20px; font-weight: 850; letter-spacing: -0.02em;
+}
+.checkout-actions-row { display: flex; flex-wrap: wrap; gap: 12px; justify-content: center; }
+.checkout-cta { margin: 20px 0 8px; }
+.checkout-cta-note { margin: 8px 0 0; text-align: center; color: var(--muted); font-size: 14px; }
+
+/* --- Bảng đơn hàng + trạng thái pickup --- */
+.orders-table-wrap {
+  overflow-x: auto; border: 1px solid var(--line);
+  border-radius: var(--radius-small); background: var(--surface);
+}
+.orders-table { width: 100%; border-collapse: collapse; font-size: 14px; min-width: 720px; }
+.orders-table th, .orders-table td {
+  padding: 13px 16px; text-align: left; border-bottom: 1px solid var(--line); vertical-align: middle;
+}
+.orders-table thead th {
+  font-size: 12px; text-transform: uppercase; letter-spacing: 0.06em;
+  color: var(--muted); font-weight: 800; background: #f7faf8;
+}
+.orders-table tbody tr:last-child td { border-bottom: 0; }
+.orders-table .num { text-align: right; font-variant-numeric: tabular-nums; }
+.order-number { display: block; font-weight: 800; letter-spacing: -0.01em; }
+.order-itemcount { display: block; font-size: 12px; color: var(--muted); }
+.row-awaiting-pickup { background: rgba(180, 35, 24, 0.05); }
+
+.status-badge {
+  display: inline-flex; align-items: center; padding: 3px 10px; border-radius: 999px;
+  font-size: 12px; font-weight: 800; background: #eef3f1; color: var(--muted);
+}
+.status-badge.status-confirmed { background: #e3f0ff; color: #1d4ed8; }
+.status-badge.status-fulfilled { background: var(--mint); color: var(--green-dark); }
+.status-badge.status-cancelled { background: #ececec; color: #6b7280; }
+.status-badge.status-draft { background: #fff3d6; color: #a16207; }
+
+.pickup-badge {
+  display: inline-flex; align-items: center; gap: 5px; padding: 4px 10px;
+  border-radius: 999px; font-size: 12.5px; font-weight: 850;
+}
+.pickup-badge.done { background: var(--mint); color: var(--green-dark); }
+.pickup-badge.waiting { background: #fdecea; color: var(--red); }
+
+.pickup-alert-banner {
+  display: flex; align-items: center; gap: 9px;
+  padding: 12px 16px; margin-bottom: 18px;
+  border: 1px solid #f2b8ae; border-radius: var(--radius-small);
+  background: #fff2ef; color: var(--red); font-weight: 800;
+}
+
+/* Nhấp nháy đỏ cho đơn chưa pickup (reduced-motion đã được rule global ở trên tắt). */
+.blink-red { animation: pickup-blink 1s ease-in-out infinite; }
+@keyframes pickup-blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.35; }
 }

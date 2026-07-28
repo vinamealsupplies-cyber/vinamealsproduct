@@ -79,7 +79,19 @@ là thứ production đang bật thì sửa `config.toml` cho khớp rồi push 
 CLI báo `Remote Auth config is up to date`.
 
 ## Phân quyền admin (đã đúng theo yêu cầu)
-- Enum `public.app_role`: `customer | staff | manager | admin`.
+- Enum `public.app_role`: `customer | seller | staff | manager | admin`.
+- **Role `seller`** (28/7): chỉ quản lý fulfillment. Vào CHUNG khu `/admin` nhưng nav
+  (`components/admin-nav.tsx`) chỉ hiện **Inventory / Orders / Invoices / Payments**;
+  các trang khác tự chặn bằng `requireStaffPage()` (đẩy seller về `/admin/orders`).
+  Vào khu admin qua `viewer.canAccessAdmin` (= `isStaff || isSeller`) ở `app/admin/layout.tsx`;
+  action sửa kho (`app/admin/inventory/actions.ts`) cũng dùng `canAccessAdmin`. Enforcement ở
+  tầng app (service role) như mọi luồng admin; DB thêm enum value + `private.is_seller()`.
+  Tạo seller: `update public.profiles set role='seller' where email='…';`
+- **Checkout đặt thử — KHÔNG thanh toán** (28/7): `/checkout` (yêu cầu đăng nhập) →
+  `placeTestOrder` (`app/checkout/actions.ts`) tạo `sales_orders` status `confirmed`,
+  fulfillment `pickup` tại `STORE-PICKUP`, không thu tiền. Seller xác nhận ở `/admin/orders`
+  (`confirmPickup` → `picked_up_at` + status `fulfilled`); đơn pickup chưa lấy nhấp nháy đỏ
+  (`.blink-red`). Stripe/thanh toán vẫn là phase sau. Nút vào từ `components/cart-view.tsx`.
 - Bảng `public.profiles(id → auth.users, role, status, …)`. Trigger `on_auth_user_created` tự tạo profile khi có user mới (mặc định `role=customer`).
 - Gate quyền:
   - DB/RLS: `private.is_admin()` = `role='admin'` (kèm `is_staff()`, `is_manager()`).

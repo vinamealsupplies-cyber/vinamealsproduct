@@ -2,6 +2,7 @@ import { CircleAlert, Plus, Upload } from "lucide-react";
 import { AdminPageHeader } from "@/components/admin-page-header";
 import { SearchableTable } from "@/components/searchable-table";
 import { TaxCalculator } from "@/components/tax-calculator";
+import { requireStaffPage } from "@/lib/auth";
 import { formatRate } from "@/lib/tax/calculate";
 import {
   taxCityCount,
@@ -12,7 +13,8 @@ import {
 
 export const metadata = { title: "Sales tax" };
 
-export default function AdminTaxPage() {
+export default async function AdminTaxPage() {
+  await requireStaffPage();
   const rows = taxJurisdictions.map((row, index) => ({
     id: `${row.state}-${row.city}-${index}`,
     state: row.state,

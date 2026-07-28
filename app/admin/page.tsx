@@ -4,12 +4,14 @@ import { AdminPageHeader } from "@/components/admin-page-header";
 import { MetricCard } from "@/components/metric-card";
 import { PerformanceChart } from "@/components/performance-chart";
 import { SearchableTable } from "@/components/searchable-table";
+import { requireStaffPage } from "@/lib/auth";
 import { getDashboardMetrics, getInvoices, getMonthlyPerformance } from "@/lib/data/reporting";
 import { usd } from "@/lib/format";
 
 export const metadata = { title: "Dashboard" };
 
 export default async function AdminDashboardPage() {
+  await requireStaffPage();
   const [metrics, performance, invoices] = await Promise.all([
     getDashboardMetrics(),
     getMonthlyPerformance(),

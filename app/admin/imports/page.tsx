@@ -1,7 +1,9 @@
 import { AdminPageHeader } from "@/components/admin-page-header";
 import { ProductImportForm } from "@/components/product-import-form";
+import { requireStaffPage } from "@/lib/auth";
 
-export default function ImportsPage() {
+export default async function ImportsPage() {
+  await requireStaffPage();
   return (
     <>
       <AdminPageHeader

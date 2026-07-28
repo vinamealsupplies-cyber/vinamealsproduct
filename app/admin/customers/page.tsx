@@ -1,11 +1,12 @@
 import { AdminPageHeader } from "@/components/admin-page-header";
 import { CustomerManager } from "@/components/customer-manager";
-import { getViewer } from "@/lib/auth";
+import { getViewer, requireStaffPage } from "@/lib/auth";
 import { getCustomersForStaff } from "@/lib/data/customers";
 
 export const metadata = { title: "Customers" };
 
 export default async function CustomersPage() {
+  await requireStaffPage();
   const [viewer, customers] = await Promise.all([getViewer(), getCustomersForStaff()]);
 
   return (
