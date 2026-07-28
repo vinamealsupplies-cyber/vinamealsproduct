@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { getViewer } from "@/lib/auth";
+import { writeAuditLog } from "@/lib/data/audit-log";
 import { callerKey, checkRateLimit, RATE_LIMITS } from "@/lib/rate-limit";
 import { createAdminClient } from "@/lib/supabase/admin";
 import type { AdminFormState } from "@/lib/data/admin-form";
@@ -10,9 +11,8 @@ import type { AdminFormState } from "@/lib/data/admin-form";
 // CRUD sản phẩm. Ghi bằng service role nên quyền phải kiểm tra tường minh ở
 // đây — không có RLS đỡ phía sau.
 //
-// Vòng đời: draft/active → archived (ẩn storefront, giữ lịch sử)
-// → xoá vĩnh viễn (manager): RPC admin_delete_product_forever xoá luôn
-// inventory_movements + inventory_balances rồi product (cascade variants).
+// Seller + staff: add/edit/archive/restore. Xoá vĩnh viễn: manager only.
+// Mọi thao tác ghi audit_log cho admin theo dõi.
 
 const STATUSES = new Set(["draft", "active", "archived"]);
 
@@ -22,7 +22,8 @@ function fail(message: string): AdminFormState {
 
 async function guard(scope: string, needManager = false) {
   const viewer = await getViewer();
-  if (!viewer?.isStaff) return { viewer: null, error: fail("Staff access is required.") };
+  // Seller cũng được add/sửa sản phẩm (giao dịch hằng ngày).
+  if (!viewer?.canAccessAdmin) return { viewer: null, error: fail("Staff access is required.") };
   if (needManager && !viewer.isManager) {
     return { viewer: null, error: fail("Manager access is required for this action.") };
   }
@@ -30,6 +31,10 @@ async function guard(scope: string, needManager = false) {
     return { viewer: null, error: fail("Too many changes in a short time. Wait a minute and try again.") };
   }
   return { viewer, error: null };
+}
+
+function actorMeta(viewer: { id: string; email: string; role: string }) {
+  return { actorRole: viewer.role, actorEmail: viewer.email };
 }
 
 function slugify(value: string) {
@@ -193,6 +198,23 @@ export async function createProductAction(_prev: AdminFormState, formData: FormD
     return fail(error instanceof Error ? error.message : "The product could not be saved.");
   }
 
+  await writeAuditLog({
+    actorUserId: viewer!.id,
+    action: "product.create",
+    entityType: "product",
+    entityId: product.id,
+    after: {
+      name: input.name,
+      slug: input.slug,
+      sku: input.sku,
+      status: input.status,
+      retailPrice: input.retailPrice,
+      costPrice: input.costPrice,
+      openingQuantity: input.openingQuantity
+    },
+    metadata: actorMeta(viewer!)
+  });
+
   revalidate();
   redirect(`/admin/products?saved=${encodeURIComponent(input.name)}`);
 }
@@ -210,7 +232,19 @@ export async function updateProductAction(_prev: AdminFormState, formData: FormD
   if (invalid) return fail(invalid);
 
   const supabase = createAdminClient();
-  const { data: current } = await supabase.from("products").select("status, published_at").eq("id", id).maybeSingle();
+  const { data: current } = await supabase
+    .from("products")
+    .select("status, published_at, name, slug, short_description")
+    .eq("id", id)
+    .maybeSingle();
+
+  const { data: currentVariant } = variantId
+    ? await supabase
+        .from("product_variants")
+        .select("sku, retail_price, sale_price, wholesale_price, cost_price")
+        .eq("id", variantId)
+        .maybeSingle()
+    : { data: null };
 
   const { error: productError } = await supabase
     .from("products")
@@ -256,6 +290,24 @@ export async function updateProductAction(_prev: AdminFormState, formData: FormD
       .insert({ product_id: id, category_id: input.categoryId, is_primary: true });
   }
 
+  await writeAuditLog({
+    actorUserId: viewer!.id,
+    action: "product.update",
+    entityType: "product",
+    entityId: id,
+    before: { product: current, variant: currentVariant },
+    after: {
+      name: input.name,
+      slug: input.slug,
+      status: input.status,
+      sku: input.sku,
+      retailPrice: input.retailPrice,
+      salePrice: input.salePrice,
+      costPrice: input.costPrice
+    },
+    metadata: actorMeta(viewer!)
+  });
+
   revalidate();
   return { status: "success", message: `Saved ${input.name}.` };
 }
@@ -277,6 +329,16 @@ export async function archiveProductAction(_prev: AdminFormState, formData: Form
     .update({ status: "archived", featured: false, updated_by: viewer!.id })
     .eq("id", id);
   if (error) return fail(error.message);
+
+  await writeAuditLog({
+    actorUserId: viewer!.id,
+    action: "product.archive",
+    entityType: "product",
+    entityId: id,
+    before: { status: "active_or_draft", name: product.name },
+    after: { status: "archived", name: product.name },
+    metadata: actorMeta(viewer!)
+  });
 
   revalidate();
   return {
@@ -302,6 +364,16 @@ export async function restoreProductAction(_prev: AdminFormState, formData: Form
     .eq("id", id);
   if (error) return fail(error.message);
 
+  await writeAuditLog({
+    actorUserId: viewer!.id,
+    action: "product.restore",
+    entityType: "product",
+    entityId: id,
+    before: { status: "archived", name: product.name },
+    after: { status: "active", name: product.name },
+    metadata: actorMeta(viewer!)
+  });
+
   revalidate();
   return { status: "success", message: `${product.name} is active again.` };
 }
@@ -316,7 +388,7 @@ export async function deleteProductForeverAction(
   _prev: AdminFormState,
   formData: FormData
 ): Promise<AdminFormState> {
-  const { error: denied } = await guard("admin-product", true);
+  const { viewer, error: denied } = await guard("admin-product", true);
   if (denied) return denied;
 
   const id = String(formData.get("id") ?? "").trim();
@@ -346,6 +418,16 @@ export async function deleteProductForeverAction(
     }
     return fail(msg);
   }
+
+  await writeAuditLog({
+    actorUserId: viewer!.id,
+    action: "product.delete_forever",
+    entityType: "product",
+    entityId: id,
+    before: { name: product.name, status: product.status },
+    after: null,
+    metadata: actorMeta(viewer!)
+  });
 
   revalidate();
   return {

@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { getViewer } from "@/lib/auth";
+import { writeAuditLog } from "@/lib/data/audit-log";
 import { callerKey, checkRateLimit, RATE_LIMITS } from "@/lib/rate-limit";
 import { createAdminClient } from "@/lib/supabase/admin";
 
@@ -178,6 +179,26 @@ export async function placeTestOrder(items: CheckoutItem[]): Promise<CheckoutRes
     await supabase.from("sales_orders").delete().eq("id", order.id);
     return { ok: false, error: "Không lưu được chi tiết đơn. Thử lại." };
   }
+
+  await writeAuditLog({
+    actorUserId: viewer.id,
+    action: "order.create",
+    entityType: "sales_order",
+    entityId: order.id,
+    after: {
+      orderNumber: order.order_number,
+      status: "confirmed",
+      fulfillmentMethod: "pickup",
+      total: subtotal,
+      itemCount: orderItems.length,
+      channel: "web"
+    },
+    metadata: {
+      actorRole: viewer.role,
+      actorEmail: viewer.email,
+      orderNumber: order.order_number
+    }
+  });
 
   revalidatePath("/admin/orders");
   return { ok: true, orderNumber: order.order_number ?? order.id, total: subtotal };

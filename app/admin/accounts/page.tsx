@@ -20,10 +20,11 @@ export default async function AccountsPage() {
       <div className="legal-callout compact">
         <h2>Roles at a glance</h2>
         <p>
-          <strong>Customer</strong> — storefront only. <strong>Seller</strong> — workspace giao dịch
-          hằng ngày (dashboard, orders, customers, invoices, payments, inventory).{" "}
-          <strong>Staff</strong> — full admin except role management. <strong>Manager</strong> —
-          staff plus destructive actions. <strong>Admin</strong> — full control including this page.
+          <strong>Customer</strong> — storefront only. <strong>Seller</strong> — giao dịch hằng ngày
+          (products add/edit, orders giao/huỷ, customers, invoices, payments, inventory) — mọi thao
+          tác ghi Activity log. <strong>Staff</strong> — full admin except role management.{" "}
+          <strong>Manager</strong> — staff plus destructive actions. <strong>Admin</strong> — full
+          control including this page.
         </p>
       </div>
     </>

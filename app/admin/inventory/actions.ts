@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { getViewer } from "@/lib/auth";
+import { writeAuditLog } from "@/lib/data/audit-log";
 import { callerKey, checkRateLimit, RATE_LIMITS } from "@/lib/rate-limit";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getMovementsForVariant, type MovementRow } from "@/lib/data/inventory";
@@ -89,6 +90,20 @@ export async function adjustInventoryAction(
     return fail(error.message);
   }
 
+  await writeAuditLog({
+    actorUserId: viewer!.id,
+    action: "inventory.adjust",
+    entityType: "product_variant",
+    entityId: variantId,
+    before: { onHand: currentOnHand },
+    after: { delta, mode, reason, locationId },
+    metadata: {
+      sku,
+      actorRole: viewer!.role,
+      actorEmail: viewer!.email
+    }
+  });
+
   revalidatePath("/admin/inventory");
   revalidatePath("/admin");
   revalidatePath("/products");
@@ -107,7 +122,7 @@ export async function updateInventoryPricingAction(
   _prev: AdminFormState,
   formData: FormData
 ): Promise<AdminFormState> {
-  const { error: denied } = await guard("admin-inventory");
+  const { viewer, error: denied } = await guard("admin-inventory");
   if (denied) return denied;
 
   const variantId = String(formData.get("variantId") ?? "").trim();
@@ -123,7 +138,14 @@ export async function updateInventoryPricingAction(
     return fail("Retail price (giá bán) must be 0 or more.");
   }
 
-  const { error } = await createAdminClient()
+  const supabase = createAdminClient();
+  const { data: before } = await supabase
+    .from("product_variants")
+    .select("cost_price, retail_price, sku")
+    .eq("id", variantId)
+    .maybeSingle();
+
+  const { error } = await supabase
     .from("product_variants")
     .update({
       cost_price: costPrice,
@@ -132,6 +154,16 @@ export async function updateInventoryPricingAction(
     .eq("id", variantId);
 
   if (error) return fail(error.message);
+
+  await writeAuditLog({
+    actorUserId: viewer!.id,
+    action: "inventory.update_pricing",
+    entityType: "product_variant",
+    entityId: variantId,
+    before,
+    after: { cost_price: costPrice, retail_price: retailPrice, sku },
+    metadata: { actorRole: viewer!.role, actorEmail: viewer!.email }
+  });
 
   revalidatePath("/admin/inventory");
   revalidatePath("/admin/products");

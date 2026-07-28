@@ -15,6 +15,7 @@ const LIVE_PATHS = [
   "/admin/tax-exemptions",
   "/admin/customers",
   "/admin/accounts",
+  "/admin/activity",
   "/admin/expenses",
   "/admin/inventory",
   "/admin/reports",

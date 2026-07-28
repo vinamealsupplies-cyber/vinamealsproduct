@@ -18,11 +18,17 @@ export type StaffOrder = {
   total: number;
   currency: string;
   createdAt: string;
+  notes: string | null;
   pickedUpAt: string | null;
+  fulfilledAt: string | null;
   pickupLocation: string | null;
   itemCount: number;
   /** Đơn pickup đã xác nhận nhưng CHƯA lấy hàng → cần chú ý (nhấp nháy đỏ). */
   awaitingPickup: boolean;
+  /** Đơn ship confirmed — chờ xác nhận đã giao. */
+  awaitingDelivery: boolean;
+  canCancel: boolean;
+  canEditNotes: boolean;
 };
 
 type DbCustomer = {
@@ -41,7 +47,9 @@ type DbOrder = {
   total_amount: number | string;
   currency: string;
   created_at: string;
+  notes: string | null;
   picked_up_at: string | null;
+  fulfilled_at: string | null;
   customer: DbCustomer | DbCustomer[] | null;
   location: { name: string | null } | { name: string | null }[] | null;
   items: { id: string }[] | null;
@@ -69,6 +77,9 @@ function num(value: number | string | null | undefined): number {
 function mapOrder(row: DbOrder): StaffOrder {
   const customer = one(row.customer);
   const location = one(row.location);
+  const awaitingPickup =
+    row.fulfillment_method === "pickup" && row.status === "confirmed" && row.picked_up_at == null;
+  const awaitingDelivery = row.fulfillment_method === "ship" && row.status === "confirmed";
   return {
     id: row.id,
     number: row.order_number ?? row.id.slice(0, 8),
@@ -79,11 +90,15 @@ function mapOrder(row: DbOrder): StaffOrder {
     total: num(row.total_amount),
     currency: row.currency,
     createdAt: row.created_at,
+    notes: row.notes,
     pickedUpAt: row.picked_up_at,
+    fulfilledAt: row.fulfilled_at,
     pickupLocation: location?.name ?? null,
     itemCount: row.items?.length ?? 0,
-    awaitingPickup:
-      row.fulfillment_method === "pickup" && row.status === "confirmed" && row.picked_up_at == null
+    awaitingPickup,
+    awaitingDelivery,
+    canCancel: row.status === "confirmed",
+    canEditNotes: row.status !== "cancelled"
   };
 }
 
@@ -92,7 +107,7 @@ export async function getOrdersForStaff(): Promise<StaffOrder[]> {
   const { data, error } = await supabase
     .from("sales_orders")
     .select(
-      "id, order_number, status, channel, fulfillment_method, total_amount, currency, created_at, picked_up_at, customer:customers ( first_name, last_name, company_name, email ), location:inventory_locations ( name ), items:sales_order_items ( id )"
+      "id, order_number, status, channel, fulfillment_method, total_amount, currency, created_at, notes, picked_up_at, fulfilled_at, customer:customers ( first_name, last_name, company_name, email ), location:inventory_locations ( name ), items:sales_order_items ( id )"
     )
     .neq("status", "draft")
     .order("created_at", { ascending: false })

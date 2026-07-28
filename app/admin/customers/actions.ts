@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { getViewer } from "@/lib/auth";
+import { writeAuditLog } from "@/lib/data/audit-log";
 import { callerKey, checkRateLimit, RATE_LIMITS } from "@/lib/rate-limit";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { countCustomerReferences } from "@/lib/data/customers";
@@ -84,7 +85,7 @@ export async function createCustomerAction(
   _prev: AdminFormState,
   formData: FormData
 ): Promise<AdminFormState> {
-  const { error: denied } = await guard("admin-customer");
+  const { viewer, error: denied } = await guard("admin-customer");
   if (denied) return denied;
 
   const input = readForm(formData);
@@ -92,18 +93,31 @@ export async function createCustomerAction(
   if (invalid) return fail(invalid);
 
   const supabase = createAdminClient();
-  const { error } = await supabase.from("customers").insert({
-    first_name: input.firstName,
-    last_name: input.lastName,
-    company_name: input.companyName,
-    email: input.email,
-    phone: input.phone,
-    notes: input.notes,
-    customer_type: input.customerType,
-    status: input.status
-  });
+  const { data, error } = await supabase
+    .from("customers")
+    .insert({
+      first_name: input.firstName,
+      last_name: input.lastName,
+      company_name: input.companyName,
+      email: input.email,
+      phone: input.phone,
+      notes: input.notes,
+      customer_type: input.customerType,
+      status: input.status
+    })
+    .select("id")
+    .single();
 
   if (error) return fail(friendlyError(error.message));
+
+  await writeAuditLog({
+    actorUserId: viewer!.id,
+    action: "customer.create",
+    entityType: "customer",
+    entityId: data?.id,
+    after: input,
+    metadata: { actorRole: viewer!.role, actorEmail: viewer!.email }
+  });
 
   revalidate();
   const label = input.companyName ?? [input.firstName, input.lastName].filter(Boolean).join(" ");
@@ -114,7 +128,7 @@ export async function updateCustomerAction(
   _prev: AdminFormState,
   formData: FormData
 ): Promise<AdminFormState> {
-  const { error: denied } = await guard("admin-customer");
+  const { viewer, error: denied } = await guard("admin-customer");
   if (denied) return denied;
 
   const id = String(formData.get("id") ?? "").trim();
@@ -125,6 +139,12 @@ export async function updateCustomerAction(
   if (invalid) return fail(invalid);
 
   const supabase = createAdminClient();
+  const { data: before } = await supabase
+    .from("customers")
+    .select("first_name, last_name, company_name, email, phone, notes, customer_type, status")
+    .eq("id", id)
+    .maybeSingle();
+
   const { error } = await supabase
     .from("customers")
     .update({
@@ -140,6 +160,16 @@ export async function updateCustomerAction(
     .eq("id", id);
 
   if (error) return fail(friendlyError(error.message));
+
+  await writeAuditLog({
+    actorUserId: viewer!.id,
+    action: "customer.update",
+    entityType: "customer",
+    entityId: id,
+    before,
+    after: input,
+    metadata: { actorRole: viewer!.role, actorEmail: viewer!.email }
+  });
 
   revalidate();
   const label = input.companyName ?? [input.firstName, input.lastName].filter(Boolean).join(" ");
@@ -187,6 +217,16 @@ export async function deleteCustomerAction(
     }
     return fail(error.message);
   }
+
+  await writeAuditLog({
+    actorUserId: viewer.id,
+    action: "customer.delete",
+    entityType: "customer",
+    entityId: id,
+    before: customer,
+    after: null,
+    metadata: { actorRole: viewer.role, actorEmail: viewer.email }
+  });
 
   revalidate();
   const label = customer.company_name ?? [customer.first_name, customer.last_name].filter(Boolean).join(" ");

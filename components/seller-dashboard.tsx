@@ -5,6 +5,7 @@ import {
   CircleDollarSign,
   FileText,
   PackagePlus,
+  ShoppingBasket,
   UsersRound
 } from "lucide-react";
 import { AdminPageHeader } from "@/components/admin-page-header";
@@ -16,8 +17,14 @@ const QUICK_LINKS = [
   {
     href: "/admin/orders",
     label: "Orders",
-    detail: "Xác nhận đơn & pickup",
+    detail: "Giao / pickup / huỷ đơn",
     icon: PackagePlus
+  },
+  {
+    href: "/admin/products",
+    label: "Products",
+    detail: "Thêm & sửa sản phẩm",
+    icon: ShoppingBasket
   },
   {
     href: "/admin/customers",
@@ -81,7 +88,7 @@ export function SellerDashboardView({ data }: { data: SellerDashboard }) {
       <AdminPageHeader
         eyebrow="Seller workspace"
         title="Giao dịch hằng ngày"
-        description="Bán buôn / fulfillment: đơn hàng, pickup, khách sỉ, hoá đơn, thu tiền và tồn kho. Không có cấu hình sản phẩm, thuế hay báo cáo đầy đủ."
+        description="Bán buôn hằng ngày: đơn (giao/huỷ), sản phẩm, khách sỉ, hoá đơn, thu tiền, tồn kho. Mọi thao tác được ghi Activity log cho admin."
       />
 
       <section className="metric-grid">
