@@ -17,7 +17,7 @@ export type AdminAccount = {
 
 export const APP_ROLES: { value: AppRole; label: string }[] = [
   { value: "customer", label: "Customer" },
-  { value: "seller", label: "Seller" },
+  { value: "seller", label: "Seller (daily sales)" },
   { value: "staff", label: "Staff" },
   { value: "manager", label: "Manager" },
   { value: "admin", label: "Admin" }

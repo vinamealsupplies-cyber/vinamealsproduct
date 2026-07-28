@@ -1,10 +1,12 @@
 import { AdminPageHeader } from "@/components/admin-page-header";
 import { InventoryManager } from "@/components/inventory-manager";
+import { requireAdminAccessPage } from "@/lib/auth";
 import { getInventoryForStaff, getRecentMovements } from "@/lib/data/inventory";
 
 export const metadata = { title: "Inventory" };
 
 export default async function InventoryPage() {
+  await requireAdminAccessPage();
   const [rows, movements] = await Promise.all([getInventoryForStaff(), getRecentMovements()]);
 
   return (

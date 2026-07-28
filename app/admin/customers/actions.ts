@@ -20,7 +20,8 @@ function fail(message: string): AdminFormState {
 
 async function requireStaff() {
   const viewer = await getViewer();
-  return viewer?.isStaff ? viewer : null;
+  // Seller cũng tra cứu / cập nhật khách sỉ cho giao dịch hằng ngày.
+  return viewer?.canAccessAdmin ? viewer : null;
 }
 
 function readForm(formData: FormData) {

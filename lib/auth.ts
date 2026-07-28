@@ -109,18 +109,30 @@ export async function requireStaffApi(minimum: "staff" | "manager" | "admin" = "
 
 /**
  * Guard cho các trang khu /admin mà SELLER KHÔNG được vào (products, categories,
- * imports, customers, tax-exemptions, expenses, reports, tax, settings). Seller
- * đăng nhập → đẩy về /admin/orders; khách/chưa đăng nhập → /login. Staff trở lên
- * đi tiếp bình thường. Dùng ở đầu mỗi trang admin dành riêng cho staff.
+ * imports, tax-exemptions, expenses, reports, tax, settings, accounts…). Seller
+ * đăng nhập → đẩy về /admin (workspace giao dịch); khách/chưa đăng nhập → /login.
+ * Staff trở lên đi tiếp bình thường.
  */
 export async function requireStaffPage(): Promise<Viewer> {
   const viewer = await getViewer();
   if (!viewer?.isStaff) {
     redirect(
       viewer?.isSeller
-        ? "/admin/orders"
+        ? "/admin"
         : "/login?next=/admin&message=Staff%20access%20is%20required."
     );
+  }
+  return viewer;
+}
+
+/**
+ * Staff HOẶC seller — trang giao dịch hằng ngày (orders, inventory, invoices,
+ * payments, customers, seller dashboard).
+ */
+export async function requireAdminAccessPage(): Promise<Viewer> {
+  const viewer = await getViewer();
+  if (!viewer?.canAccessAdmin) {
+    redirect("/login?next=/admin&message=Staff%20access%20is%20required.");
   }
   return viewer;
 }

@@ -1,10 +1,12 @@
 import { AdminPageHeader } from "@/components/admin-page-header";
 import { SearchableTable } from "@/components/searchable-table";
+import { requireAdminAccessPage } from "@/lib/auth";
 import { getPayments } from "@/lib/data/reporting";
 
 export const metadata = { title: "Payments" };
 
 export default async function PaymentsPage() {
+  await requireAdminAccessPage();
   const payments = await getPayments();
   const rows = payments.map((payment) => ({
     reference: payment.reference,

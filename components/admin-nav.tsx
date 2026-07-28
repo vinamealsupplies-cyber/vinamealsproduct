@@ -35,7 +35,8 @@ const groups: { label: string; items: NavItem[] }[] = [
   {
     label: "Operate",
     items: [
-      { href: "/admin", label: "Dashboard", icon: LayoutDashboard },
+      // Dashboard: staff = tài chính; seller = giao dịch hằng ngày (cùng /admin).
+      { href: "/admin", label: "Dashboard", icon: LayoutDashboard, seller: true },
       { href: "/admin/products", label: "Products", icon: ShoppingBasket },
       { href: "/admin/categories", label: "Categories", icon: FolderTree },
       { href: "/admin/inventory", label: "Inventory", icon: Boxes, seller: true },
@@ -46,10 +47,10 @@ const groups: { label: string; items: NavItem[] }[] = [
     label: "Sell",
     items: [
       { href: "/admin/orders", label: "Orders", icon: PackagePlus, seller: true },
+      { href: "/admin/customers", label: "Customers", icon: UsersRound, seller: true },
       { href: "/admin/invoices", label: "Invoices", icon: FileText, seller: true },
-      { href: "/admin/customers", label: "Customers", icon: UsersRound },
-      { href: "/admin/tax-exemptions", label: "Tax exemptions", icon: ShieldCheck },
-      { href: "/admin/payments", label: "Payments", icon: CircleDollarSign, seller: true }
+      { href: "/admin/payments", label: "Payments", icon: CircleDollarSign, seller: true },
+      { href: "/admin/tax-exemptions", label: "Tax exemptions", icon: ShieldCheck }
     ]
   },
   {
@@ -87,10 +88,18 @@ export function AdminNav({
 
   return (
     <aside className="admin-sidebar">
-      <div className="admin-sidebar-title">{isSeller ? "Seller workspace" : "Store administration"}</div>
+      <div className="admin-sidebar-title">
+        {isSeller ? "Seller — giao dịch hằng ngày" : "Store administration"}
+      </div>
       {visibleGroups.map((group) => (
         <nav key={group.label} aria-label={`${group.label} administration`}>
-          <span className="admin-nav-label">{group.label}</span>
+          <span className="admin-nav-label">
+            {isSeller && group.label === "Operate"
+              ? "Hôm nay"
+              : isSeller && group.label === "Sell"
+                ? "Bán hàng"
+                : group.label}
+          </span>
           {group.items.map((item) => {
             const Icon = item.icon;
             const active = item.href === "/admin" ? pathname === item.href : pathname.startsWith(item.href);

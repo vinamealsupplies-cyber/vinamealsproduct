@@ -1,10 +1,12 @@
 import { AdminPageHeader } from "@/components/admin-page-header";
 import { SearchableTable } from "@/components/searchable-table";
+import { requireAdminAccessPage } from "@/lib/auth";
 import { getInvoices } from "@/lib/data/reporting";
 
 export const metadata = { title: "Invoices" };
 
 export default async function InvoicesPage() {
+  await requireAdminAccessPage();
   const invoices = await getInvoices();
   const rows = invoices.map((invoice) => ({
     number: invoice.number,

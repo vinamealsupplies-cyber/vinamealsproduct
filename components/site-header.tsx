@@ -45,6 +45,11 @@ export async function SiteHeader() {
               <ShieldCheck size={19} aria-hidden="true" />
               <span>Admin</span>
             </Link>
+          ) : viewer?.isSeller ? (
+            <Link className="header-action admin-link" href="/admin">
+              <ShieldCheck size={19} aria-hidden="true" />
+              <span>Seller</span>
+            </Link>
           ) : null}
           <Link className="header-action" href={viewer ? "/account" : "/login"}>
             <UserRound size={19} aria-hidden="true" />
