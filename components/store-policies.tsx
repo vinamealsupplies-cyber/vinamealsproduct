@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from "react";
 import Link from "next/link";
-import { AlertTriangle, FileText, Search, X } from "lucide-react";
+import { FileText, Search, X } from "lucide-react";
 import {
   POLICY_EFFECTIVE_DATE,
   POLICY_STORE,
@@ -113,19 +113,6 @@ export function StorePolicies() {
           </Link>
         </p>
       </header>
-
-      <div className="setup-notice warning policy-disclaimer" role="note">
-        <AlertTriangle size={18} aria-hidden="true" />
-        <div>
-          <strong>Not legal advice</strong>
-          <p>
-            These policies are operational templates adapted from a California-focused e-commerce
-            policy pack. They must match our actual data collection, vendors, shipping, and refund
-            practices. Obtain attorney review before relying on them for compliance—especially for
-            food products, payments, advertising tools, and California privacy rules.
-          </p>
-        </div>
-      </div>
 
       <div className="policy-search-bar" role="search">
         <label className="policy-search-field" htmlFor="policy-search">
