@@ -1,36 +1,176 @@
 "use client";
 
+import { useEffect, useRef, useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import { Minus, Plus, ShoppingBag, Trash2, X } from "lucide-react";
+import { loadCartBootstrap } from "@/app/cart/bootstrap";
 import { FulfillmentPicker } from "@/components/fulfillment-picker";
 import { SetupNotice } from "@/components/setup-notice";
+import { SpecialRequestPicker } from "@/components/special-request-picker";
 import type { CustomerAddress } from "@/lib/data/address-types";
 import { useCart } from "@/lib/cart";
 import type { Product } from "@/lib/sample-data";
 import { usd } from "@/lib/format";
+import type { SpecialRequest } from "@/lib/special-request-types";
+import {
+  SITE_OVERLOADED_MESSAGE,
+  toUserFacingError
+} from "@/lib/user-facing-error";
 import { evaluateWholesaleEligibility, type WholesaleAccount } from "@/lib/wholesale";
 
-// Giỏ hàng: giá sỉ chỉ khi admin gán wholesale + đạt ngưỡng min qty/amount.
-export function CartView({
-  catalog,
-  shippingAddresses = [],
-  signedIn = false,
-  wholesaleAccount = null,
-  wholesalePriceByProductId = {}
-}: {
-  catalog: Product[];
-  shippingAddresses?: CustomerAddress[];
-  signedIn?: boolean;
-  wholesaleAccount?: WholesaleAccount | null;
-  /** productId → wholesale unit price (chỉ gửi khi isWholesale). */
-  wholesalePriceByProductId?: Record<string, number>;
-}) {
-  const { items, setQuantity, setNote, remove, clear, ready } = useCart();
+const SESSION_RETRY_DELAY_MS = 700;
+
+// Cart UI. All DB work runs after mount via loadCartBootstrap (not in page SSR).
+export function CartView() {
+  const { items, setQuantity, setNote, remove, clear, ready, signedIn: cartSignedIn } =
+    useCart();
+
+  const [bootLoading, setBootLoading] = useState(true);
+  const [bootError, setBootError] = useState<string | null>(null);
+  // null = chưa biết (bootstrap lỗi / chưa trả lời). KHÔNG mặc định false: coi
+  // lỗi mạng là "chưa đăng nhập" sẽ đá văng user đang đăng nhập ra màn Sign in.
+  const [sessionSignedIn, setSessionSignedIn] = useState<boolean | null>(null);
+  const [catalog, setCatalog] = useState<Product[]>([]);
+  const [shippingAddresses, setShippingAddresses] = useState<CustomerAddress[]>([]);
+  const [savedRequests, setSavedRequests] = useState<SpecialRequest[]>([]);
+  const [wholesaleAccount, setWholesaleAccount] = useState<WholesaleAccount | null>(null);
+  const [wholesalePriceByProductId, setWholesalePriceByProductId] = useState<
+    Record<string, number>
+  >({});
+
+  // Đọc trạng thái đăng nhập mới nhất bên trong effect chạy-một-lần.
+  const cartSignedInRef = useRef(cartSignedIn);
+  useEffect(() => {
+    cartSignedInRef.current = cartSignedIn;
+  }, [cartSignedIn]);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      setBootLoading(true);
+      setBootError(null);
+      try {
+        let boot = await loadCartBootstrap();
+        if (cancelled) return;
+        // Server bảo "chưa đăng nhập" NHƯNG store (userId do header SSR truyền
+        // xuống) bảo đang đăng nhập → mâu thuẫn nhất thời, thử lại 1 lần. Guest
+        // thật thì store cũng nói guest nên không tốn lượt gọi nào.
+        if (!boot.ok && !boot.signedIn && cartSignedInRef.current) {
+          await new Promise((resolve) => setTimeout(resolve, SESSION_RETRY_DELAY_MS));
+          if (cancelled) return;
+          boot = await loadCartBootstrap();
+          if (cancelled) return;
+        }
+        if (!boot.ok) {
+          if (!boot.signedIn) {
+            setSessionSignedIn(false);
+            setBootLoading(false);
+            return;
+          }
+          setSessionSignedIn(true);
+          setBootError(boot.error);
+          setBootLoading(false);
+          return;
+        }
+        setSessionSignedIn(true);
+        setCatalog(boot.catalog);
+        setShippingAddresses(boot.shippingAddresses);
+        setSavedRequests(boot.specialRequests);
+        setWholesaleAccount(boot.wholesaleAccount);
+        setWholesalePriceByProductId(boot.wholesalePriceByProductId);
+      } catch (err) {
+        if (!cancelled) {
+          // Giữ sessionSignedIn = null: lỗi gọi action KHÔNG phải bằng chứng
+          // user chưa đăng nhập (header đã SSR ra viewer rồi).
+          setBootError(toUserFacingError(err, SITE_OVERLOADED_MESSAGE));
+        }
+      } finally {
+        if (!cancelled) setBootLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  if (!ready || bootLoading) {
+    return (
+      <div className="page-shell shell narrow-page" aria-busy="true">
+        <p className="field-hint" style={{ padding: "2rem 0" }}>
+          Loading cart…
+        </p>
+      </div>
+    );
+  }
+
+  // Guest CHỈ khi cả hai nguồn cùng nói vậy: store giỏ (userId do header SSR
+  // truyền xuống) và bootstrap. Hai server action của /cart chạy song song, nếu
+  // gặp lúc refresh token xoay vòng thì cái thua trả signedIn=false — một mình
+  // nó không đủ để kết luận user đã đăng xuất.
+  if (!cartSignedIn && sessionSignedIn !== true) {
+    return (
+      <div className="page-shell shell narrow-page">
+        <div className="empty-state large">
+          <ShoppingBag size={36} />
+          <h1>Sign in to view your cart</h1>
+          <p>
+            Your cart is saved to your account — not this browser — so you can shop on any device.
+          </p>
+          <Link className="button primary" href="/login?next=/cart">
+            Sign in
+          </Link>
+        </div>
+      </div>
+    );
+  }
+
+  // Đang đăng nhập nhưng bootstrap chưa lấy được dữ liệu → màn thử lại.
+  if (sessionSignedIn !== true && catalog.length === 0) {
+    return (
+      <div className="page-shell shell narrow-page">
+        <div className="empty-state large overload-state">
+          <div className="overload-badge" aria-hidden="true">
+            !
+          </div>
+          <h1>Could not load your cart</h1>
+          <p>{bootError ?? SITE_OVERLOADED_MESSAGE}</p>
+          <div className="checkout-actions-row">
+            <Link className="button primary" href="/cart">
+              Try again
+            </Link>
+            <Link className="button secondary" href="/products">
+              Browse products
+            </Link>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (bootError && catalog.length === 0) {
+    return (
+      <div className="page-shell shell narrow-page">
+        <div className="empty-state large overload-state">
+          <div className="overload-badge" aria-hidden="true">
+            !
+          </div>
+          <h1>Website overloaded</h1>
+          <p>{bootError}</p>
+          <div className="checkout-actions-row">
+            <Link className="button primary" href="/cart">
+              Try again
+            </Link>
+            <Link className="button secondary" href="/products">
+              Browse products
+            </Link>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   const byId = new Map(catalog.map((product) => [product.id, product]));
-
-  if (!ready) return <div className="page-shell shell narrow-page" aria-busy="true" />;
-
   const lines = items
     .map((item) => ({ ...item, product: byId.get(item.productId) }))
     .filter((line): line is typeof line & { product: Product } => Boolean(line.product));
@@ -41,7 +181,9 @@ export function CartView({
         <div className="empty-state large">
           <ShoppingBag size={36} />
           <h1>Your cart is empty</h1>
-          <p>Browse the catalog to add items. Delivery options and tax are calculated at the cart.</p>
+          <p>
+            Browse the catalog to add items. Your cart stays with your account on every device.
+          </p>
           <Link className="button primary" href="/products">
             Browse products
           </Link>
@@ -52,7 +194,6 @@ export function CartView({
 
   const cartQuantity = lines.reduce((sum, line) => sum + line.quantity, 0);
   const retailSubtotal = lines.reduce((sum, line) => sum + line.product.price * line.quantity, 0);
-
   const wholesaleSubtotal = lines.reduce((sum, line) => {
     const unit =
       wholesalePriceByProductId[line.product.id] ??
@@ -60,8 +201,6 @@ export function CartView({
       line.product.price;
     return sum + unit * line.quantity;
   }, 0);
-
-  // Threshold amount so với tổng giá sỉ dự kiến (min order at wholesale rates).
   const wholesale = evaluateWholesaleEligibility(
     wholesaleAccount,
     cartQuantity,
@@ -121,16 +260,13 @@ export function CartView({
                     </span>
                   ) : null}
                 </span>
-                <label className="cart-line-note">
-                  <span>Special request for this item</span>
-                  <textarea
-                    rows={2}
-                    maxLength={300}
-                    placeholder="e.g. ripe fruit, no ice, call on arrival…"
-                    defaultValue={note ?? ""}
-                    onBlur={(event) => setNote(product.id, event.target.value)}
-                  />
-                </label>
+                <SpecialRequestPicker
+                  productId={product.id}
+                  value={note}
+                  suggestions={savedRequests}
+                  onChange={(id, next) => setNote(id, next)}
+                  onSuggestionsChange={setSavedRequests}
+                />
               </div>
               <div className="quantity-control" aria-label={`Quantity for ${product.name}`}>
                 <button
@@ -171,14 +307,13 @@ export function CartView({
 
       <div className="checkout-cta">
         <Link className="button primary block" href="/checkout">
-          Tiến hành đặt hàng (thử — không thanh toán)
+          Proceed to checkout
         </Link>
-        {!signedIn ? <p className="checkout-cta-note">Cần đăng nhập để đặt hàng.</p> : null}
       </div>
 
-      <SetupNotice>
-        Đang bật chế độ đặt hàng thử: bấm “Tiến hành đặt hàng” để tạo đơn nhận tại cửa hàng mà KHÔNG
-        cần thanh toán. Thanh toán online (Stripe Tax + thẻ) sẽ được nối ở phase sau.
+      <SetupNotice title="Test checkout (marked paid)">
+        Placing an order creates a sales order, invoice, and a paid-in-full receipt so you can test
+        Orders, Invoices, Payments, and Reports. Real card payments (Stripe) come later.
       </SetupNotice>
 
       <FulfillmentPicker
@@ -186,7 +321,7 @@ export function CartView({
         wholesaleSubtotal={wholesaleSubtotal}
         wholesale={wholesale}
         shippingAddresses={shippingAddresses}
-        signedIn={signedIn}
+        signedIn={sessionSignedIn === true || cartSignedIn}
       />
     </div>
   );

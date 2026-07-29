@@ -23,12 +23,10 @@ type StatusFilter = "live" | ProductStatus | "all";
 
 export function ProductManager({
   products,
-  canDeleteForever,
-  isSeller = false
+  canDeleteForever
 }: {
   products: AdminProduct[];
   canDeleteForever: boolean;
-  isSeller?: boolean;
 }) {
   const [query, setQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("live");

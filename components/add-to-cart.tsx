@@ -2,13 +2,14 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
+import { usePathname } from "next/navigation";
 import { Check, Minus, Plus } from "lucide-react";
 import { useCart } from "@/lib/cart";
 
-// Bộ chọn số lượng + nút Add to cart hoạt động thật (trước đây chỉ là UI
-// tĩnh không có handler). Số lượng kẹp theo tồn kho.
+// Bộ chọn số lượng + nút Add to cart. Giỏ chỉ lưu theo tài khoản — bắt buộc đăng nhập.
 export function AddToCart({ productId, stock }: { productId: string; stock: number }) {
-  const { add } = useCart();
+  const pathname = usePathname();
+  const { add, signedIn, ready } = useCart();
   const [quantity, setQuantity] = useState(1);
   const [justAdded, setJustAdded] = useState(false);
 
@@ -29,15 +30,49 @@ export function AddToCart({ productId, stock }: { productId: string; stock: numb
   }
 
   const max = stock;
+  const loginHref = `/login?next=${encodeURIComponent(pathname || `/products`)}`;
+
+  if (ready && !signedIn) {
+    return (
+      <>
+        <div className="quantity-label" id={`quantity-label-${productId}`}>
+          Quantity
+        </div>
+        <div className="purchase-row">
+          <div className="quantity-control" role="group" aria-labelledby={`quantity-label-${productId}`}>
+            <button type="button" aria-label="Decrease quantity" disabled>
+              <Minus size={16} />
+            </button>
+            <span aria-live="polite">1</span>
+            <button type="button" aria-label="Increase quantity" disabled>
+              <Plus size={16} />
+            </button>
+          </div>
+          <Link className="button primary add-to-cart" href={loginHref}>
+            Sign in to add
+          </Link>
+        </div>
+        <p className="payment-note">Your cart is saved to your account — sign in to shop.</p>
+      </>
+    );
+  }
 
   function handleAdd() {
-    add(productId, quantity, stock);
+    const result = add(productId, quantity, stock);
+    if (!result.ok) {
+      if (result.reason === "auth") {
+        window.location.href = loginHref;
+      }
+      return;
+    }
     setJustAdded(true);
   }
 
   return (
     <>
-      <div className="quantity-label" id={`quantity-label-${productId}`}>Quantity</div>
+      <div className="quantity-label" id={`quantity-label-${productId}`}>
+        Quantity
+      </div>
       <div className="purchase-row">
         <div className="quantity-control" role="group" aria-labelledby={`quantity-label-${productId}`}>
           <button
@@ -58,7 +93,12 @@ export function AddToCart({ productId, stock }: { productId: string; stock: numb
             <Plus size={16} />
           </button>
         </div>
-        <button className="button primary add-to-cart" type="button" onClick={handleAdd}>
+        <button
+          className="button primary add-to-cart"
+          type="button"
+          onClick={handleAdd}
+          disabled={!ready}
+        >
           {justAdded ? (
             <>
               <Check size={17} aria-hidden="true" /> Added to cart
@@ -70,12 +110,13 @@ export function AddToCart({ productId, stock }: { productId: string; stock: numb
       </div>
       {justAdded ? (
         <p className="payment-note" role="status">
-          <Link className="text-link" href="/cart">Review your cart</Link> — quantities and totals update there.
+          <Link className="text-link" href="/cart">
+            Review your cart
+          </Link>{" "}
+          — saved to your account on every device.
         </p>
       ) : (
-        <p className="payment-note">
-          Items are saved in your cart on this device. Secure checkout and payment open in a later phase.
-        </p>
+        <p className="payment-note">Cart is saved to your account, not this browser.</p>
       )}
     </>
   );

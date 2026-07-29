@@ -1,23 +1,13 @@
 import "server-only";
 
 import { cache } from "react";
+import type { CategoryNode, CategoryRow } from "@/lib/category-types";
 import { createClient } from "@/lib/supabase/server";
 import { createPublicClient } from "@/lib/supabase/public";
 
-// Categories đọc từ Supabase. Dùng SSR client (cookie session) để staff thấy
-// cả category đang ẩn — RLS `categories_public_read` chỉ trả is_active cho
-// người thường, còn staff thấy tất cả.
+// Categories from Supabase. Staff SSR client sees inactive categories too.
 
-export type CategoryRow = {
-  id: string;
-  parentId: string | null;
-  name: string;
-  slug: string;
-  sortOrder: number;
-  isActive: boolean;
-};
-
-export type CategoryNode = CategoryRow & { children: CategoryRow[] };
+export type { CategoryNode, CategoryRow };
 
 type DbRow = {
   id: string;

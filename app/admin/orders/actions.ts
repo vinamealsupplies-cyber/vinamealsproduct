@@ -7,6 +7,10 @@ import {
   actorDisplayName,
   writeAuditLog
 } from "@/lib/data/audit-log";
+import {
+  recordOrderStaffEvent,
+  requireStaffNote
+} from "@/lib/data/order-staff-events";
 import { callerKey, checkRateLimit, RATE_LIMITS } from "@/lib/rate-limit";
 import {
   buildTrackingUrl,
@@ -16,7 +20,7 @@ import {
 import { createAdminClient } from "@/lib/supabase/admin";
 
 // Seller/staff: xác nhận giao/pickup, tracking ship, huỷ đơn, ghi chú.
-// Mọi thao tác ghi audit_log kèm tên nhân viên (actorName).
+// Huỷ / sửa: BẮT BUỘC note + ghi tên người thao tác (sales_order_staff_events).
 
 export type OrderActionResult = { ok: true } | { ok: false; error: string };
 
@@ -35,10 +39,12 @@ type OrderSnapshot = {
   shipped_at?: string | null;
   picked_up_by?: string | null;
   picked_up_by_name?: string | null;
+  cancelled_by_name?: string | null;
+  cancel_note?: string | null;
 };
 
 const ORDER_SELECT =
-  "id, order_number, status, fulfillment_method, notes, picked_up_at, fulfilled_at, total_amount, shipping_carrier, tracking_number, tracking_url, shipped_at, picked_up_by, picked_up_by_name";
+  "id, order_number, status, fulfillment_method, notes, picked_up_at, fulfilled_at, total_amount, shipping_carrier, tracking_number, tracking_url, shipped_at, picked_up_by, picked_up_by_name, cancelled_by_name, cancel_note";
 
 async function requireOps(): Promise<{ viewer: Viewer } | { error: string }> {
   const viewer = await getViewer();
@@ -52,7 +58,6 @@ async function requireOps(): Promise<{ viewer: Viewer } | { error: string }> {
 function revalidateOrders() {
   revalidatePath("/admin/orders");
   revalidatePath("/admin");
-  // Khách xem trạng thái trên /account — làm mới sau pickup/giao/huỷ.
   revalidatePath("/account");
 }
 
@@ -62,20 +67,41 @@ async function loadOrder(id: string): Promise<OrderSnapshot | null> {
   return (data as OrderSnapshot | null) ?? null;
 }
 
+async function stampStaff(
+  orderId: string,
+  viewer: Viewer,
+  action: string,
+  note: string
+): Promise<OrderActionResult | null> {
+  const result = await recordOrderStaffEvent({
+    orderId,
+    actorUserId: viewer.id,
+    actorName: actorDisplayName(viewer),
+    action,
+    note
+  });
+  if (!result.ok) return { ok: false, error: result.error };
+  return null;
+}
+
 /**
  * Lưu shipping info (carrier + tracking).
- * markShipped=true → xác nhận đã ship (fulfilled). Đơn ship KHÔNG dùng flow pickup.
+ * markShipped=true → xác nhận đã ship (fulfilled). Bắt buộc note + tên người sửa.
  */
 export async function saveShipmentTracking(
   orderId: string,
   carrier: string,
   trackingNumber: string,
   customUrl = "",
-  markShipped = false
+  markShipped = false,
+  staffNote = ""
 ): Promise<OrderActionResult> {
   const gate = await requireOps();
   if ("error" in gate) return { ok: false, error: gate.error };
   if (!orderId) return { ok: false, error: "Thiếu mã đơn." };
+
+  const noteGate = requireStaffNote(staffNote);
+  if (!noteGate.ok) return noteGate;
 
   const carrierCode = carrier.trim().toLowerCase();
   if (!isShippingCarrier(carrierCode)) {
@@ -103,6 +129,7 @@ export async function saveShipmentTracking(
     override || buildTrackingUrl(carrierCode as ShippingCarrier, tracking) || null;
   const now = new Date().toISOString();
   const supabase = createAdminClient();
+  const actorName = actorDisplayName(gate.viewer);
 
   const patch: Record<string, unknown> = {
     shipping_carrier: carrierCode,
@@ -139,6 +166,10 @@ export async function saveShipmentTracking(
   }
   if (!data?.length) return { ok: false, error: "Không tìm thấy đơn." };
 
+  const action = markShipped ? "confirm_shipped" : "save_tracking";
+  const stampErr = await stampStaff(orderId, gate.viewer, action, noteGate.note);
+  if (stampErr) return stampErr;
+
   const after = data[0] as OrderSnapshot;
   await writeAuditLog({
     actorUserId: gate.viewer.id,
@@ -162,7 +193,9 @@ export async function saveShipmentTracking(
     metadata: {
       ...actorAuditMeta(gate.viewer),
       orderNumber: after.order_number,
-      markShipped
+      markShipped,
+      staffNote: noteGate.note,
+      actorName
     }
   });
 
@@ -170,8 +203,8 @@ export async function saveShipmentTracking(
   return { ok: true };
 }
 
-/** Pickup: khách đã lấy hàng → fulfilled. Ghi tên người xác nhận để kiểm tra. */
-export async function confirmPickup(orderId: string): Promise<OrderActionResult> {
+/** Pickup: khách đã lấy hàng → fulfilled. Ghi tên người xác nhận. Note tuỳ chọn. */
+export async function confirmPickup(orderId: string, staffNote = ""): Promise<OrderActionResult> {
   const gate = await requireOps();
   if ("error" in gate) return { ok: false, error: gate.error };
   if (!orderId) return { ok: false, error: "Thiếu mã đơn." };
@@ -180,6 +213,8 @@ export async function confirmPickup(orderId: string): Promise<OrderActionResult>
   if (!before) return { ok: false, error: "Không tìm thấy đơn." };
 
   const confirmerName = actorDisplayName(gate.viewer);
+  const note =
+    staffNote.trim().slice(0, 500) || `Xác nhận pickup bởi ${confirmerName}`;
   const supabase = createAdminClient();
   const now = new Date().toISOString();
   const { data, error } = await supabase
@@ -212,6 +247,8 @@ export async function confirmPickup(orderId: string): Promise<OrderActionResult>
     return { ok: false, error: "Đơn không ở trạng thái chờ pickup (có thể đã xác nhận trước đó)." };
   }
 
+  await stampStaff(orderId, gate.viewer, "confirm_pickup", note);
+
   const after = data[0] as OrderSnapshot;
   await writeAuditLog({
     actorUserId: gate.viewer.id,
@@ -224,7 +261,8 @@ export async function confirmPickup(orderId: string): Promise<OrderActionResult>
       ...actorAuditMeta(gate.viewer),
       orderNumber: after.order_number,
       confirmedByName: confirmerName,
-      confirmedById: gate.viewer.id
+      confirmedById: gate.viewer.id,
+      staffNote: note
     }
   });
 
@@ -234,12 +272,15 @@ export async function confirmPickup(orderId: string): Promise<OrderActionResult>
 
 /**
  * Huỷ pickup đã xác nhận → trả đơn về confirmed (chờ pickup lại).
- * Ghi log người huỷ + người đã xác nhận trước đó.
+ * Bắt buộc note + tên người huỷ.
  */
 export async function cancelPickup(orderId: string, reason = ""): Promise<OrderActionResult> {
   const gate = await requireOps();
   if ("error" in gate) return { ok: false, error: gate.error };
   if (!orderId) return { ok: false, error: "Thiếu mã đơn." };
+
+  const noteGate = requireStaffNote(reason);
+  if (!noteGate.ok) return noteGate;
 
   const before = await loadOrder(orderId);
   if (!before) return { ok: false, error: "Không tìm thấy đơn." };
@@ -250,19 +291,16 @@ export async function cancelPickup(orderId: string, reason = ""): Promise<OrderA
     return { ok: false, error: "Đơn chưa được xác nhận pickup." };
   }
 
-  const cancelReason = reason.trim().slice(0, 500);
   const cancellerName = actorDisplayName(gate.viewer);
   const now = new Date().toISOString();
   const supabase = createAdminClient();
 
-  // Trả về confirmed để nhân viên có thể pickup lại; xóa mốc + người xác nhận.
   const { data, error } = await supabase
     .from("sales_orders")
     .update({
       status: "confirmed",
       picked_up_at: null,
       fulfilled_at: null,
-      // Giữ pickup_ready_at nếu có — đơn vẫn sẵn sàng lấy lại.
       picked_up_by: null,
       picked_up_by_name: null,
       updated_at: now
@@ -277,6 +315,9 @@ export async function cancelPickup(orderId: string, reason = ""): Promise<OrderA
   if (!data?.length) {
     return { ok: false, error: "Đơn không còn ở trạng thái đã pickup." };
   }
+
+  const stampErr = await stampStaff(orderId, gate.viewer, "cancel_pickup", noteGate.note);
+  if (stampErr) return stampErr;
 
   const after = data[0] as OrderSnapshot;
   await writeAuditLog({
@@ -301,7 +342,7 @@ export async function cancelPickup(orderId: string, reason = ""): Promise<OrderA
     metadata: {
       ...actorAuditMeta(gate.viewer),
       orderNumber: after.order_number,
-      reason: cancelReason || null,
+      reason: noteGate.note,
       previousConfirmedByName: before.picked_up_by_name,
       previousConfirmedById: before.picked_up_by,
       cancelledByName: cancellerName,
@@ -314,10 +355,16 @@ export async function cancelPickup(orderId: string, reason = ""): Promise<OrderA
 }
 
 /** Ship (hoặc đơn confirmed bất kỳ): xác nhận đã giao → fulfilled. */
-export async function confirmDelivered(orderId: string): Promise<OrderActionResult> {
+export async function confirmDelivered(
+  orderId: string,
+  staffNote = ""
+): Promise<OrderActionResult> {
   const gate = await requireOps();
   if ("error" in gate) return { ok: false, error: gate.error };
   if (!orderId) return { ok: false, error: "Thiếu mã đơn." };
+
+  const noteGate = requireStaffNote(staffNote);
+  if (!noteGate.ok) return noteGate;
 
   const before = await loadOrder(orderId);
   if (!before) return { ok: false, error: "Không tìm thấy đơn." };
@@ -332,7 +379,6 @@ export async function confirmDelivered(orderId: string): Promise<OrderActionResu
     fulfilled_at: now,
     updated_at: now
   };
-  // Pickup chưa có picked_up_at thì ghi luôn khi "đã giao/đã lấy" + người xác nhận.
   if (before.fulfillment_method === "pickup" && !before.picked_up_at) {
     patch.picked_up_at = now;
     patch.pickup_ready_at = now;
@@ -340,7 +386,6 @@ export async function confirmDelivered(orderId: string): Promise<OrderActionResu
     patch.picked_up_by_name = actorDisplayName(gate.viewer);
   }
 
-  // Đơn ship: nên có tracking trước khi đánh dấu đã giao (có thể bỏ qua nếu đã có).
   if (before.fulfillment_method === "ship" && !before.tracking_number) {
     return {
       ok: false,
@@ -368,6 +413,9 @@ export async function confirmDelivered(orderId: string): Promise<OrderActionResu
     return { ok: false, error: "Đơn không còn ở trạng thái confirmed." };
   }
 
+  const stampErr = await stampStaff(orderId, gate.viewer, "confirm_delivered", noteGate.note);
+  if (stampErr) return stampErr;
+
   const after = data[0] as OrderSnapshot;
   await writeAuditLog({
     actorUserId: gate.viewer.id,
@@ -380,7 +428,8 @@ export async function confirmDelivered(orderId: string): Promise<OrderActionResu
       ...actorAuditMeta(gate.viewer),
       orderNumber: after.order_number,
       fulfillmentMethod: after.fulfillment_method,
-      trackingNumber: after.tracking_number
+      trackingNumber: after.tracking_number,
+      staffNote: noteGate.note
     }
   });
 
@@ -388,11 +437,14 @@ export async function confirmDelivered(orderId: string): Promise<OrderActionResu
   return { ok: true };
 }
 
-/** Huỷ đơn (confirmed). Không huỷ đơn đã fulfilled. */
+/** Huỷ đơn (confirmed). Bắt buộc note + tên người huỷ. */
 export async function cancelOrder(orderId: string, reason = ""): Promise<OrderActionResult> {
   const gate = await requireOps();
   if ("error" in gate) return { ok: false, error: gate.error };
   if (!orderId) return { ok: false, error: "Thiếu mã đơn." };
+
+  const noteGate = requireStaffNote(reason);
+  if (!noteGate.ok) return noteGate;
 
   const before = await loadOrder(orderId);
   if (!before) return { ok: false, error: "Không tìm thấy đơn." };
@@ -406,26 +458,48 @@ export async function cancelOrder(orderId: string, reason = ""): Promise<OrderAc
     return { ok: false, error: "Chỉ huỷ được đơn đang confirmed." };
   }
 
-  const note = reason.trim().slice(0, 500);
+  const actorName = actorDisplayName(gate.viewer);
   const supabase = createAdminClient();
   const now = new Date().toISOString();
-  const mergedNotes = [before.notes, note ? `Cancelled: ${note}` : "Cancelled"].filter(Boolean).join("\n");
+  // Ghi rõ tên trong notes + cột cancelled_* trong CÙNG 1 update (không phụ thuộc bước 2).
+  const stampLine = `Huỷ bởi ${actorName}: ${noteGate.note}`;
+  const mergedNotes = [before.notes, stampLine].filter(Boolean).join("\n");
 
   const { data, error } = await supabase
     .from("sales_orders")
     .update({
       status: "cancelled",
       notes: mergedNotes,
+      cancelled_by: gate.viewer.id,
+      cancelled_by_name: actorName,
+      cancelled_at: now,
+      cancel_note: noteGate.note,
+      last_staff_action: "cancel",
+      last_staff_actor_id: gate.viewer.id,
+      last_staff_actor_name: actorName,
+      last_staff_note: noteGate.note,
+      last_staff_at: now,
       updated_at: now
     })
     .eq("id", orderId)
     .eq("status", "confirmed")
     .select(ORDER_SELECT);
 
-  if (error) return { ok: false, error: "Không huỷ được đơn. Thử lại." };
+  if (error) {
+    if (error.message.includes("cancelled_by")) {
+      return {
+        ok: false,
+        error: "Database chưa có cột huỷ đơn. Chạy migration 20260728270000_order_staff_actions.sql."
+      };
+    }
+    return { ok: false, error: "Không huỷ được đơn. Thử lại." };
+  }
   if (!data || data.length === 0) {
     return { ok: false, error: "Đơn không còn huỷ được (trạng thái đã đổi)." };
   }
+
+  // Lịch sử events (nếu fail vẫn giữ cancelled_* đã ghi ở trên).
+  await stampStaff(orderId, gate.viewer, "cancel", noteGate.note);
 
   const after = data[0] as OrderSnapshot;
   await writeAuditLog({
@@ -438,7 +512,8 @@ export async function cancelOrder(orderId: string, reason = ""): Promise<OrderAc
     metadata: {
       ...actorAuditMeta(gate.viewer),
       orderNumber: after.order_number,
-      reason: note || null
+      reason: noteGate.note,
+      cancelledByName: actorName
     }
   });
 
@@ -446,11 +521,18 @@ export async function cancelOrder(orderId: string, reason = ""): Promise<OrderAc
   return { ok: true };
 }
 
-/** Sửa ghi chú đơn (seller/staff). */
-export async function updateOrderNotes(orderId: string, notes: string): Promise<OrderActionResult> {
+/** Sửa ghi chú đơn. Bắt buộc note thao tác + tên người sửa. */
+export async function updateOrderNotes(
+  orderId: string,
+  notes: string,
+  staffNote = ""
+): Promise<OrderActionResult> {
   const gate = await requireOps();
   if ("error" in gate) return { ok: false, error: gate.error };
   if (!orderId) return { ok: false, error: "Thiếu mã đơn." };
+
+  const noteGate = requireStaffNote(staffNote);
+  if (!noteGate.ok) return noteGate;
 
   const before = await loadOrder(orderId);
   if (!before) return { ok: false, error: "Không tìm thấy đơn." };
@@ -458,6 +540,7 @@ export async function updateOrderNotes(orderId: string, notes: string): Promise<
     return { ok: false, error: "Không sửa ghi chú đơn đã huỷ." };
   }
 
+  const actorName = actorDisplayName(gate.viewer);
   const nextNotes = notes.trim().slice(0, 2000) || null;
   const supabase = createAdminClient();
   const { data, error } = await supabase
@@ -469,6 +552,9 @@ export async function updateOrderNotes(orderId: string, notes: string): Promise<
   if (error) return { ok: false, error: "Không lưu ghi chú. Thử lại." };
   if (!data || data.length === 0) return { ok: false, error: "Không tìm thấy đơn." };
 
+  const stampErr = await stampStaff(orderId, gate.viewer, "update_notes", noteGate.note);
+  if (stampErr) return stampErr;
+
   const after = data[0] as OrderSnapshot;
   await writeAuditLog({
     actorUserId: gate.viewer.id,
@@ -479,7 +565,9 @@ export async function updateOrderNotes(orderId: string, notes: string): Promise<
     after: { notes: after.notes },
     metadata: {
       ...actorAuditMeta(gate.viewer),
-      orderNumber: after.order_number
+      orderNumber: after.order_number,
+      staffNote: noteGate.note,
+      actorName
     }
   });
 

@@ -1,96 +1,170 @@
 "use client";
 
 import { useSyncExternalStore } from "react";
+import {
+  clearAccountCart,
+  loadAccountCart,
+  saveAccountCart
+} from "@/app/cart/actions";
+import {
+  normalizeCartNote,
+  normalizeCartQuantity,
+  type CartItem
+} from "@/lib/cart-types";
 
-// Giỏ hàng client-side, lưu localStorage. productId + quantity + note (ghi chú
-// từng món). Giá/tên/tồn luôn lấy từ catalog DB.
+export type { CartItem } from "@/lib/cart-types";
+export { normalizeCartNote } from "@/lib/cart-types";
 
-export type CartItem = {
-  productId: string;
-  quantity: number;
-  /** Yêu cầu đặc biệt cho món này (tùy chọn). */
-  note?: string;
-};
+// Giỏ hàng CHỈ theo tài khoản (Supabase cart_items).
+// Không localStorage / cookie / session máy. Guest = giỏ trống, phải đăng nhập.
 
-const STORAGE_KEY = "vinameals-cart-v1";
-const NOTE_MAX = 300;
+const PERSIST_DEBOUNCE_MS = 300;
+/** Key cũ (guest/browser) — dọn khi hydrate để không còn dữ liệu rác. */
+const LEGACY_STORAGE_PREFIXES = ["vinameals-cart-v1"];
+
+export type CartMutationResult =
+  | { ok: true }
+  | { ok: false; reason: "auth" | "not_ready" };
 
 type CartSnapshot = {
   items: CartItem[];
-  /** false cho tới khi đọc xong localStorage — tránh flash "giỏ trống". */
+  /** false đến khi bind xong (load server hoặc xác nhận guest). */
   ready: boolean;
+  /** null = chưa đăng nhập → không có giỏ. */
+  userId: string | null;
 };
 
-const SERVER_SNAPSHOT: CartSnapshot = { items: [], ready: false };
+const SERVER_SNAPSHOT: CartSnapshot = { items: [], ready: false, userId: null };
 
 let snapshot: CartSnapshot = SERVER_SNAPSHOT;
-let hydrated = false;
+let bound = false;
+let activeUserId: string | null = null;
+let hydrateGeneration = 0;
+let persistTimer: ReturnType<typeof setTimeout> | null = null;
+let persistInFlight = false;
+let persistQueued: CartItem[] | null = null;
 const listeners = new Set<() => void>();
-
-function normalizeQuantity(quantity: number, maxStock?: number) {
-  const q = Math.max(1, Math.floor(Number.isFinite(quantity) ? quantity : 1));
-  if (typeof maxStock === "number" && maxStock > 0) return Math.min(q, Math.floor(maxStock));
-  return q;
-}
-
-export function normalizeCartNote(note: string | null | undefined): string | undefined {
-  if (typeof note !== "string") return undefined;
-  const trimmed = note.trim().slice(0, NOTE_MAX);
-  return trimmed || undefined;
-}
-
-function restore(raw: string | null): CartItem[] {
-  if (!raw) return [];
-  try {
-    const parsed: unknown = JSON.parse(raw);
-    if (!Array.isArray(parsed)) return [];
-    const restored: CartItem[] = [];
-    for (const entry of parsed) {
-      if (!entry || typeof entry !== "object") continue;
-      const { productId, quantity, note } = entry as Partial<CartItem>;
-      if (typeof productId !== "string" || typeof quantity !== "number") continue;
-      if (restored.some((item) => item.productId === productId)) continue;
-      const cleanNote = normalizeCartNote(note);
-      restored.push({
-        productId,
-        quantity: normalizeQuantity(quantity),
-        ...(cleanNote ? { note: cleanNote } : {})
-      });
-    }
-    return restored;
-  } catch {
-    return [];
-  }
-}
 
 function emit() {
   for (const listener of listeners) listener();
 }
 
-function setItems(items: CartItem[]) {
-  snapshot = { items, ready: true };
+/** Xóa mọi key cart cũ trên trình duyệt (chỉ dọn rác, không đọc lại). */
+function purgeLegacyBrowserCart() {
+  if (typeof window === "undefined") return;
   try {
-    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(items));
+    const toRemove: string[] = [];
+    for (let i = 0; i < window.localStorage.length; i++) {
+      const key = window.localStorage.key(i);
+      if (!key) continue;
+      if (LEGACY_STORAGE_PREFIXES.some((p) => key === p || key.startsWith(`${p}:`))) {
+        toRemove.push(key);
+      }
+    }
+    for (const key of toRemove) window.localStorage.removeItem(key);
   } catch {
-    // Hết quota / private mode → giỏ chỉ sống trong phiên.
+    // private mode / blocked
   }
+}
+
+function schedulePersist(items: CartItem[]) {
+  if (!activeUserId) return;
+  persistQueued = items;
+  if (persistTimer) clearTimeout(persistTimer);
+  persistTimer = setTimeout(() => {
+    persistTimer = null;
+    void flushPersist();
+  }, PERSIST_DEBOUNCE_MS);
+}
+
+async function flushPersist() {
+  if (!activeUserId || persistInFlight) return;
+  const items = persistQueued;
+  if (items == null) return;
+  persistQueued = null;
+  persistInFlight = true;
+  try {
+    await saveAccountCart(items);
+  } catch {
+    // Giữ state memory; lần sửa sau thử lại.
+  } finally {
+    persistInFlight = false;
+    if (persistQueued != null && activeUserId) {
+      void flushPersist();
+    }
+  }
+}
+
+function setItems(items: CartItem[], options?: { persist?: boolean }) {
+  if (!activeUserId) {
+    // Guest không được giữ giỏ trong memory lâu dài — luôn rỗng.
+    snapshot = { items: [], ready: true, userId: null };
+    emit();
+    return;
+  }
+  const persist = options?.persist !== false;
+  snapshot = { items, ready: true, userId: activeUserId };
+  if (persist) schedulePersist(items);
   emit();
 }
 
-function hydrate() {
-  if (hydrated) return;
-  hydrated = true;
-  let items: CartItem[] = [];
+function setGuestEmpty() {
+  activeUserId = null;
+  snapshot = { items: [], ready: true, userId: null };
+  bound = true;
+  emit();
+}
+
+async function hydrateAccount(userId: string) {
+  const generation = ++hydrateGeneration;
+  activeUserId = userId;
+  // Chờ server — không paint từ browser cache.
+  snapshot = { items: [], ready: false, userId };
+  bound = true;
+  emit();
+
+  let remote: CartItem[] = [];
   try {
-    items = restore(window.localStorage.getItem(STORAGE_KEY));
+    const result = await loadAccountCart();
+    if (result.ok) remote = result.items;
   } catch {
-    // localStorage bị chặn.
+    remote = [];
   }
-  snapshot = { items, ready: true };
+
+  if (generation !== hydrateGeneration || activeUserId !== userId) return;
+
+  snapshot = { items: remote, ready: true, userId };
+  emit();
+}
+
+/**
+ * Gắn tài khoản từ server layout. userId null = guest (giỏ trống).
+ */
+export function bindCartAccount(userId: string | null) {
+  if (typeof window === "undefined") return;
+  purgeLegacyBrowserCart();
+
+  const next = userId?.trim() || null;
+  if (bound && activeUserId === next && snapshot.ready) return;
+
+  if (persistTimer) {
+    clearTimeout(persistTimer);
+    persistTimer = null;
+  }
+  if (activeUserId && persistQueued) {
+    void saveAccountCart(persistQueued).catch(() => {});
+    persistQueued = null;
+  }
+
+  if (next) {
+    void hydrateAccount(next);
+  } else {
+    hydrateGeneration += 1;
+    setGuestEmpty();
+  }
 }
 
 function getSnapshot() {
-  hydrate();
   return snapshot;
 }
 
@@ -98,27 +172,30 @@ function getServerSnapshot() {
   return SERVER_SNAPSHOT;
 }
 
-let storageListenerAttached = false;
-
 function subscribe(listener: () => void) {
   listeners.add(listener);
-  if (!storageListenerAttached) {
-    storageListenerAttached = true;
-    window.addEventListener("storage", (event) => {
-      if (event.key !== STORAGE_KEY) return;
-      snapshot = { items: restore(event.newValue), ready: true };
-      emit();
-    });
-  }
   return () => {
     listeners.delete(listener);
   };
 }
 
-export function addToCart(productId: string, quantity = 1, maxStock?: number) {
-  const current = getSnapshot().items;
+function requireAccount(): CartMutationResult {
+  if (!snapshot.ready && !bound) return { ok: false, reason: "not_ready" };
+  if (!activeUserId) return { ok: false, reason: "auth" };
+  return { ok: true };
+}
+
+export function addToCart(
+  productId: string,
+  quantity = 1,
+  maxStock?: number
+): CartMutationResult {
+  const gate = requireAccount();
+  if (!gate.ok) return gate;
+
+  const current = snapshot.items;
   const existing = current.find((item) => item.productId === productId);
-  const normalized = normalizeQuantity((existing?.quantity ?? 0) + quantity, maxStock);
+  const normalized = normalizeCartQuantity((existing?.quantity ?? 0) + quantity, maxStock);
   setItems(
     existing
       ? current.map((item) =>
@@ -126,50 +203,80 @@ export function addToCart(productId: string, quantity = 1, maxStock?: number) {
         )
       : [...current, { productId, quantity: normalized }]
   );
+  return { ok: true };
 }
 
-export function setCartQuantity(productId: string, quantity: number, maxStock?: number) {
-  const current = getSnapshot().items;
+export function setCartQuantity(
+  productId: string,
+  quantity: number,
+  maxStock?: number
+): CartMutationResult {
+  const gate = requireAccount();
+  if (!gate.ok) return gate;
+
+  const current = snapshot.items;
   if (quantity <= 0) {
     setItems(current.filter((item) => item.productId !== productId));
-    return;
+    return { ok: true };
   }
-  const normalized = normalizeQuantity(quantity, maxStock);
+  const normalized = normalizeCartQuantity(quantity, maxStock);
   setItems(
     current.map((item) => (item.productId === productId ? { ...item, quantity: normalized } : item))
   );
+  return { ok: true };
 }
 
-export function setCartNote(productId: string, note: string) {
-  const current = getSnapshot().items;
+export function setCartNote(productId: string, note: string): CartMutationResult {
+  const gate = requireAccount();
+  if (!gate.ok) return gate;
+
   const cleanNote = normalizeCartNote(note);
   setItems(
-    current.map((item) => {
+    snapshot.items.map((item) => {
       if (item.productId !== productId) return item;
       if (!cleanNote) {
-        const { note: _drop, ...rest } = item;
-        return rest;
+        const next = { ...item };
+        delete next.note;
+        return next;
       }
       return { ...item, note: cleanNote };
     })
   );
+  return { ok: true };
 }
 
-export function removeFromCart(productId: string) {
-  setItems(getSnapshot().items.filter((item) => item.productId !== productId));
+export function removeFromCart(productId: string): CartMutationResult {
+  const gate = requireAccount();
+  if (!gate.ok) return gate;
+  setItems(snapshot.items.filter((item) => item.productId !== productId));
+  return { ok: true };
 }
 
-export function clearCart() {
-  setItems([]);
+export function clearCart(): CartMutationResult {
+  const gate = requireAccount();
+  if (!gate.ok) return gate;
+
+  if (persistTimer) {
+    clearTimeout(persistTimer);
+    persistTimer = null;
+  }
+  persistQueued = null;
+  snapshot = { items: [], ready: true, userId: activeUserId };
+  emit();
+  void clearAccountCart().catch(() => {});
+  return { ok: true };
 }
 
 export function useCart() {
-  const { items, ready } = useSyncExternalStore(subscribe, getSnapshot, getServerSnapshot);
+  const { items, ready, userId } = useSyncExternalStore(subscribe, getSnapshot, getServerSnapshot);
   const count = items.reduce((sum, item) => sum + item.quantity, 0);
+  const signedIn = Boolean(userId);
   return {
     items,
     count,
     ready,
+    userId,
+    signedIn,
     add: addToCart,
     setQuantity: setCartQuantity,
     setNote: setCartNote,

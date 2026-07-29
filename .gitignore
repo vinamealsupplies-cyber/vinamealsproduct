@@ -16,6 +16,12 @@ tsconfig.tsbuildinfo
 next-env.d.ts
 food-store-blueprint.zip
 
+# Tài liệu tham khảo tải về trong image/ (logo .jpeg/.png vẫn được track)
+/image/*.pdf
+/image/*.zip
+/image/*.html
+/image/*_files/
+
 # Thông tin kết nối tài khoản — chỉ giữ trong máy
 CONNECTIONS.local.md
 *.local.md

@@ -6,10 +6,7 @@ import { isLocalDemoMode, isSupabaseConfigured } from "@/lib/env";
 import type { AppRole } from "@/lib/roles";
 import { createOptionalClient } from "@/lib/supabase/server";
 
-// "seller" = vai trò fulfillment: chỉ quản lý inventory, orders, invoices,
-// payments. KHÔNG nằm trong chuỗi staff/manager/admin (không thấy products,
-// customers, expenses, reports, settings…). Quyền vào khu /admin của seller đi
-// qua canAccessAdmin, còn từng trang cấm seller tự chặn bằng requireStaffPage().
+// "seller" = fulfillment role: inventory, orders, invoices, payments only.
 export type { AppRole };
 
 export type Viewer = {
@@ -21,7 +18,7 @@ export type Viewer = {
   isManager: boolean;
   isAdmin: boolean;
   isSeller: boolean;
-  /** Được vào khu /admin (staff-trở-lên HOẶC seller). */
+  /** Staff-or-higher OR seller may enter /admin. */
   canAccessAdmin: boolean;
   demo: boolean;
 };
@@ -50,6 +47,11 @@ function viewerFromRole(input: {
   };
 }
 
+/**
+ * Read signed-in viewer from session + profiles.
+ * Do NOT wrap cookies()/auth in a catch-all — Next uses DYNAMIC_SERVER_USAGE
+ * to mark routes dynamic; swallowing it breaks Server Components in production.
+ */
 export async function getViewer(): Promise<Viewer | null> {
   if (isLocalDemoMode()) {
     return viewerFromRole({
@@ -108,10 +110,8 @@ export async function requireStaffApi(minimum: "staff" | "manager" | "admin" = "
 }
 
 /**
- * Guard cho các trang khu /admin mà SELLER KHÔNG được vào (products, categories,
- * imports, tax-exemptions, expenses, reports, tax, settings, accounts…). Seller
- * đăng nhập → đẩy về /admin (workspace giao dịch); khách/chưa đăng nhập → /login.
- * Staff trở lên đi tiếp bình thường.
+ * Guard for /admin pages sellers must not open (products, categories, …).
+ * Seller → /admin; guest → /login.
  */
 export async function requireStaffPage(): Promise<Viewer> {
   const viewer = await getViewer();
@@ -125,10 +125,7 @@ export async function requireStaffPage(): Promise<Viewer> {
   return viewer;
 }
 
-/**
- * Staff HOẶC seller — trang giao dịch hằng ngày (orders, inventory, invoices,
- * payments, customers, seller dashboard).
- */
+/** Staff OR seller — daily ops pages. */
 export async function requireAdminAccessPage(): Promise<Viewer> {
   const viewer = await getViewer();
   if (!viewer?.canAccessAdmin) {
@@ -137,10 +134,7 @@ export async function requireAdminAccessPage(): Promise<Viewer> {
   return viewer;
 }
 
-/**
- * Chỉ role admin. Dùng cho quản lý tài khoản / role (tránh staff tự nâng quyền).
- * Staff/manager/seller → /admin; khách → /login.
- */
+/** Admin only — accounts / role management. */
 export async function requireAdminPage(): Promise<Viewer> {
   const viewer = await getViewer();
   if (!viewer?.isAdmin) {

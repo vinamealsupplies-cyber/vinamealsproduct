@@ -24,7 +24,7 @@ export default async function LoginPage({
           navigation.
         </p>
         <div className="auth-feature-list">
-          <span>Sign in with Google or Apple</span>
+          <span>Sign in with Google</span>
           <span>Retail and wholesale profiles</span>
           <span>Role-protected administration</span>
         </div>
@@ -41,7 +41,7 @@ export default async function LoginPage({
             <KeyRound />
           </div>
           <h2>Continue with a provider</h2>
-          <p>Use Google or Apple to sign in or create an account in one step.</p>
+          <p>Use Google to sign in or create an account in one step.</p>
           <OAuthButtons next={next} />
         </section>
 

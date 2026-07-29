@@ -4,7 +4,7 @@ import { isSupabaseConfigured } from "@/lib/env";
 import { requestPublicOrigin, safeNextPath } from "@/lib/supabase/route";
 
 /**
- * OAuth callback (Google / Apple).
+ * OAuth callback (Google).
  * Supabase redirect về đây với ?code=… → exchangeCodeForSession (PKCE).
  * Session cookies PHẢI gắn vào response redirect (không tạo redirect mới sau).
  */

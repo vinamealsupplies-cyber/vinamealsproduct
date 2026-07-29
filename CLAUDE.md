@@ -46,15 +46,15 @@ npx opennextjs-cloudflare deploy
 - **Thuế giỏ hàng**: app **không** tự tính sales tax; fulfillment hiện "Calculated at checkout" (Stripe Tax khi cài). Bảng tax admin chỉ tham chiếu.
 - Xoá vĩnh viễn product: chỉ manager/admin; nếu đã có inventory movements thì DB chặn delete → giữ archived.
 
-## Auth OAuth (Google + Apple)
-- Code: `signInWithGoogle` / `signInWithApple` trong `app/login/actions.ts`; callback `app/auth/callback/route.ts` (exchange code → session).
+## Auth OAuth (Google)
+- Code: `signInWithGoogle` trong `app/login/actions.ts`; callback `app/auth/callback/route.ts` (exchange code → session).
 - UI: `components/oauth-buttons.tsx` trên `/login`.
 - **Bắt buộc cấu hình Supabase Dashboard** (Authentication → Providers):
   1. **Google**: bật provider, dán Client ID + Client Secret từ Google Cloud Console (OAuth 2.0 Web client). Authorized redirect URI của Google = `https://<project-ref>.supabase.co/auth/v1/callback`.
-  2. **Apple**: bật provider, Services ID, Team ID, Key ID, private key (.p8). Return URL Apple = `https://<project-ref>.supabase.co/auth/v1/callback`.
-  3. ~~Redirect URLs~~ — **ĐÃ XONG**, khai báo trong `supabase/config.toml`
+  2. ~~Redirect URLs~~ — **ĐÃ XONG**, khai báo trong `supabase/config.toml`
      (`[auth] site_url` + `additional_redirect_urls`) và đã push lên project.
 - Profile: trigger `on_auth_user_created` vẫn tạo `profiles` (role customer) cho user OAuth mới.
+- **Đăng nhập Apple đã gỡ** (28/7): bỏ nút UI + `signInWithApple` + nhánh apple trong `/auth/oauth` + block `[auth.external.apple]` trong `config.toml`. Provider Apple trên Dashboard (nếu từng bật) có thể tắt cho gọn.
 
 ## `supabase config push` — CẨN THẬN
 `supabase/config.toml` giờ là **nguồn sự thật cho auth config production**. Chạy

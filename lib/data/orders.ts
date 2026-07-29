@@ -1,5 +1,7 @@
 import "server-only";
 
+import { getStaffEventsForOrders } from "@/lib/data/order-staff-events";
+import type { OrderStaffEvent } from "@/lib/data/order-staff-types";
 import { buildTrackingUrl, type ShippingCarrier } from "@/lib/shipping-tracking";
 import { createAdminClient } from "@/lib/supabase/admin";
 
@@ -7,6 +9,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 
 export type SalesOrderStatus = "draft" | "confirmed" | "fulfilled" | "cancelled";
 export type FulfillmentMethod = "pickup" | "ship";
+export type { OrderStaffEvent };
 
 export type StaffOrderItem = {
   id: string;
@@ -45,6 +48,17 @@ export type StaffOrder = {
   trackingNumber: string | null;
   trackingUrl: string | null;
   shippedAt: string | null;
+  /** Người huỷ đơn (snapshot). */
+  cancelledByName: string | null;
+  cancelNote: string | null;
+  cancelledAt: string | null;
+  /** Thao tác staff gần nhất. */
+  lastStaffActorName: string | null;
+  lastStaffNote: string | null;
+  lastStaffAction: string | null;
+  lastStaffAt: string | null;
+  /** Lịch sử huỷ / sửa (mới nhất trước). */
+  staffEvents: OrderStaffEvent[];
   itemCount: number;
   items: StaffOrderItem[];
   /** Đơn pickup đã xác nhận nhưng CHƯA lấy hàng → cần chú ý (nhấp nháy đỏ). */
@@ -96,6 +110,13 @@ type DbOrder = {
   shipped_at: string | null;
   picked_up_by: string | null;
   picked_up_by_name: string | null;
+  cancelled_by_name: string | null;
+  cancel_note: string | null;
+  cancelled_at: string | null;
+  last_staff_actor_name: string | null;
+  last_staff_note: string | null;
+  last_staff_action: string | null;
+  last_staff_at: string | null;
   customer: DbCustomer | DbCustomer[] | null;
   location: { name: string | null } | { name: string | null }[] | null;
   items: DbItem[] | null;
@@ -140,7 +161,7 @@ function mapItems(items: DbItem[] | null): StaffOrderItem[] {
   });
 }
 
-function mapOrder(row: DbOrder): StaffOrder {
+function mapOrder(row: DbOrder, staffEvents: OrderStaffEvent[] = []): StaffOrder {
   const customer = one(row.customer);
   const location = one(row.location);
   const items = mapItems(row.items);
@@ -175,6 +196,14 @@ function mapOrder(row: DbOrder): StaffOrder {
       row.tracking_url
     ),
     shippedAt: row.shipped_at,
+    cancelledByName: row.cancelled_by_name?.trim() || null,
+    cancelNote: row.cancel_note?.trim() || null,
+    cancelledAt: row.cancelled_at,
+    lastStaffActorName: row.last_staff_actor_name?.trim() || null,
+    lastStaffNote: row.last_staff_note?.trim() || null,
+    lastStaffAction: row.last_staff_action?.trim() || null,
+    lastStaffAt: row.last_staff_at,
+    staffEvents,
     itemCount: items.length,
     items,
     awaitingPickup,
@@ -189,6 +218,21 @@ function mapOrder(row: DbOrder): StaffOrder {
   };
 }
 
+/**
+ * Số đơn chưa xử lý (status confirmed — chờ pickup / ship / giao).
+ * Dùng badge đỏ cạnh Orders trên admin nav.
+ */
+export async function getOpenOrdersCountForStaff(): Promise<number> {
+  const supabase = createAdminClient();
+  const { count, error } = await supabase
+    .from("sales_orders")
+    .select("id", { count: "exact", head: true })
+    .eq("status", "confirmed");
+
+  if (error) return 0;
+  return count ?? 0;
+}
+
 export async function getOrdersForStaff(): Promise<StaffOrder[]> {
   const supabase = createAdminClient();
   const { data, error } = await supabase
@@ -196,6 +240,8 @@ export async function getOrdersForStaff(): Promise<StaffOrder[]> {
     .select(
       `id, order_number, status, channel, fulfillment_method, total_amount, currency, created_at, notes, picked_up_at, fulfilled_at,
        shipping_carrier, tracking_number, tracking_url, shipped_at, picked_up_by, picked_up_by_name,
+       cancelled_by_name, cancel_note, cancelled_at,
+       last_staff_actor_name, last_staff_note, last_staff_action, last_staff_at,
        customer:customers ( first_name, last_name, company_name, phone, auth_user_id ),
        location:inventory_locations ( name ),
        items:sales_order_items ( id, product_name_snapshot, variant_name_snapshot, sku_snapshot, quantity, unit_price, line_total, line_note )`
@@ -207,6 +253,7 @@ export async function getOrdersForStaff(): Promise<StaffOrder[]> {
   if (error) throw new Error(`Failed to load orders: ${error.message}`);
 
   const rows = (data ?? []) as unknown as DbOrder[];
+  const eventsByOrder = await getStaffEventsForOrders(rows.map((r) => r.id));
 
   // Bổ sung họ tên / SĐT từ profiles khi hồ sơ customers còn trống.
   const authIds = [
@@ -227,6 +274,12 @@ export async function getOrdersForStaff(): Promise<StaffOrder[]> {
     }
   }
 
+  // Đơn huỷ cũ thiếu cancelled_by_name → bù từ audit_log (order.cancel).
+  const cancelMissingIds = rows
+    .filter((r) => r.status === "cancelled" && !r.cancelled_by_name?.trim())
+    .map((r) => r.id);
+  const cancelFromAudit = await loadCancelActorsFromAudit(cancelMissingIds);
+
   return rows.map((row) => {
     const customer = one(row.customer);
     if (customer?.auth_user_id) {
@@ -240,6 +293,72 @@ export async function getOrdersForStaff(): Promise<StaffOrder[]> {
         if (!customer.phone && profile.phone) customer.phone = profile.phone;
       }
     }
-    return mapOrder(row);
+    const audit = cancelFromAudit.get(row.id);
+    if (audit && !row.cancelled_by_name) {
+      row.cancelled_by_name = audit.name;
+      row.cancel_note = row.cancel_note || audit.note;
+      row.cancelled_at = row.cancelled_at || audit.at;
+    }
+    // Bù từ staff event cancel nếu vẫn trống.
+    const events = eventsByOrder.get(row.id) ?? [];
+    if (row.status === "cancelled" && !row.cancelled_by_name) {
+      const cancelEv = events.find((e) => e.action === "cancel");
+      if (cancelEv) {
+        row.cancelled_by_name = cancelEv.actorName;
+        row.cancel_note = row.cancel_note || cancelEv.note;
+        row.cancelled_at = row.cancelled_at || cancelEv.createdAt;
+      }
+    }
+    return mapOrder(row, events);
   });
+}
+
+/** Đọc ai huỷ đơn từ audit_log (đơn huỷ trước khi có cột cancelled_by_name). */
+async function loadCancelActorsFromAudit(
+  orderIds: string[]
+): Promise<Map<string, { name: string; note: string | null; at: string }>> {
+  const map = new Map<string, { name: string; note: string | null; at: string }>();
+  if (!orderIds.length) return map;
+
+  const supabase = createAdminClient();
+  const { data, error } = await supabase
+    .from("audit_log")
+    .select("entity_id, metadata, created_at, actor_user_id, profiles!audit_log_actor_user_id_fkey ( full_name, email )")
+    .eq("action", "order.cancel")
+    .eq("entity_type", "sales_order")
+    .in("entity_id", orderIds)
+    .order("created_at", { ascending: false });
+
+  if (error || !data) return map;
+
+  for (const row of data as {
+    entity_id: string | null;
+    metadata: Record<string, unknown> | null;
+    created_at: string;
+    actor_user_id: string | null;
+    profiles:
+      | { full_name: string | null; email: string | null }
+      | { full_name: string | null; email: string | null }[]
+      | null;
+  }[]) {
+    if (!row.entity_id || map.has(row.entity_id)) continue;
+    const meta = row.metadata ?? {};
+    const metaName =
+      (typeof meta.cancelledByName === "string" && meta.cancelledByName.trim()) ||
+      (typeof meta.actorName === "string" && meta.actorName.trim()) ||
+      null;
+    const profile = Array.isArray(row.profiles) ? row.profiles[0] : row.profiles;
+    const name =
+      metaName ||
+      profile?.full_name?.trim() ||
+      profile?.email?.trim() ||
+      (row.actor_user_id ? row.actor_user_id.slice(0, 8) : null);
+    if (!name) continue;
+    const note =
+      (typeof meta.reason === "string" && meta.reason.trim()) ||
+      (typeof meta.staffNote === "string" && meta.staffNote.trim()) ||
+      null;
+    map.set(row.entity_id, { name, note, at: row.created_at });
+  }
+  return map;
 }

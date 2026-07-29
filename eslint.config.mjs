@@ -13,6 +13,9 @@ export default defineConfig([
     "build/**",
     ".open-next/**",
     ".wrangler/**",
+    // image/ chỉ chứa asset (logo) + tài liệu tham khảo tải về (trang HTML lưu
+    // kèm _files/*.js) — không phải source, không lint.
+    "image/**",
     "next-env.d.ts"
   ])
 ]);

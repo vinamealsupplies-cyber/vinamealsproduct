@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
-import { Check, Minus, PackageCheck, Plus, ShoppingBag } from "lucide-react";
+import { Check, LogIn, Minus, PackageCheck, Plus, ShoppingBag } from "lucide-react";
 import { useCart } from "@/lib/cart";
 import type { Product } from "@/lib/sample-data";
 import { usd } from "@/lib/format";
@@ -11,9 +11,18 @@ import { usd } from "@/lib/format";
 export function ProductCard({ product }: { product: Product }) {
   const image = product.media.find((item) => item.type === "image" && item.src);
   const lowStock = product.stock > 0 && product.stock <= 10;
-  const { add } = useCart();
+  const { add, signedIn, ready } = useCart();
   const [quantity, setQuantity] = useState(1);
   const [justAdded, setJustAdded] = useState(false);
+  const [prevStock, setPrevStock] = useState(product.stock);
+  const loginHref = `/login?next=${encodeURIComponent(`/products/${product.slug}`)}`;
+
+  // Stock đổi (giảm / hết) → kẹp số lượng ngay trong render, thay cho setState
+  // trong effect (rule react-hooks/set-state-in-effect: cascading render).
+  if (product.stock !== prevStock) {
+    setPrevStock(product.stock);
+    setQuantity((q) => (product.stock <= 0 ? 1 : Math.min(Math.max(1, q), product.stock)));
+  }
 
   useEffect(() => {
     if (!justAdded) return;
@@ -21,21 +30,20 @@ export function ProductCard({ product }: { product: Product }) {
     return () => window.clearTimeout(timer);
   }, [justAdded]);
 
-  // Stock giảm / hết → kẹp số lượng.
-  useEffect(() => {
-    if (product.stock <= 0) {
-      setQuantity(1);
-      return;
-    }
-    setQuantity((q) => Math.min(Math.max(1, q), product.stock));
-  }, [product.stock]);
-
   function handleAdd(event: React.MouseEvent) {
     event.preventDefault();
     event.stopPropagation();
     if (product.stock <= 0) return;
+    if (!signedIn) {
+      window.location.href = loginHref;
+      return;
+    }
     const qty = Math.min(Math.max(1, quantity), product.stock);
-    add(product.id, qty, product.stock);
+    const result = add(product.id, qty, product.stock);
+    if (!result.ok) {
+      if (result.reason === "auth") window.location.href = loginHref;
+      return;
+    }
     setJustAdded(true);
     setQuantity(1);
   }
@@ -92,6 +100,14 @@ export function ProductCard({ product }: { product: Product }) {
           <button className="button product-card-add" type="button" disabled>
             Out of stock
           </button>
+        ) : ready && !signedIn ? (
+          <Link
+            className="button product-card-add primary"
+            href={loginHref}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <LogIn size={16} aria-hidden="true" /> Sign in to add
+          </Link>
         ) : (
           <div className="product-card-cart-row">
             <div
@@ -129,6 +145,7 @@ export function ProductCard({ product }: { product: Product }) {
               className={`button product-card-add ${justAdded ? "is-added" : "primary"}`}
               type="button"
               onClick={handleAdd}
+              disabled={!ready}
               aria-label={
                 justAdded
                   ? `${product.name} added to cart`

@@ -3,7 +3,7 @@
 import { useEffect, useId, useRef, useState } from "react";
 import Link from "next/link";
 import { ChevronDown } from "lucide-react";
-import type { CategoryNode } from "@/lib/data/categories";
+import type { CategoryNode } from "@/lib/category-types";
 
 // Dropdown Categories. Dùng button + panel (không dùng <details controlled>)
 // vì open={state} trên <details> hay xung đột với toggle native → bấm không mở.

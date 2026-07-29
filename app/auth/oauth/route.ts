@@ -3,7 +3,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { isSupabaseConfigured } from "@/lib/env";
 import { requestPublicOrigin, safeNextPath } from "@/lib/supabase/route";
 
-type OAuthProvider = "google" | "apple";
+type OAuthProvider = "google";
 
 type CookieToSet = {
   name: string;
@@ -12,7 +12,7 @@ type CookieToSet = {
 };
 
 /**
- * Bắt đầu OAuth (Google/Apple).
+ * Bắt đầu OAuth (Google).
  * GET /auth/oauth?provider=google&next=/account
  *
  * Route Handler ghi cookie PKCE vào response redirect (Server Action dễ mất
@@ -24,7 +24,7 @@ export async function GET(request: NextRequest) {
   const next = safeNextPath(searchParams.get("next"));
   const origin = requestPublicOrigin(request);
 
-  if (provider !== "google" && provider !== "apple") {
+  if (provider !== "google") {
     return NextResponse.redirect(
       `${origin}/login?message=${encodeURIComponent("Unknown sign-in provider.")}&next=${encodeURIComponent(next)}`
     );
@@ -60,14 +60,13 @@ export async function GET(request: NextRequest) {
     provider,
     options: {
       redirectTo,
-      scopes: provider === "apple" ? "name email" : undefined,
-      queryParams: provider === "google" ? { prompt: "select_account" } : undefined
+      queryParams: { prompt: "select_account" }
     }
   });
 
   if (error) {
     const message = /provider is not enabled|Unsupported provider/i.test(error.message)
-      ? `${provider === "google" ? "Google" : "Apple"} sign-in is not enabled yet. In Supabase Dashboard → Authentication → Providers, enable ${provider === "google" ? "Google" : "Apple"} and add Client ID + Client Secret.`
+      ? "Google sign-in is not enabled yet. In Supabase Dashboard → Authentication → Providers, enable Google and add Client ID + Client Secret."
       : error.message;
     return NextResponse.redirect(
       `${origin}/login?message=${encodeURIComponent(message)}&next=${encodeURIComponent(next)}`
@@ -77,7 +76,7 @@ export async function GET(request: NextRequest) {
   if (!data.url) {
     return NextResponse.redirect(
       `${origin}/login?message=${encodeURIComponent(
-        `${provider === "google" ? "Google" : "Apple"} sign-in is not available. Check that the provider is enabled in Supabase.`
+        "Google sign-in is not available. Check that the provider is enabled in Supabase."
       )}&next=${encodeURIComponent(next)}`
     );
   }

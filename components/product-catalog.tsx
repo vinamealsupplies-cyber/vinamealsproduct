@@ -5,7 +5,7 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { Search, SlidersHorizontal, X } from "lucide-react";
 import { ProductCard } from "@/components/product-card";
 import { SearchHistoryPanel } from "@/components/search-history-panel";
-import type { CategoryNode } from "@/lib/data/categories";
+import type { CategoryNode } from "@/lib/category-types";
 import type { Product } from "@/lib/sample-data";
 import {
   clearSearchHistory,

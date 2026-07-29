@@ -1,12 +1,11 @@
 "use client";
 
-import { useEffect, useState } from "react";
 import { BadgeDollarSign, Receipt, Store, Truck } from "lucide-react";
 import { ShippingAddressPicker } from "@/components/shipping-address-picker";
 import type { CustomerAddress } from "@/lib/data/address-types";
 import {
-  getFulfillmentMethod,
   setFulfillmentMethod,
+  useFulfillmentMethod,
   type FulfillmentMethod
 } from "@/lib/fulfillment-preference";
 import { usd } from "@/lib/format";
@@ -39,16 +38,9 @@ export function FulfillmentPicker({
   shippingAddresses?: CustomerAddress[];
   signedIn?: boolean;
 }) {
-  const [method, setMethod] = useState<FulfillmentMethod>("ship");
-  const [hydrated, setHydrated] = useState(false);
-
-  useEffect(() => {
-    setMethod(getFulfillmentMethod());
-    setHydrated(true);
-  }, []);
+  const method = useFulfillmentMethod();
 
   function choose(next: FulfillmentMethod) {
-    setMethod(next);
     setFulfillmentMethod(next);
   }
 
@@ -99,7 +91,7 @@ export function FulfillmentPicker({
         </div>
       ) : null}
 
-      <div className="fulfillment-choice" data-hydrated={hydrated ? "true" : "false"}>
+      <div className="fulfillment-choice">
         <label>
           <input
             type="radio"

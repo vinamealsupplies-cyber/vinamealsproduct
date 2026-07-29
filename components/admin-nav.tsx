@@ -69,12 +69,16 @@ const groups: { label: string; items: NavItem[] }[] = [
 
 export function AdminNav({
   isSeller = false,
-  isAdmin = false
+  isAdmin = false,
+  openOrdersCount = 0
 }: {
   isSeller?: boolean;
   isAdmin?: boolean;
+  /** Số đơn confirmed chưa xử lý (chờ pickup/ship) — badge đỏ cạnh Orders. */
+  openOrdersCount?: number;
 }) {
   const pathname = usePathname();
+  const openCount = Math.max(0, Math.floor(openOrdersCount));
 
   // Seller chỉ thấy các mục fulfillment; Accounts chỉ admin; nhóm rỗng thì ẩn.
   const visibleGroups = groups
@@ -105,9 +109,25 @@ export function AdminNav({
           {group.items.map((item) => {
             const Icon = item.icon;
             const active = item.href === "/admin" ? pathname === item.href : pathname.startsWith(item.href);
+            const showOrdersBadge = item.href === "/admin/orders" && openCount > 0;
             return (
-              <Link className={active ? "active" : ""} href={item.href} key={item.href}>
-                <Icon size={18} aria-hidden="true" /> {item.label}
+              <Link
+                className={active ? "active" : ""}
+                href={item.href}
+                key={item.href}
+                aria-label={
+                  showOrdersBadge
+                    ? `Orders, ${openCount} đơn chưa xử lý`
+                    : undefined
+                }
+              >
+                <Icon size={18} aria-hidden="true" />
+                <span className="admin-nav-label-text">{item.label}</span>
+                {showOrdersBadge ? (
+                  <span className="admin-nav-order-badge" aria-hidden="true">
+                    {openCount > 99 ? "99+" : openCount}
+                  </span>
+                ) : null}
               </Link>
             );
           })}

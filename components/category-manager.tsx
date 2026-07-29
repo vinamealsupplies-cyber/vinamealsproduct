@@ -4,7 +4,7 @@ import { useActionState, useState } from "react";
 import { FolderPlus, Pencil, Plus, Save, X } from "lucide-react";
 import { createCategoryAction, updateCategoryAction } from "@/app/admin/categories/actions";
 import { initialCategoryState, type CategoryFormState } from "@/lib/data/category-form";
-import type { CategoryNode, CategoryRow } from "@/lib/data/categories";
+import type { CategoryNode, CategoryRow } from "@/lib/category-types";
 
 // Quản lý category chạy thật (trước đây là mockup tĩnh: nút Edit/Add không có
 // handler, form không có name/action). Panel bên phải dùng chung cho thêm mới

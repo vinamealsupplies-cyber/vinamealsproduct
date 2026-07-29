@@ -2,6 +2,8 @@
 
 // Ghi nhớ lựa chọn pickup / ship từ cart → checkout (localStorage).
 
+import { useSyncExternalStore } from "react";
+
 export type FulfillmentMethod = "pickup" | "ship";
 
 const STORAGE_KEY = "vinameals-fulfillment-method";
@@ -23,6 +25,12 @@ export function getFulfillmentMethod(): FulfillmentMethod {
   return DEFAULT_METHOD;
 }
 
+const listeners = new Set<() => void>();
+
+function emit() {
+  for (const listener of listeners) listener();
+}
+
 export function setFulfillmentMethod(method: FulfillmentMethod): void {
   if (typeof window === "undefined") return;
   try {
@@ -30,4 +38,34 @@ export function setFulfillmentMethod(method: FulfillmentMethod): void {
   } catch {
     // ignore
   }
+  emit();
+}
+
+function subscribe(callback: () => void): () => void {
+  if (typeof window === "undefined") return () => {};
+  listeners.add(callback);
+  // Đồng bộ khi tab khác đổi preference.
+  window.addEventListener("storage", callback);
+  return () => {
+    listeners.delete(callback);
+    window.removeEventListener("storage", callback);
+  };
+}
+
+/**
+ * Preference dạng reactive. Render đầu (SSR + hydrate) trả `ship` rồi tự cập
+ * nhật theo localStorage — thay cho việc setState trong useEffect (rule
+ * react-hooks/set-state-in-effect: cascading render).
+ */
+export function useFulfillmentMethod(): FulfillmentMethod {
+  return useSyncExternalStore(subscribe, getFulfillmentMethod, () => DEFAULT_METHOD);
+}
+
+/** `false` khi SSR / render đầu, `true` sau khi client hydrate — không dùng effect. */
+export function useHydrated(): boolean {
+  return useSyncExternalStore(
+    () => () => {},
+    () => true,
+    () => false
+  );
 }

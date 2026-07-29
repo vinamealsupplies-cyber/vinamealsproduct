@@ -1,11 +1,13 @@
 "use client";
 
-import { Fragment, useState, type ReactNode } from "react";
+import { Fragment, useMemo, useState, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import {
   AlertTriangle,
+  CalendarDays,
   CheckCircle2,
   ChevronDown,
+  ChevronLeft,
   ChevronRight,
   ExternalLink,
   MessageSquareText,
@@ -22,6 +24,7 @@ import {
   saveShipmentTracking,
   updateOrderNotes
 } from "@/app/admin/orders/actions";
+import { ORDER_STAFF_ACTION_LABEL } from "@/lib/data/order-staff-types";
 import type { StaffOrder } from "@/lib/data/orders";
 import { formatDate, formatDateTime, usd } from "@/lib/format";
 import {
@@ -36,6 +39,34 @@ const STATUS_LABEL: Record<string, string> = {
   fulfilled: "Đã hoàn tất",
   cancelled: "Đã huỷ"
 };
+
+const STAFF_NOTE_HINT =
+  "Ghi chú / lý do (bắt buộc, tối thiểu 3 ký tự). Tên bạn được gắn tự động từ tài khoản.";
+
+/** Ngày local YYYY-MM-DD — filter đơn hoàn tất / huỷ. */
+function toDayKey(value: string | Date): string {
+  const d = typeof value === "string" ? new Date(value) : value;
+  if (Number.isNaN(d.getTime())) return "";
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
+
+/** Ngày kết thúc đơn: huỷ → cancelledAt; hoàn tất → fulfilledAt; fallback createdAt. */
+function completedOrderDayKey(order: StaffOrder): string {
+  if (order.status === "cancelled") {
+    return toDayKey(order.cancelledAt || order.createdAt);
+  }
+  return toDayKey(order.fulfilledAt || order.createdAt);
+}
+
+function formatDayKeyLabel(dayKey: string): string {
+  if (!dayKey) return "—";
+  const [y, m, d] = dayKey.split("-").map(Number);
+  if (!y || !m || !d) return dayKey;
+  return formatDate(new Date(y, m - 1, d));
+}
 
 function fulfillmentLabel(order: StaffOrder) {
   if (order.status === "fulfilled") {
@@ -101,9 +132,64 @@ function OrderDetail({ order }: { order: StaffOrder }) {
               ) : null}
             </p>
           ) : null}
+          {order.status === "cancelled" ? (
+            <div className="order-cancel-meta" role="status">
+              <strong>Đã huỷ</strong>
+              <p>
+                Người huỷ:{" "}
+                <strong className="order-cancel-name">
+                  {order.cancelledByName ||
+                    order.staffEvents.find((e) => e.action === "cancel")?.actorName ||
+                    "Không ghi nhận (đơn huỷ trước khi bật log tên)"}
+                </strong>
+              </p>
+              {order.cancelledAt || order.staffEvents.find((e) => e.action === "cancel")?.createdAt ? (
+                <p className="field-hint">
+                  Lúc{" "}
+                  {formatDateTime(
+                    order.cancelledAt ||
+                      order.staffEvents.find((e) => e.action === "cancel")!.createdAt
+                  )}
+                </p>
+              ) : null}
+              {(order.cancelNote ||
+                order.staffEvents.find((e) => e.action === "cancel")?.note) && (
+                <p>
+                  Note:{" "}
+                  {order.cancelNote ||
+                    order.staffEvents.find((e) => e.action === "cancel")?.note}
+                </p>
+              )}
+            </div>
+          ) : null}
+          {order.lastStaffActorName && order.status !== "cancelled" ? (
+            <p className="field-hint">
+              Sửa gần nhất: <strong>{order.lastStaffActorName}</strong>
+              {order.lastStaffAt ? ` · ${formatDateTime(order.lastStaffAt)}` : ""}
+              {order.lastStaffNote ? ` — ${order.lastStaffNote}` : ""}
+            </p>
+          ) : null}
           {order.notes ? <p className="field-hint">Ghi chú đơn: {order.notes}</p> : null}
         </div>
       </div>
+
+      {order.staffEvents.length > 0 ? (
+        <div className="order-staff-events">
+          <h3>Lịch sử huỷ / sửa (nhân viên)</h3>
+          <ul>
+            {order.staffEvents.map((ev) => (
+              <li key={ev.id}>
+                <strong>{ORDER_STAFF_ACTION_LABEL[ev.action] ?? ev.action}</strong>
+                {" · "}
+                <span className="order-staff-actor">{ev.actorName}</span>
+                {" · "}
+                <time dateTime={ev.createdAt}>{formatDateTime(ev.createdAt)}</time>
+                <p className="order-staff-note">{ev.note}</p>
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
 
       <div className="order-detail-items-head">
         <h3>Món cần giao ({order.itemCount})</h3>
@@ -270,7 +356,10 @@ function OrderRows({ orders, handlers }: { orders: StaffOrder[]; handlers: RowHa
                     <Truck size={14} aria-hidden="true" /> CHỜ SHIP
                   </span>
                 ) : order.status === "cancelled" ? (
-                  <span className="muted">Đã huỷ</span>
+                  <span className="muted">
+                    Đã huỷ
+                    {order.cancelledByName ? ` · ${order.cancelledByName}` : ""}
+                  </span>
                 ) : (
                   <span className="muted">—</span>
                 )}
@@ -281,6 +370,11 @@ function OrderRows({ orders, handlers }: { orders: StaffOrder[]; handlers: RowHa
                 ) : null}
                 {order.pickedUpByName ? (
                   <span className="order-pickup-by-chip">Bởi {order.pickedUpByName}</span>
+                ) : null}
+                {order.status === "cancelled" && order.cancelNote ? (
+                  <span className="order-cancel-note-chip" title={order.cancelNote}>
+                    Note: {order.cancelNote}
+                  </span>
                 ) : null}
               </td>
               <td className="row-actions orders-row-actions">
@@ -428,11 +522,47 @@ export function OrdersManager({ orders }: { orders: StaffOrder[] }) {
   const [customUrl, setCustomUrl] = useState("");
   const [cancelPickupOrder, setCancelPickupOrder] = useState<StaffOrder | null>(null);
   const [cancelPickupReason, setCancelPickupReason] = useState("");
+  /** Note bắt buộc khi sửa ghi chú / shipping. */
+  const [staffActionNote, setStaffActionNote] = useState("");
+  /**
+   * Ngày filter cho mục đã hoàn tất / đã huỷ.
+   * null = chưa chọn (dùng ngày gần nhất có đơn).
+   */
+  const [completedDay, setCompletedDay] = useState<string | null>(null);
 
-  // Phần 1: chờ giao / ship / pickup (confirmed).
+  // Phần 1: chờ giao / ship / pickup (confirmed) — luôn hiện đủ.
   const openOrders = orders.filter((o) => o.status === "confirmed");
-  // Phần 2: đã hoàn tất (fulfilled) + đã huỷ (kết thúc).
-  const completedOrders = orders.filter((o) => o.status === "fulfilled" || o.status === "cancelled");
+  // Phần 2: đã hoàn tất + đã huỷ — lọc theo ngày.
+  const allCompleted = useMemo(
+    () => orders.filter((o) => o.status === "fulfilled" || o.status === "cancelled"),
+    [orders]
+  );
+
+  /** Các ngày có đơn hoàn tất/huỷ, mới nhất trước. */
+  const completedDayKeys = useMemo(() => {
+    const keys = new Set<string>();
+    for (const o of allCompleted) {
+      const key = completedOrderDayKey(o);
+      if (key) keys.add(key);
+    }
+    return [...keys].sort((a, b) => (a < b ? 1 : a > b ? -1 : 0));
+  }, [allCompleted]);
+
+  const defaultCompletedDay = completedDayKeys[0] ?? "";
+  const activeCompletedDay =
+    completedDay && completedDayKeys.includes(completedDay)
+      ? completedDay
+      : defaultCompletedDay;
+
+  const completedOrders = useMemo(() => {
+    if (!activeCompletedDay) return [];
+    return allCompleted.filter((o) => completedOrderDayKey(o) === activeCompletedDay);
+  }, [allCompleted, activeCompletedDay]);
+
+  const dayIndex = completedDayKeys.indexOf(activeCompletedDay);
+  const canPrevDay = dayIndex >= 0 && dayIndex < completedDayKeys.length - 1; // older
+  const canNextDay = dayIndex > 0; // newer
+
   const awaitingCount = openOrders.filter((o) => o.awaitingPickup || o.awaitingDelivery).length;
 
   async function run(id: string, fn: () => Promise<{ ok: true } | { ok: false; error: string }>) {
@@ -447,6 +577,7 @@ export function OrdersManager({ orders }: { orders: StaffOrder[] }) {
       setShippingOrder(null);
       setCancelPickupOrder(null);
       setCancelPickupReason("");
+      setStaffActionNote("");
       router.refresh();
     } else {
       setError(result.error);
@@ -465,6 +596,7 @@ export function OrdersManager({ orders }: { orders: StaffOrder[] }) {
       setCancelPickupOrder(null);
       setEditingNotes(order);
       setNotesDraft(order.notes ?? "");
+      setStaffActionNote("");
     },
     onCancel: (order) => {
       setError(null);
@@ -480,6 +612,7 @@ export function OrdersManager({ orders }: { orders: StaffOrder[] }) {
       setCanceling(null);
       setCancelPickupOrder(null);
       setShippingOrder(order);
+      setStaffActionNote("");
       setCarrier(
         (order.shippingCarrier as ShippingCarrier) &&
           SHIPPING_CARRIERS.some((c) => c.value === order.shippingCarrier)
@@ -527,19 +660,34 @@ export function OrdersManager({ orders }: { orders: StaffOrder[] }) {
       {editingNotes ? (
         <div className="form-card compact-form-card orders-inline-panel">
           <h2>Sửa ghi chú — {editingNotes.number}</h2>
+          <p className="field-hint">{STAFF_NOTE_HINT}</p>
           <textarea
             rows={4}
             maxLength={2000}
             value={notesDraft}
             onChange={(e) => setNotesDraft(e.target.value)}
-            placeholder="Ghi chú nội bộ (giao hàng, gọi khách…)"
+            placeholder="Ghi chú nội bộ trên đơn (giao hàng, gọi khách…)"
           />
+          <label className="orders-staff-note-field">
+            Note thao tác (bắt buộc)
+            <input
+              value={staffActionNote}
+              onChange={(e) => setStaffActionNote(e.target.value)}
+              placeholder="Vd. cập nhật SĐT khách, ghi chú ship…"
+              maxLength={500}
+              required
+            />
+          </label>
           <div className="button-row">
             <button
               className="button primary"
               type="button"
-              disabled={pendingId === editingNotes.id}
-              onClick={() => run(editingNotes.id, () => updateOrderNotes(editingNotes.id, notesDraft))}
+              disabled={pendingId === editingNotes.id || staffActionNote.trim().length < 3}
+              onClick={() =>
+                run(editingNotes.id, () =>
+                  updateOrderNotes(editingNotes.id, notesDraft, staffActionNote)
+                )
+              }
             >
               {pendingId === editingNotes.id ? "Đang lưu…" : "Lưu ghi chú"}
             </button>
@@ -553,18 +701,24 @@ export function OrdersManager({ orders }: { orders: StaffOrder[] }) {
       {canceling ? (
         <div className="form-card compact-form-card orders-inline-panel">
           <h2>Huỷ đơn {canceling.number}?</h2>
-          <p className="field-hint">Thao tác được ghi log cho admin. Không thể huỷ đơn đã giao.</p>
-          <input
-            value={cancelReason}
-            onChange={(e) => setCancelReason(e.target.value)}
-            placeholder="Lý do huỷ (bắt buộc ghi rõ nếu có)"
-            maxLength={500}
-          />
+          <p className="field-hint">
+            Bắt buộc note. Tên bạn (từ tài khoản) được ghi lại. Không huỷ đơn đã giao.
+          </p>
+          <label className="orders-staff-note-field">
+            Lý do huỷ (bắt buộc)
+            <input
+              value={cancelReason}
+              onChange={(e) => setCancelReason(e.target.value)}
+              placeholder="Vd. khách yêu cầu huỷ, hết hàng…"
+              maxLength={500}
+              required
+            />
+          </label>
           <div className="button-row">
             <button
               className="button danger"
               type="button"
-              disabled={pendingId === canceling.id}
+              disabled={pendingId === canceling.id || cancelReason.trim().length < 3}
               onClick={() => run(canceling.id, () => cancelOrder(canceling.id, cancelReason))}
             >
               <XCircle size={16} aria-hidden="true" />
@@ -585,19 +739,23 @@ export function OrdersManager({ orders }: { orders: StaffOrder[] }) {
             {cancelPickupOrder.pickedUpByName
               ? ` Trước đó do ${cancelPickupOrder.pickedUpByName} xác nhận.`
               : ""}{" "}
-            Thao tác được ghi log (ai huỷ + ai đã xác nhận trước).
+            Bắt buộc note + tên người huỷ.
           </p>
-          <input
-            value={cancelPickupReason}
-            onChange={(e) => setCancelPickupReason(e.target.value)}
-            placeholder="Lý do huỷ pickup (vd. nhầm đơn, khách chưa lấy…)"
-            maxLength={500}
-          />
+          <label className="orders-staff-note-field">
+            Lý do huỷ pickup (bắt buộc)
+            <input
+              value={cancelPickupReason}
+              onChange={(e) => setCancelPickupReason(e.target.value)}
+              placeholder="Vd. nhầm đơn, khách chưa lấy…"
+              maxLength={500}
+              required
+            />
+          </label>
           <div className="button-row">
             <button
               className="button danger"
               type="button"
-              disabled={pendingId === cancelPickupOrder.id}
+              disabled={pendingId === cancelPickupOrder.id || cancelPickupReason.trim().length < 3}
               onClick={() =>
                 run(cancelPickupOrder.id, () =>
                   cancelPickup(cancelPickupOrder.id, cancelPickupReason)
@@ -623,8 +781,8 @@ export function OrdersManager({ orders }: { orders: StaffOrder[] }) {
             <Truck size={18} aria-hidden="true" /> Shipping info — {shippingOrder.number}
           </h2>
           <p className="field-hint">
-            Đơn <strong>ship</strong> (không phải pickup). Nhập hãng + mã tracking, rồi{" "}
-            <strong>Xác nhận đã ship</strong>. Có thể mở link FedEx/USPS để tra cứu sau.
+            Đơn <strong>ship</strong>. Nhập hãng + tracking. <strong>Note thao tác bắt buộc</strong>{" "}
+            — tên bạn được ghi lại.
           </p>
           <div className="form-grid two-columns">
             <label>
@@ -659,13 +817,23 @@ export function OrdersManager({ orders }: { orders: StaffOrder[] }) {
                 maxLength={500}
               />
             </label>
+            <label className="full-width orders-staff-note-field">
+              Note thao tác (bắt buộc)
+              <input
+                value={staffActionNote}
+                onChange={(e) => setStaffActionNote(e.target.value)}
+                placeholder="Vd. cập nhật tracking FedEx, ship lần 1…"
+                maxLength={500}
+                required
+              />
+            </label>
           </div>
           <div className="button-row">
             {shippingOrder.status === "confirmed" ? (
               <button
                 className="button primary"
                 type="button"
-                disabled={pendingId === shippingOrder.id}
+                disabled={pendingId === shippingOrder.id || staffActionNote.trim().length < 3}
                 onClick={() =>
                   run(shippingOrder.id, () =>
                     saveShipmentTracking(
@@ -673,7 +841,8 @@ export function OrdersManager({ orders }: { orders: StaffOrder[] }) {
                       carrier,
                       trackingNumber,
                       customUrl,
-                      true
+                      true,
+                      staffActionNote
                     )
                   )
                 }
@@ -685,7 +854,7 @@ export function OrdersManager({ orders }: { orders: StaffOrder[] }) {
             <button
               className="button secondary"
               type="button"
-              disabled={pendingId === shippingOrder.id}
+              disabled={pendingId === shippingOrder.id || staffActionNote.trim().length < 3}
               onClick={() =>
                 run(shippingOrder.id, () =>
                   saveShipmentTracking(
@@ -693,7 +862,8 @@ export function OrdersManager({ orders }: { orders: StaffOrder[] }) {
                     carrier,
                     trackingNumber,
                     customUrl,
-                    false
+                    false,
+                    staffActionNote
                   )
                 )
               }
@@ -734,15 +904,110 @@ export function OrdersManager({ orders }: { orders: StaffOrder[] }) {
         handlers={handlers}
       />
 
-      <OrdersSection
-        accent="done"
-        title="Đã hoàn tất"
-        description="Đơn đã pickup, đã ship / giao, hoặc đã huỷ."
-        icon={<PackageCheck size={20} aria-hidden="true" />}
-        orders={completedOrders}
-        emptyText="Chưa có đơn hoàn tất."
-        handlers={handlers}
-      />
+      <section className="orders-section orders-section-done">
+        <div className="orders-section-heading orders-section-heading-with-date">
+          <div>
+            <h2>
+              <PackageCheck size={20} aria-hidden="true" />
+              Đã hoàn tất / đã huỷ
+              <span className="orders-section-count">{completedOrders.length}</span>
+            </h2>
+            <p>
+              Chỉ hiện đơn hoàn tất hoặc huỷ trong{" "}
+              <strong>{activeCompletedDay ? formatDayKeyLabel(activeCompletedDay) : "—"}</strong>
+              {defaultCompletedDay && activeCompletedDay === defaultCompletedDay
+                ? " (ngày gần nhất có đơn)"
+                : ""}
+              . Chọn ngày khác để xem lịch sử.
+            </p>
+          </div>
+          {completedDayKeys.length > 0 ? (
+            <div className="orders-day-picker" role="group" aria-label="Chọn ngày đơn hoàn tất">
+              <button
+                type="button"
+                className="button secondary compact"
+                disabled={!canPrevDay}
+                aria-label="Ngày cũ hơn có đơn"
+                onClick={() => {
+                  if (canPrevDay) setCompletedDay(completedDayKeys[dayIndex + 1]!);
+                }}
+              >
+                <ChevronLeft size={16} aria-hidden="true" />
+              </button>
+              <label className="orders-day-picker-field">
+                <CalendarDays size={15} aria-hidden="true" />
+                <span className="visually-hidden">Ngày</span>
+                <input
+                  type="date"
+                  value={activeCompletedDay}
+                  max={completedDayKeys[0]}
+                  min={completedDayKeys[completedDayKeys.length - 1]}
+                  onChange={(e) => {
+                    const next = e.target.value;
+                    if (!next) return;
+                    // Nếu chọn ngày không có đơn → nhảy về ngày có đơn gần nhất (≤ chọn).
+                    if (completedDayKeys.includes(next)) {
+                      setCompletedDay(next);
+                      return;
+                    }
+                    const olderOrSame = completedDayKeys.find((k) => k <= next);
+                    setCompletedDay(olderOrSame ?? completedDayKeys[0]!);
+                  }}
+                />
+              </label>
+              <button
+                type="button"
+                className="button secondary compact"
+                disabled={!canNextDay}
+                aria-label="Ngày mới hơn có đơn"
+                onClick={() => {
+                  if (canNextDay) setCompletedDay(completedDayKeys[dayIndex - 1]!);
+                }}
+              >
+                <ChevronRight size={16} aria-hidden="true" />
+              </button>
+              {activeCompletedDay !== defaultCompletedDay ? (
+                <button
+                  type="button"
+                  className="button secondary compact"
+                  onClick={() => setCompletedDay(null)}
+                >
+                  Ngày gần nhất
+                </button>
+              ) : null}
+            </div>
+          ) : null}
+        </div>
+
+        {!allCompleted.length ? (
+          <p className="field-hint orders-section-empty">Chưa có đơn hoàn tất hoặc đã huỷ.</p>
+        ) : !completedOrders.length ? (
+          <p className="field-hint orders-section-empty">
+            Không có đơn hoàn tất / huỷ trong ngày {formatDayKeyLabel(activeCompletedDay)}.
+          </p>
+        ) : (
+          <div className="orders-table-wrap">
+            <table className="orders-table">
+              <thead>
+                <tr>
+                  <th aria-label="Chi tiết" />
+                  <th>Đơn</th>
+                  <th>Khách</th>
+                  <th>Ngày</th>
+                  <th>Nhận hàng</th>
+                  <th className="num">Tổng</th>
+                  <th>Trạng thái</th>
+                  <th>Giao / Ship / Pickup</th>
+                  <th aria-label="Hành động" />
+                </tr>
+              </thead>
+              <tbody>
+                <OrderRows orders={completedOrders} handlers={handlers} />
+              </tbody>
+            </table>
+          </div>
+        )}
+      </section>
     </>
   );
 }

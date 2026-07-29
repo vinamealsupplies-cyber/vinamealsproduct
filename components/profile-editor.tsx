@@ -1,6 +1,6 @@
 "use client";
 
-import { useActionState, useEffect, useState } from "react";
+import { useActionState, useState } from "react";
 import { Eraser, Save } from "lucide-react";
 import {
   clearProfileFieldAction,
@@ -22,13 +22,28 @@ export function ProfileEditor({ initial }: { initial: ProfileEditorValues }) {
   const [fullName, setFullName] = useState(initial.fullName);
   const [phone, setPhone] = useState(initial.phone);
   const [companyName, setCompanyName] = useState(initial.companyName);
+  const [synced, setSynced] = useState({
+    fullName: initial.fullName,
+    phone: initial.phone,
+    companyName: initial.companyName
+  });
 
-  // Khi server revalidate + truyền props mới, đồng bộ form.
-  useEffect(() => {
+  // Server revalidate → props `initial` đổi → đồng bộ form ngay trong render,
+  // thay cho setState trong effect (rule react-hooks/set-state-in-effect).
+  if (
+    synced.fullName !== initial.fullName ||
+    synced.phone !== initial.phone ||
+    synced.companyName !== initial.companyName
+  ) {
+    setSynced({
+      fullName: initial.fullName,
+      phone: initial.phone,
+      companyName: initial.companyName
+    });
     setFullName(initial.fullName);
     setPhone(initial.phone);
     setCompanyName(initial.companyName);
-  }, [initial.fullName, initial.phone, initial.companyName]);
+  }
 
   const [, saveAction, saving] = useActionState(
     async (prev: AdminFormState, formData: FormData) => {

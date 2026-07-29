@@ -38,7 +38,6 @@ export default async function AdminProductsPage() {
       <ProductManager
         products={products}
         canDeleteForever={Boolean(viewer.isManager)}
-        isSeller={viewer.isSeller}
       />
     </>
   );

@@ -2,35 +2,47 @@ import { Suspense } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import { ShieldCheck, Star, UserRound } from "lucide-react";
+import { CartAccountBridge } from "@/components/cart-account-bridge";
 import { CartLink } from "@/components/cart-link";
 import { CategoryMenu } from "@/components/category-menu";
 import { HeaderSearch } from "@/components/header-search";
 import { getViewer } from "@/lib/auth";
 import { getStorefrontCategories } from "@/lib/data/categories";
-import { getOwnOpenOrderCount } from "@/lib/data/customer-orders";
-import { isSupabaseAdminConfigured } from "@/lib/env";
+import type { CategoryNode } from "@/lib/category-types";
+import type { Viewer } from "@/lib/auth";
 
+/**
+ * Keep header work minimal for Cloudflare Free CPU limits.
+ * Open-order badge is skipped here (was an extra DB hit on every page).
+ */
 export async function SiteHeader() {
-  const [viewer, categories] = await Promise.all([getViewer(), getStorefrontCategories()]);
-  const openOrders =
-    viewer && !viewer.demo && isSupabaseAdminConfigured()
-      ? await getOwnOpenOrderCount(viewer.id)
-      : 0;
+  let viewer: Viewer | null = null;
+  let categories: CategoryNode[] = [];
+
+  // Sequential is fine; allSettled avoids one failure blanking the whole shell.
+  const [viewerResult, categoriesResult] = await Promise.allSettled([
+    getViewer(),
+    getStorefrontCategories()
+  ]);
+  if (viewerResult.status === "fulfilled") viewer = viewerResult.value;
+  if (categoriesResult.status === "fulfilled") categories = categoriesResult.value;
+
+  const cartUserId = viewer && !viewer.demo ? viewer.id : null;
 
   return (
     <header className="site-header">
+      <CartAccountBridge userId={cartUserId} />
       <div className="announcement-bar">
         <div className="shell announcement-inner">
           <span>Fresh finds for everyday meals</span>
-          <span className="announcement-separator" aria-hidden="true">•</span>
+          <span className="announcement-separator" aria-hidden="true">
+            •
+          </span>
           <span>Wholesale accounts available</span>
         </div>
       </div>
       <div className="shell header-main">
         <Link className="brand" href="/" aria-label="Vinameals home">
-          {/* PNG nền trong suốt để logo không thành hộp chữ nhật trên nền kem
-              của header. Bản .jpg (có nền) vẫn giữ cho thẻ Open Graph, vì ảnh
-              trong suốt lên mạng xã hội thường bị nền đen. */}
           <Image
             className="brand-logo"
             src="/logo-vinameals.png"
@@ -60,23 +72,10 @@ export async function SiteHeader() {
           <Link
             className="header-action"
             href={viewer ? "/account#purchase-history" : "/login"}
-            aria-label={
-              viewer
-                ? openOrders > 0
-                  ? `Account, ${openOrders} incomplete orders`
-                  : "Account"
-                : "Sign in"
-            }
+            aria-label={viewer ? "Account" : "Sign in"}
           >
             <UserRound size={19} aria-hidden="true" />
-            <span className="header-account-label">
-              {viewer ? "Account" : "Sign in"}
-              {viewer && openOrders > 0 ? (
-                <span className="order-count-badge header-order-badge" aria-hidden="true">
-                  {openOrders}
-                </span>
-              ) : null}
-            </span>
+            <span className="header-account-label">{viewer ? "Account" : "Sign in"}</span>
           </Link>
           <CartLink />
         </nav>
@@ -84,7 +83,6 @@ export async function SiteHeader() {
 
       <div className="category-strip">
         <div className="shell category-strip-inner">
-          {/* prefetch=false: tránh RSC cache nhầm /products với /products?sort=… */}
           <Link href="/products" prefetch={false}>
             Shop all
           </Link>

@@ -133,7 +133,10 @@ async function loadProducts(
     supabase.from("v_product_listing").select("product_id, available_quantity")
   ]);
 
-  if (error) throw new Error(`Failed to load products: ${error.message}`);
+  if (error) {
+    console.error("[products] load failed:", error.message);
+    return [];
+  }
 
   const stockByProduct = new Map<string, number>();
   for (const item of listing ?? []) {
@@ -147,7 +150,12 @@ async function loadProducts(
 
 /** Catalog cho storefront. `wholesalePrice` = giá bán lẻ (không lộ giá sỉ). */
 export async function getProducts(): Promise<Product[]> {
-  return loadProducts(createPublicClient(), PUBLIC_SELECT, true);
+  try {
+    return await loadProducts(createPublicClient(), PUBLIC_SELECT, true);
+  } catch (err) {
+    console.error("[products] getProducts", err);
+    return [];
+  }
 }
 
 /**

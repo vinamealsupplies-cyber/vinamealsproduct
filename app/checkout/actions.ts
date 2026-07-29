@@ -2,14 +2,24 @@
 
 import { revalidatePath } from "next/cache";
 import { getViewer } from "@/lib/auth";
+import { getOwnShippingAddresses } from "@/lib/data/addresses";
+import type { CustomerAddress } from "@/lib/data/address-types";
 import { actorAuditMeta, writeAuditLog } from "@/lib/data/audit-log";
+import { clearOwnCartItems } from "@/lib/data/cart";
+import { getProducts } from "@/lib/data/products";
+import { getOwnSpecialRequests } from "@/lib/data/special-requests";
+import { recordSpecialRequestsBatch } from "@/lib/data/special-requests";
 import { getOwnWholesaleAccount } from "@/lib/data/wholesale-account";
+import { isSupabaseAdminConfigured } from "@/lib/env";
 import { callerKey, checkRateLimit, RATE_LIMITS } from "@/lib/rate-limit";
+import type { Product } from "@/lib/sample-data";
+import type { SpecialRequest } from "@/lib/special-request-types";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { toUserFacingError } from "@/lib/user-facing-error";
 import { evaluateWholesaleEligibility } from "@/lib/wholesale";
 
-// Checkout "đặt thử" — KHÔNG thu tiền. Mục tiêu: tạo sales_orders confirmed +
-// pickup, kèm line_note từng món (yêu cầu đặc biệt của khách).
+// Checkout test: tạo sales_order confirmed + invoice PAID + payment succeeded
+// để test Reports / Invoices / Payments (giả lập đã thu tiền, chưa Stripe thật).
 
 const PICKUP_LOCATION_CODE = "STORE-PICKUP";
 const LINE_NOTE_MAX = 300;
@@ -28,8 +38,55 @@ export type CheckoutOptions = {
 };
 
 export type CheckoutResult =
-  | { ok: true; orderNumber: string; total: number; fulfillmentMethod: "pickup" | "ship" }
+  | {
+      ok: true;
+      orderNumber: string;
+      invoiceNumber: string | null;
+      total: number;
+      fulfillmentMethod: "pickup" | "ship";
+    }
   | { ok: false; error: string };
+
+export type CheckoutBootstrap =
+  | {
+      ok: true;
+      catalog: Product[];
+      shippingAddresses: CustomerAddress[];
+      specialRequests: SpecialRequest[];
+      customerName: string;
+    }
+  | { ok: false; error: string; signedIn: boolean };
+
+/** Client-side bootstrap so /checkout SSR stays tiny (avoids Worker/RSC crashes). */
+export async function loadCheckoutBootstrap(): Promise<CheckoutBootstrap> {
+  try {
+    const viewer = await getViewer();
+    if (!viewer || viewer.demo) {
+      return { ok: false, error: "Please sign in to check out.", signedIn: false };
+    }
+
+    const canLoad = isSupabaseAdminConfigured();
+    const [catalogR, addrR, reqR] = await Promise.allSettled([
+      getProducts(),
+      canLoad ? getOwnShippingAddresses(viewer.id) : Promise.resolve([] as CustomerAddress[]),
+      canLoad ? getOwnSpecialRequests(viewer.id) : Promise.resolve([] as SpecialRequest[])
+    ]);
+
+    return {
+      ok: true,
+      catalog: catalogR.status === "fulfilled" ? catalogR.value : [],
+      shippingAddresses: addrR.status === "fulfilled" ? addrR.value : [],
+      specialRequests: reqR.status === "fulfilled" ? reqR.value : [],
+      customerName: viewer.fullName || viewer.email || "Customer"
+    };
+  } catch (err) {
+    return {
+      ok: false,
+      error: toUserFacingError(err, "Could not load checkout. Please try again."),
+      signedIn: true
+    };
+  }
+}
 
 type VariantRow = {
   id: string;
@@ -64,15 +121,29 @@ export async function placeTestOrder(
   items: CheckoutItem[],
   options: CheckoutOptions = {}
 ): Promise<CheckoutResult> {
+  try {
+    return await placeTestOrderInner(items, options);
+  } catch (err) {
+    return {
+      ok: false,
+      error: toUserFacingError(err, "Could not place the order. Try again.")
+    };
+  }
+}
+
+async function placeTestOrderInner(
+  items: CheckoutItem[],
+  options: CheckoutOptions = {}
+): Promise<CheckoutResult> {
   const viewer = await getViewer();
   if (!viewer || viewer.demo) {
-    return { ok: false, error: "Vui lòng đăng nhập để đặt hàng." };
+    return { ok: false, error: "Please sign in to place an order." };
   }
   if (!Array.isArray(items) || items.length === 0) {
-    return { ok: false, error: "Giỏ hàng trống." };
+    return { ok: false, error: "Your cart is empty." };
   }
   if (!(await checkRateLimit(await callerKey("checkout", viewer.id), RATE_LIMITS.mutation))) {
-    return { ok: false, error: "Bạn thao tác quá nhanh. Đợi một phút rồi thử lại." };
+    return { ok: false, error: "Too many attempts. Wait a minute and try again." };
   }
 
   const fulfillmentMethod: "pickup" | "ship" =
@@ -94,7 +165,7 @@ export async function placeTestOrder(
       wanted.set(id, { quantity: qty, notes: note ? [note] : [] });
     }
   }
-  if (wanted.size === 0) return { ok: false, error: "Giỏ hàng không hợp lệ." };
+  if (wanted.size === 0) return { ok: false, error: "Invalid cart." };
 
   const supabase = createAdminClient();
   const wholesaleAccount = await getOwnWholesaleAccount(viewer.id);
@@ -105,7 +176,7 @@ export async function placeTestOrder(
       "id, name, status, product_variants ( id, sku, retail_price, sale_price, wholesale_price, cost_price, is_default, is_active )"
     )
     .in("id", [...wanted.keys()]);
-  if (prodErr) return { ok: false, error: "Không đọc được sản phẩm. Thử lại." };
+  if (prodErr) return { ok: false, error: "Could not load products. Try again." };
 
   // Tính total qty + wholesale subtotal trước để quyết định qualifies.
   let cartQuantity = 0;
@@ -151,7 +222,7 @@ export async function placeTestOrder(
     });
   }
 
-  if (priced.length === 0) return { ok: false, error: "Không có sản phẩm hợp lệ trong giỏ." };
+  if (priced.length === 0) return { ok: false, error: "No valid products in the cart." };
 
   const eligibility = evaluateWholesaleEligibility(
     wholesaleAccount,
@@ -216,7 +287,7 @@ export async function placeTestOrder(
     }
   }
 
-  if (!customerId) return { ok: false, error: "Không tạo được hồ sơ khách. Thử lại." };
+  if (!customerId) return { ok: false, error: "Could not create a customer profile. Try again." };
 
   const SHIPPING_FLAT_RATE = 12.5;
   let pickupLocationId: string | null = null;
@@ -230,13 +301,13 @@ export async function placeTestOrder(
       .eq("code", PICKUP_LOCATION_CODE)
       .maybeSingle();
     if (!location?.id) {
-      return { ok: false, error: "Chưa cấu hình địa điểm nhận hàng (STORE-PICKUP)." };
+      return { ok: false, error: "Pickup location is not configured (STORE-PICKUP)." };
     }
     pickupLocationId = location.id;
     shippingAmount = 0;
   } else {
     if (!shippingAddressId) {
-      return { ok: false, error: "Chọn địa chỉ giao hàng cho đơn ship." };
+      return { ok: false, error: "Select a shipping address for delivery." };
     }
     const { data: address } = await supabase
       .from("customer_addresses")
@@ -247,7 +318,7 @@ export async function placeTestOrder(
       .eq("customer_id", customerId)
       .maybeSingle();
     if (!address) {
-      return { ok: false, error: "Địa chỉ giao hàng không hợp lệ." };
+      return { ok: false, error: "Invalid shipping address." };
     }
     shippingAmount = SHIPPING_FLAT_RATE;
     shippingSnapshot = {
@@ -264,7 +335,10 @@ export async function placeTestOrder(
   }
 
   const subtotal = orderItems.reduce((sum, item) => sum + item.unit_price * item.quantity, 0);
-  const total = subtotal + shippingAmount;
+  const taxAmount = 0; // Stripe Tax / sales tax phase sau.
+  const total = subtotal + shippingAmount + taxAmount;
+  const now = new Date().toISOString();
+  const issueDate = now.slice(0, 10); // YYYY-MM-DD
 
   const { data: order, error: orderErr } = await supabase
     .from("sales_orders")
@@ -278,17 +352,18 @@ export async function placeTestOrder(
       shipping_amount: shippingAmount,
       shipping_address_snapshot: shippingSnapshot,
       subtotal,
+      tax_amount: taxAmount,
       total_amount: total,
-      placed_at: new Date().toISOString(),
+      placed_at: now,
       created_by: viewer.id,
       notes: useWholesale
-        ? `Đơn đặt thử (${fulfillmentMethod}, wholesale). Không thanh toán.`
-        : `Đơn đặt thử (${fulfillmentMethod}). Không thanh toán.`
+        ? `Web order (${fulfillmentMethod}, wholesale). Paid in full (test checkout).`
+        : `Web order (${fulfillmentMethod}). Paid in full (test checkout).`
     })
     .select("id, order_number")
     .single();
   if (orderErr || !order) {
-    return { ok: false, error: orderErr?.message || "Không tạo được đơn hàng. Thử lại." };
+    return { ok: false, error: orderErr?.message || "Could not create the order. Try again." };
   }
 
   const { error: itemsErr } = await supabase
@@ -296,52 +371,165 @@ export async function placeTestOrder(
     .insert(orderItems.map((item) => ({ ...item, order_id: order.id })));
   if (itemsErr) {
     await supabase.from("sales_orders").delete().eq("id", order.id);
-    // Cột line_note chưa migration → báo rõ.
     if (itemsErr.message.includes("line_note")) {
       return {
         ok: false,
-        error: "Database chưa có cột line_note. Chạy migration 20260728210000_order_item_line_note.sql."
+        error: "Database is missing line_note. Run migration 20260728210000_order_item_line_note.sql."
       };
     }
-    return { ok: false, error: "Không lưu được chi tiết đơn. Thử lại." };
+    return { ok: false, error: "Could not save order lines. Try again." };
   }
 
+  // --- Invoice + payment (đã thu đủ) để Reports / Invoices / Payments có số ---
+  const orderId = order.id as string;
+  async function rollbackOrder() {
+    await supabase.from("sales_orders").delete().eq("id", orderId);
+  }
+
+  const { data: invoice, error: invErr } = await supabase
+    .from("invoices")
+    .insert({
+      order_id: orderId,
+      customer_id: customerId,
+      status: "issued",
+      currency: "USD",
+      issue_date: issueDate,
+      due_date: issueDate,
+      subtotal,
+      discount_amount: 0,
+      tax_amount: taxAmount,
+      shipping_amount: shippingAmount,
+      total_amount: total,
+      amount_paid: 0,
+      fulfillment_method: fulfillmentMethod,
+      tax_exempt_snapshot: false,
+      billing_address_snapshot: shippingSnapshot,
+      notes: `Auto-invoice for ${order.order_number} (test paid checkout).`,
+      issued_at: now,
+      created_by: viewer.id
+    })
+    .select("id, invoice_number, total_amount")
+    .single();
+
+  if (invErr || !invoice) {
+    await rollbackOrder();
+    return {
+      ok: false,
+      error: invErr?.message || "Could not create the invoice. Try again."
+    };
+  }
+
+  const { error: invItemsErr } = await supabase.from("invoice_items").insert(
+    orderItems.map((item) => ({
+      invoice_id: invoice.id,
+      product_id: item.product_id,
+      variant_id: item.variant_id,
+      product_name_snapshot: item.product_name_snapshot,
+      sku_snapshot: item.sku_snapshot,
+      quantity: item.quantity,
+      unit_price: item.unit_price,
+      unit_cost_snapshot: item.unit_cost_snapshot,
+      discount_amount: 0,
+      tax_rate_snapshot: 0,
+      tax_amount: 0
+    }))
+  );
+  if (invItemsErr) {
+    await supabase.from("invoices").delete().eq("id", invoice.id);
+    await rollbackOrder();
+    return { ok: false, error: "Could not save invoice lines. Try again." };
+  }
+
+  // Re-read total after item triggers recalculate (avoids amount mismatch).
+  const { data: invFresh } = await supabase
+    .from("invoices")
+    .select("id, invoice_number, total_amount")
+    .eq("id", invoice.id)
+    .maybeSingle();
+  const payAmount = Math.max(num(invFresh?.total_amount ?? total), 0.01);
+
+  const { data: payment, error: payErr } = await supabase
+    .from("payments")
+    .insert({
+      invoice_id: invoice.id,
+      payment_kind: "payment",
+      status: "succeeded",
+      amount: payAmount,
+      currency: "USD",
+      payment_method: "test_checkout",
+      provider: "vinameals_test",
+      provider_payment_id: `test_${orderId}`,
+      reference: order.order_number,
+      received_at: now,
+      notes: "Test checkout — paid in full (not real Stripe).",
+      created_by: viewer.id
+    })
+    .select("id")
+    .single();
+
+  if (payErr || !payment) {
+    await supabase.from("payments").delete().eq("invoice_id", invoice.id);
+    await supabase.from("invoices").delete().eq("id", invoice.id);
+    await rollbackOrder();
+    return {
+      ok: false,
+      error: payErr?.message || "Could not record payment. Try again."
+    };
+  }
+
+  // One audit entry only (keeps Worker CPU lower).
   await writeAuditLog({
     actorUserId: viewer.id,
-    action: "order.create",
+    action: "order.create_paid",
     entityType: "sales_order",
-    entityId: order.id,
+    entityId: orderId,
     after: {
       orderNumber: order.order_number,
       status: "confirmed",
       fulfillmentMethod,
-      total,
-      itemCount: orderItems.length,
-      channel: "web",
-      wholesale: useWholesale,
-      items: orderItems.map((i) => ({
-        name: i.product_name_snapshot,
-        qty: i.quantity,
-        note: i.line_note,
-        unitPrice: i.unit_price
-      }))
+      total: payAmount,
+      invoiceNumber: invFresh?.invoice_number ?? invoice.invoice_number,
+      paymentId: payment.id,
+      paid: true
     },
     metadata: {
       ...actorAuditMeta(viewer),
       orderNumber: order.order_number,
+      invoiceNumber: invFresh?.invoice_number ?? invoice.invoice_number,
       wholesaleApplied: useWholesale,
-      wholesaleMinKind: eligibility.minKind,
-      wholesaleMinValue: eligibility.minValue,
-      fulfillmentMethod
+      fulfillmentMethod,
+      paid: true
     }
   });
 
+  // Best-effort: special requests + clear cart (must not fail the order).
+  try {
+    await recordSpecialRequestsBatch(
+      viewer.id,
+      orderItems.map((i) => i.line_note).filter((n): n is string => Boolean(n))
+    );
+  } catch {
+    /* ignore */
+  }
+  try {
+    await clearOwnCartItems(viewer.id);
+  } catch {
+    /* ignore */
+  }
+
   revalidatePath("/admin/orders");
+  revalidatePath("/admin/invoices");
+  revalidatePath("/admin/payments");
+  revalidatePath("/admin/reports");
+  revalidatePath("/admin");
   revalidatePath("/account");
+  revalidatePath("/cart");
+  revalidatePath("/checkout");
   return {
     ok: true,
-    orderNumber: order.order_number ?? order.id,
-    total,
+    orderNumber: order.order_number ?? orderId,
+    invoiceNumber: invFresh?.invoice_number ?? invoice.invoice_number ?? null,
+    total: payAmount,
     fulfillmentMethod
   };
 }

@@ -15,7 +15,7 @@ export default async function OrdersPage() {
       <AdminPageHeader
         eyebrow="Sales"
         title="Orders"
-        description="Hai phần: (1) chờ giao / ship / pickup — (2) đã hoàn tất. Bấm đơn để xem món và ghi chú khách."
+        description="(1) Chờ giao / ship / pickup — (2) Đã hoàn tất / huỷ theo ngày (mặc định ngày gần nhất có đơn). Bấm đơn để xem chi tiết."
       />
       <OrdersManager orders={orders} />
     </>

@@ -5,7 +5,7 @@ import { Check, Save } from "lucide-react";
 import { createProductAction, updateProductAction } from "@/app/admin/products/actions";
 import { ProductMediaUploader } from "@/components/product-media-uploader";
 import { initialAdminFormState, type AdminFormState } from "@/lib/data/admin-form";
-import type { CategoryNode } from "@/lib/data/categories";
+import type { CategoryNode } from "@/lib/category-types";
 import type { AdminProduct } from "@/lib/data/admin-products";
 
 // Form dùng chung cho thêm mới và chỉnh sửa.
@@ -42,7 +42,7 @@ export function ProductForm({
 }: {
   categories: CategoryNode[];
   product?: AdminProduct;
-  /** Seller: ẩn cost + location (dùng MAIN ẩn). */
+  /** Seller: ẩn unit cost (admin-only). */
   isSeller?: boolean;
 }) {
   const isEdit = Boolean(product);
@@ -259,14 +259,6 @@ export function ProductForm({
             <label>
               Opening quantity
               <input name="openingQuantity" type="number" min="0" step="1" defaultValue="0" />
-            </label>
-          )}
-          {isSeller ? (
-            <input type="hidden" name="locationCode" value="MAIN" />
-          ) : (
-            <label>
-              Location code
-              <input name="locationCode" defaultValue="MAIN" />
             </label>
           )}
         </div>
