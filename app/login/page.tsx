@@ -23,11 +23,6 @@ export default async function LoginPage({
           Customers see account history and business details. Authorized staff also see the Admin link in the top
           navigation.
         </p>
-        <div className="auth-feature-list">
-          <span>Sign in with Google</span>
-          <span>Retail and wholesale profiles</span>
-          <span>Role-protected administration</span>
-        </div>
       </div>
       <div className="auth-forms">
         {params.message ? (

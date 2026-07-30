@@ -21,8 +21,13 @@ export default async function TaxExemptionsPage() {
     <>
       <AdminPageHeader
         eyebrow="Compliance"
-        title="Tax exemptions"
-        description="Review customer exemption certificates, then approve or reject the request."
+        title="Tax exemptions (legacy)"
+        description="Legacy single-track tax exemption queue. New dual wholesale + resale applications are under Business apps."
+        action={
+          <Link className="button primary" href="/admin/business-applications">
+            Open business applications
+          </Link>
+        }
       />
 
       <div className="filter-chip-row">

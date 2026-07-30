@@ -9,33 +9,30 @@ import {
   type FulfillmentMethod
 } from "@/lib/fulfillment-preference";
 import { usd } from "@/lib/format";
-import type { WholesaleEligibility } from "@/lib/wholesale";
 
 const SHIPPING_FLAT_RATE = 12.5;
 
 const STORE = { city: "Garden Grove", state: "CA", label: "Vinameals store pickup" };
 
 /**
- * Chọn nhận tại cửa hàng hay giao hàng, kèm tạm tính.
- * Lựa chọn được lưu localStorage và checkout đọc lại.
- *
- * Wholesale pricing CHỈ hiện khi admin gán mác wholesale và giỏ đạt ngưỡng
- * (số lượng hoặc số tiền). Khách lẻ không còn nút bấm để xem/chọn giá sỉ.
- *
- * THUẾ: không tính ở đây — Stripe Tax ở checkout.
+ * Pickup vs ship + estimate. Business accounts may show order-level discount %
+ * (not SKU wholesale prices). Tax calculated at checkout later.
  */
 export function FulfillmentPicker({
   retailSubtotal,
-  wholesaleSubtotal,
-  wholesale,
+  businessDiscount = 0,
+  isBusiness = false,
+  businessDiscountPercent = null,
   shippingAddresses = [],
+  onShippingAddressesChange,
   signedIn = false
 }: {
   retailSubtotal: number;
-  /** Tổng nếu áp giá sỉ (chỉ meaningful khi wholesale.isWholesale). */
-  wholesaleSubtotal: number;
-  wholesale: WholesaleEligibility;
+  businessDiscount?: number;
+  isBusiness?: boolean;
+  businessDiscountPercent?: number | null;
   shippingAddresses?: CustomerAddress[];
+  onShippingAddressesChange?: (addresses: CustomerAddress[]) => void;
   signedIn?: boolean;
 }) {
   const method = useFulfillmentMethod();
@@ -44,8 +41,7 @@ export function FulfillmentPicker({
     setFulfillmentMethod(next);
   }
 
-  const useWholesale = wholesale.isWholesale && wholesale.qualifies;
-  const subtotal = useWholesale ? wholesaleSubtotal : retailSubtotal;
+  const subtotal = Math.max(0, retailSubtotal - businessDiscount);
   const shipping = method === "pickup" ? 0 : SHIPPING_FLAT_RATE;
   const beforeTax = subtotal + shipping;
 
@@ -54,39 +50,25 @@ export function FulfillmentPicker({
       <div className="form-card-heading">
         <div>
           <h2>Pickup or shipping</h2>
-          <p>Both options are available to retail and wholesale accounts.</p>
+          <p>
+            {isBusiness
+              ? "Business accounts can pay by card or offline (check / Zelle / bank transfer) at checkout."
+              : "Choose how you want to receive your order."}
+          </p>
         </div>
       </div>
 
-      {wholesale.isWholesale ? (
-        <div
-          className={`wholesale-status-banner ${useWholesale ? "is-active" : "is-locked"}`}
-          role="status"
-        >
+      {isBusiness ? (
+        <div className="wholesale-status-banner is-active" role="status">
           <BadgeDollarSign size={18} aria-hidden="true" />
           <div>
-            {useWholesale ? (
-              <>
-                <strong>Wholesale pricing applied</strong>
-                <p>
-                  Your account is marked wholesale and this cart meets the minimum
-                  {wholesale.minKind === "quantity" && wholesale.minValue != null
-                    ? ` (${wholesale.minValue} items)`
-                    : wholesale.minKind === "amount" && wholesale.minValue != null
-                      ? ` ($${wholesale.minValue.toFixed(2)})`
-                      : ""}
-                  .
-                </p>
-              </>
-            ) : (
-              <>
-                <strong>Wholesale pricing locked</strong>
-                <p>
-                  {wholesale.message ??
-                    "Add more items to unlock your wholesale prices on this order."}
-                </p>
-              </>
-            )}
+            <strong>Business discount order</strong>
+            <p>
+              {businessDiscountPercent != null && businessDiscountPercent > 0
+                ? `${businessDiscountPercent}% discount will apply at checkout. `
+                : "Your account is approved for business orders. "}
+              Pay by card (like retail) or offline — staff confirms check / Zelle / bank transfer.
+            </p>
           </div>
         </div>
       ) : null}
@@ -132,18 +114,22 @@ export function FulfillmentPicker({
           Pick up at <strong>{STORE.label}</strong> — bring your order number and a photo ID.
         </p>
       ) : (
-        <ShippingAddressPicker addresses={shippingAddresses} signedIn={signedIn} />
+        <ShippingAddressPicker
+          addresses={shippingAddresses}
+          signedIn={signedIn}
+          onAddressesChange={onShippingAddressesChange}
+        />
       )}
 
       <div className="tax-result">
         <div className="tax-result-row">
-          <span>Subtotal {useWholesale ? "(wholesale)" : "(retail)"}</span>
-          <strong>{usd.format(subtotal)}</strong>
+          <span>Subtotal</span>
+          <strong>{usd.format(retailSubtotal)}</strong>
         </div>
-        {wholesale.isWholesale && !useWholesale && wholesaleSubtotal < retailSubtotal ? (
+        {businessDiscount > 0 ? (
           <div className="tax-result-row muted">
-            <span>If wholesale unlocked</span>
-            <span>{usd.format(wholesaleSubtotal)}</span>
+            <span>Business discount</span>
+            <span>−{usd.format(businessDiscount)}</span>
           </div>
         ) : null}
         <div className="tax-result-row">

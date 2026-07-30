@@ -2,11 +2,29 @@
 
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import { CheckCircle2, ShoppingBag, Store, Truck } from "lucide-react";
-import { loadCheckoutBootstrap, placeTestOrder } from "@/app/checkout/actions";
+import {
+  Building2,
+  CheckCircle2,
+  CreditCard,
+  Landmark,
+  ShoppingBag,
+  Store,
+  Truck
+} from "lucide-react";
+import { loadCheckoutBootstrap, placeOrder } from "@/app/checkout/actions";
 import { ShippingAddressPicker } from "@/components/shipping-address-picker";
 import { SpecialRequestPicker } from "@/components/special-request-picker";
 import type { CustomerAddress } from "@/lib/data/address-types";
+import { OfflinePaymentDetails } from "@/components/offline-payment-details";
+import {
+  BUSINESS_PAYMENT_HINTS,
+  BUSINESS_PAYMENT_METHODS,
+  computeBusinessDiscount,
+  isBusinessPaymentMethod,
+  isOfflinePaymentMethod,
+  PAYMENT_METHOD_LABELS,
+  type BusinessPaymentMethod
+} from "@/lib/business-order";
 import { useCart } from "@/lib/cart";
 import type { SpecialRequest } from "@/lib/special-request-types";
 import {
@@ -16,6 +34,10 @@ import {
   type FulfillmentMethod
 } from "@/lib/fulfillment-preference";
 import type { Product } from "@/lib/sample-data";
+import {
+  defaultStoreBusinessProfile,
+  type StoreBusinessProfile
+} from "@/lib/store-profile";
 import { usd } from "@/lib/format";
 import {
   SITE_OVERLOADED_MESSAGE,
@@ -43,15 +65,27 @@ export function CheckoutView({
   const [savedRequests, setSavedRequests] = useState<SpecialRequest[]>([]);
   const [customerName, setCustomerName] = useState("Customer");
   const [shippingAddressId, setShippingAddressId] = useState<string | null>(null);
+  const [isBusiness, setIsBusiness] = useState(false);
+  const [businessDiscountPercent, setBusinessDiscountPercent] = useState<number | null>(null);
+  const [companyName, setCompanyName] = useState<string | null>(null);
+  const [paymentMethod, setPaymentMethod] = useState<BusinessPaymentMethod>("card");
+  const [paymentReference, setPaymentReference] = useState("");
+  const [storeProfile, setStoreProfile] = useState<StoreBusinessProfile>(
+    defaultStoreBusinessProfile()
+  );
 
   const [done, setDone] = useState<{
     orderNumber: string;
     invoiceNumber: string | null;
     total: number;
+    discountAmount: number;
     fulfillmentMethod: FulfillmentMethod;
+    paymentMethod: BusinessPaymentMethod | null;
+    paymentInstructions: string | null;
+    awaitingPayment: boolean;
+    isBusinessOrder: boolean;
   } | null>(null);
 
-  // Đọc trạng thái đăng nhập mới nhất bên trong effect chạy-một-lần.
   const cartSignedInRef = useRef(cartSignedIn);
   useEffect(() => {
     cartSignedInRef.current = cartSignedIn;
@@ -64,9 +98,6 @@ export function CheckoutView({
       try {
         let boot = await loadCheckoutBootstrap();
         if (cancelled) return;
-        // Server bảo "chưa đăng nhập" NHƯNG store giỏ (userId do header SSR
-        // truyền xuống) bảo ngược lại → thử lại 1 lần trước khi đá user đang
-        // đăng nhập ra /login. Guest thật không tốn lượt gọi nào.
         if (!boot.ok && !boot.signedIn && cartSignedInRef.current) {
           await new Promise((resolve) => setTimeout(resolve, SESSION_RETRY_DELAY_MS));
           if (cancelled) return;
@@ -88,6 +119,10 @@ export function CheckoutView({
         setShippingAddresses(boot.shippingAddresses);
         setSavedRequests(boot.specialRequests);
         setCustomerName(boot.customerName);
+        setIsBusiness(boot.isBusiness);
+        setBusinessDiscountPercent(boot.businessDiscountPercent);
+        setCompanyName(boot.companyName);
+        setStoreProfile(boot.storeProfile);
         setShippingAddressId(
           boot.shippingAddresses.find((a) => a.isDefault)?.id ??
             boot.shippingAddresses[0]?.id ??
@@ -123,14 +158,26 @@ export function CheckoutView({
   const lines = items
     .map((item) => ({ ...item, product: byId.get(item.productId) }))
     .filter((line): line is typeof line & { product: Product } => Boolean(line.product));
-  const subtotal = lines.reduce((sum, line) => sum + line.product.price * line.quantity, 0);
+  const merchandiseSubtotal = lines.reduce(
+    (sum, line) => sum + line.product.price * line.quantity,
+    0
+  );
+  const discountAmount = isBusiness
+    ? computeBusinessDiscount(merchandiseSubtotal, businessDiscountPercent)
+    : 0;
+  const shipping = method === "ship" ? SHIPPING_FLAT_RATE : 0;
+  const total = Math.max(0, merchandiseSubtotal - discountAmount + shipping);
 
   if (done) {
     return (
       <div className="page-shell shell narrow-page">
         <div className="empty-state large">
           <CheckCircle2 size={40} aria-hidden="true" />
-          <h1>Order placed</h1>
+          <h1>
+            {done.awaitingPayment
+              ? "Order placed — awaiting payment"
+              : "Order placed"}
+          </h1>
           <p>
             Order <strong>{done.orderNumber}</strong>
             {done.invoiceNumber ? (
@@ -139,7 +186,13 @@ export function CheckoutView({
                 · invoice <strong>{done.invoiceNumber}</strong>
               </>
             ) : null}{" "}
-            — total {usd.format(done.total)}.{" "}
+            — total {usd.format(done.total)}.
+            {done.discountAmount > 0 ? (
+              <> Business discount applied: −{usd.format(done.discountAmount)}.</>
+            ) : null}{" "}
+            {!done.awaitingPayment ? (
+              <> Marked as <strong>paid in full</strong> (test checkout).</>
+            ) : null}{" "}
             {done.fulfillmentMethod === "pickup" ? (
               <>
                 Pickup at <strong>{pickupLocationName}</strong>.
@@ -148,15 +201,35 @@ export function CheckoutView({
               <>
                 <strong>Shipping</strong> — staff will send tracking when the order ships.
               </>
-            )}{" "}
-            Marked as <strong>paid in full</strong> (test checkout).
+            )}
           </p>
+          {done.awaitingPayment &&
+          done.paymentMethod &&
+          isOfflinePaymentMethod(done.paymentMethod) ? (
+            <div style={{ textAlign: "left", maxWidth: 520, width: "100%", margin: "0 auto" }}>
+              <OfflinePaymentDetails
+                method={done.paymentMethod}
+                store={storeProfile}
+                orderNumber={done.orderNumber}
+                invoiceNumber={done.invoiceNumber}
+                amountDue={done.total}
+              />
+              <p className="field-hint" style={{ marginTop: 12 }}>
+                You can also open{" "}
+                <Link className="text-link" href="/account#purchase-history">
+                  Account → View invoice
+                </Link>{" "}
+                anytime for these payment details. Staff will mark the invoice paid after funds
+                arrive.
+              </p>
+            </div>
+          ) : null}
           <div className="checkout-actions-row">
-            <Link className="button primary" href="/products">
-              Continue shopping
-            </Link>
-            <Link className="button secondary" href="/account">
+            <Link className="button primary" href="/account">
               View orders
+            </Link>
+            <Link className="button secondary" href="/products">
+              Continue shopping
             </Link>
           </div>
         </div>
@@ -216,7 +289,7 @@ export function CheckoutView({
     );
   }
 
-  async function submit() {
+  async function submit(forcePaidTest = false) {
     if (placing) return;
     setPlacing(true);
     setError(null);
@@ -225,9 +298,13 @@ export function CheckoutView({
         setError("Select a shipping address for delivery orders.");
         return;
       }
+      if (isBusiness && !forcePaidTest && !isBusinessPaymentMethod(paymentMethod)) {
+        setError("Select a payment method.");
+        return;
+      }
 
       const result = await Promise.race([
-        placeTestOrder(
+        placeOrder(
           lines.map((line) => ({
             productId: line.product.id,
             quantity: line.quantity,
@@ -235,7 +312,11 @@ export function CheckoutView({
           })),
           {
             fulfillmentMethod: method,
-            shippingAddressId: method === "ship" ? shippingAddressId : null
+            shippingAddressId: method === "ship" ? shippingAddressId : null,
+            paymentMethod: isBusiness && !forcePaidTest ? paymentMethod : undefined,
+            paymentReference:
+              isBusiness && !forcePaidTest ? paymentReference.trim() || null : null,
+            forcePaidTest
           }
         ),
         new Promise<never>((_, reject) => {
@@ -249,7 +330,12 @@ export function CheckoutView({
           orderNumber: result.orderNumber,
           invoiceNumber: result.invoiceNumber,
           total: result.total,
-          fulfillmentMethod: result.fulfillmentMethod
+          discountAmount: result.discountAmount,
+          fulfillmentMethod: result.fulfillmentMethod,
+          paymentMethod: result.paymentMethod,
+          paymentInstructions: result.paymentInstructions,
+          awaitingPayment: result.awaitingPayment,
+          isBusinessOrder: result.isBusinessOrder
         });
       } else {
         setError(toUserFacingError(result.error, "Could not place the order. Please try again."));
@@ -267,10 +353,27 @@ export function CheckoutView({
         <span className="kicker">Checkout</span>
         <h1>Confirm your order</h1>
         <p>
-          Choose <strong>pickup</strong> or <strong>shipping</strong>. Add a special request per
-          item if needed.
+          {isBusiness
+            ? "Choose pickup or shipping, then pay by card, check, Zelle, or bank transfer."
+            : "Choose pickup or shipping, then place your order."}
         </p>
       </header>
+
+      {isBusiness ? (
+        <div className="wholesale-status-banner is-active" role="status" style={{ marginBottom: 16 }}>
+          <Building2 size={18} aria-hidden="true" />
+          <div>
+            <strong>Business discount order</strong>
+            <p>
+              {companyName ? `${companyName}. ` : ""}
+              {businessDiscountPercent != null && businessDiscountPercent > 0
+                ? `${businessDiscountPercent}% order discount is applied below. `
+                : "Business account — discount % can be set by staff. "}
+              You can pay by card, check, Zelle, or bank transfer.
+            </p>
+          </div>
+        </div>
+      ) : null}
 
       <div className="checkout-fulfillment-block">
         <p className="field-hint" style={{ marginBottom: 10 }}>
@@ -315,6 +418,7 @@ export function CheckoutView({
               signedIn
               selectedId={shippingAddressId}
               onSelect={setShippingAddressId}
+              onAddressesChange={setShippingAddresses}
             />
           </div>
         ) : (
@@ -323,6 +427,69 @@ export function CheckoutView({
           </p>
         )}
       </div>
+
+      {isBusiness ? (
+        <section className="form-card" style={{ marginBottom: 18 }}>
+          <div className="form-card-heading">
+            <div>
+              <h2>
+                <Landmark size={18} aria-hidden="true" /> Payment method
+              </h2>
+              <p>
+                Pay by card (like retail shoppers) or offline — check, Zelle, or bank transfer.
+              </p>
+            </div>
+          </div>
+          <div className="fulfillment-choice" style={{ marginBottom: 12 }}>
+            {BUSINESS_PAYMENT_METHODS.map((m) => (
+              <label key={m}>
+                <input
+                  type="radio"
+                  name="checkout-payment"
+                  value={m}
+                  checked={paymentMethod === m}
+                  onChange={() => setPaymentMethod(m)}
+                />
+                <span>
+                  <strong>
+                    {m === "card" ? (
+                      <>
+                        <CreditCard size={14} aria-hidden="true" style={{ verticalAlign: -2 }} />{" "}
+                        {PAYMENT_METHOD_LABELS[m]}
+                      </>
+                    ) : (
+                      PAYMENT_METHOD_LABELS[m]
+                    )}
+                  </strong>
+                  <small>{BUSINESS_PAYMENT_HINTS[m]}</small>
+                </span>
+              </label>
+            ))}
+          </div>
+          {isOfflinePaymentMethod(paymentMethod) ? (
+            <>
+              <OfflinePaymentDetails
+                method={paymentMethod}
+                store={storeProfile}
+                amountDue={total}
+              />
+              <label style={{ marginTop: 12, display: "block" }}>
+                Your transfer / check reference (optional)
+                <input
+                  value={paymentReference}
+                  onChange={(e) => setPaymentReference(e.target.value)}
+                  maxLength={120}
+                  placeholder="Optional: check # or Zelle confirmation id"
+                />
+                <span className="field-hint">
+                  After placing the order, put the <strong>order number</strong> in the Zelle /
+                  bank memo (or check memo) so we can match your payment.
+                </span>
+              </label>
+            </>
+          ) : null}
+        </section>
+      ) : null}
 
       <ul className="cart-items checkout-lines">
         {lines.map(({ product, quantity, note }) => (
@@ -349,8 +516,14 @@ export function CheckoutView({
       <div className="checkout-summary">
         <div className="checkout-summary-row">
           <span>Subtotal</span>
-          <strong>{usd.format(subtotal)}</strong>
+          <strong>{usd.format(merchandiseSubtotal)}</strong>
         </div>
+        {discountAmount > 0 ? (
+          <div className="checkout-summary-row muted">
+            <span>Business discount ({businessDiscountPercent}%)</span>
+            <span>−{usd.format(discountAmount)}</span>
+          </div>
+        ) : null}
         <div className="checkout-summary-row muted">
           <span>Fulfillment</span>
           <span>{method === "pickup" ? "Pickup" : "Shipping"}</span>
@@ -361,9 +534,15 @@ export function CheckoutView({
             <span>{usd.format(SHIPPING_FLAT_RATE)}</span>
           </div>
         ) : null}
+        {isBusiness ? (
+          <div className="checkout-summary-row muted">
+            <span>Pay with</span>
+            <span>{PAYMENT_METHOD_LABELS[paymentMethod]}</span>
+          </div>
+        ) : null}
         <div className="checkout-summary-row total">
           <span>Total</span>
-          <strong>{usd.format(subtotal + (method === "ship" ? SHIPPING_FLAT_RATE : 0))}</strong>
+          <strong>{usd.format(total)}</strong>
         </div>
       </div>
 
@@ -377,14 +556,36 @@ export function CheckoutView({
         className="button primary block"
         type="button"
         disabled={placing}
-        onClick={() => void submit()}
+        onClick={() => void submit(false)}
       >
         {placing
           ? "Placing order…"
-          : method === "pickup"
-            ? "Place order — pickup"
-            : "Place order — ship"}
+          : isBusiness
+            ? paymentMethod === "card"
+              ? "Place order — pay by card"
+              : `Place order — pay by ${PAYMENT_METHOD_LABELS[paymentMethod]}`
+            : method === "pickup"
+              ? "Place order — pickup"
+              : "Place order — ship"}
       </button>
+
+      <div className="legal-callout compact" style={{ marginTop: 14 }}>
+        <h2>Test checkout</h2>
+        <p>
+          For testing Orders, Invoices, Payments, and Reports — creates a paid-in-full order
+          (not real Stripe). Business offline payment is not required for this button.
+        </p>
+        <button
+          className="button secondary block"
+          type="button"
+          disabled={placing}
+          onClick={() => void submit(true)}
+          style={{ marginTop: 10 }}
+        >
+          {placing ? "Placing order…" : "Place test order — mark as paid"}
+        </button>
+      </div>
+
       <Link className="button ghost block" href="/cart">
         Back to cart
       </Link>

@@ -12,7 +12,7 @@ import type { AdminCustomer } from "@/lib/data/customers";
 
 const TYPES = [
   { value: "retail", label: "Retail" },
-  { value: "wholesale", label: "Wholesale" },
+  { value: "wholesale", label: "Business" },
   { value: "guest", label: "Guest" }
 ];
 
@@ -73,38 +73,24 @@ function CustomerFields({ customer }: { customer?: AdminCustomer }) {
         </select>
       </label>
       {customerType === "wholesale" ? (
-        <>
-          <label>
-            Wholesale unlock by
-            <select
-              name="wholesaleMinKind"
-              defaultValue={customer?.wholesaleMinKind ?? "quantity"}
-            >
-              <option value="quantity">Minimum quantity (items)</option>
-              <option value="amount">Minimum order amount (USD)</option>
-            </select>
-          </label>
-          <label>
-            Minimum value
-            <input
-              name="wholesaleMinValue"
-              type="number"
-              min={0.01}
-              step="any"
-              required
-              defaultValue={customer?.wholesaleMinValue ?? 12}
-              placeholder="e.g. 12 or 150"
-            />
-            <span className="field-hint">
-              Customer only gets wholesale prices after the cart reaches this quantity or amount.
-            </span>
-          </label>
-        </>
+        <label>
+          Business discount %
+          <input
+            name="businessDiscountPercent"
+            type="number"
+            min={0}
+            max={100}
+            step="0.01"
+            defaultValue={customer?.businessDiscountPercent ?? ""}
+            placeholder="e.g. 10"
+          />
+          <span className="field-hint">
+            Order-level discount for offline business orders (check / Zelle / bank transfer). Not SKU
+            wholesale prices.
+          </span>
+        </label>
       ) : (
-        <>
-          <input type="hidden" name="wholesaleMinKind" value="" />
-          <input type="hidden" name="wholesaleMinValue" value="" />
-        </>
+        <input type="hidden" name="businessDiscountPercent" value="" />
       )}
       <label className="full-width">
         Notes

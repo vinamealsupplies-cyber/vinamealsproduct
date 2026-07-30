@@ -20,10 +20,13 @@ import {
 import {
   cancelOrder,
   cancelPickup,
+  confirmOrderPayment,
   confirmPickup,
+  markPickupReady,
   saveShipmentTracking,
   updateOrderNotes
 } from "@/app/admin/orders/actions";
+import { PAYMENT_METHOD_LABELS } from "@/lib/business-order";
 import { ORDER_STAFF_ACTION_LABEL } from "@/lib/data/order-staff-types";
 import type { StaffOrder } from "@/lib/data/orders";
 import { formatDate, formatDateTime, usd } from "@/lib/format";
@@ -70,9 +73,10 @@ function formatDayKeyLabel(dayKey: string): string {
 
 function fulfillmentLabel(order: StaffOrder) {
   if (order.status === "fulfilled") {
-    return order.fulfillmentMethod === "pickup" ? "Đã pickup" : "Đã ship / giao";
+    return order.fulfillmentMethod === "pickup" ? "Đã lấy hàng" : "Đã ship / giao";
   }
-  if (order.awaitingPickup) return "Chờ pickup";
+  if (order.awaitingPickupPrep) return "Đang chuẩn bị (pickup)";
+  if (order.awaitingPickup) return "Sẵn sàng pickup";
   if (order.awaitingDelivery) return "Chờ ship / giao";
   if (order.status === "cancelled") return "Đã huỷ";
   if (order.fulfillmentMethod === "pickup") return "Pickup";
@@ -286,7 +290,13 @@ function OrderRows({ orders, handlers }: { orders: StaffOrder[]; handlers: RowHa
           <Fragment key={order.id}>
             <tr
               className={[
-                order.awaitingPickup || order.awaitingDelivery ? "row-awaiting-pickup" : "",
+                order.awaitingPickup
+                  ? "row-awaiting-pickup"
+                  : order.awaitingPickupPrep
+                    ? "row-awaiting-prep"
+                    : order.awaitingDelivery
+                      ? "row-awaiting-ship"
+                      : "",
                 expanded ? "row-order-expanded" : "",
                 "row-order-clickable"
               ]
@@ -340,19 +350,37 @@ function OrderRows({ orders, handlers }: { orders: StaffOrder[]; handlers: RowHa
                 <span className={`status-badge status-${order.status}`}>
                   {STATUS_LABEL[order.status] ?? order.status}
                 </span>
+                <div style={{ marginTop: 6 }}>
+                  {order.paymentStatus === "paid" ? (
+                    <span className="status-pill status-approved">Paid</span>
+                  ) : order.paymentStatus === "pending" || order.paymentStatus === "partial" ? (
+                    <span className="status-pill status-pending">
+                      {order.paymentStatus === "partial" ? "Partial pay" : "Awaiting payment"}
+                      {order.paymentMethod
+                        ? ` · ${PAYMENT_METHOD_LABELS[order.paymentMethod] ?? order.paymentMethod}`
+                        : ""}
+                    </span>
+                  ) : (
+                    <span className="status-pill status-not-requested">No invoice</span>
+                  )}
+                </div>
               </td>
               <td>
                 {order.status === "fulfilled" ? (
                   <span className="pickup-badge done">
                     <CheckCircle2 size={14} aria-hidden="true" />{" "}
-                    {order.fulfillmentMethod === "pickup" ? "Đã pickup" : "Đã ship / giao"}
+                    {order.fulfillmentMethod === "pickup" ? "Đã lấy hàng" : "Đã ship / giao"}
+                  </span>
+                ) : order.awaitingPickupPrep ? (
+                  <span className="pickup-badge waiting">
+                    <PackageOpen size={14} aria-hidden="true" /> ĐANG CHUẨN BỊ
                   </span>
                 ) : order.awaitingPickup ? (
                   <span className="pickup-badge waiting blink-red">
-                    <AlertTriangle size={14} aria-hidden="true" /> CHỜ PICKUP
+                    <AlertTriangle size={14} aria-hidden="true" /> SẴN SÀNG PICKUP
                   </span>
                 ) : order.awaitingDelivery ? (
-                  <span className="pickup-badge waiting blink-red">
+                  <span className="pickup-badge waiting-ship blink-pink">
                     <Truck size={14} aria-hidden="true" /> CHỜ SHIP
                   </span>
                 ) : order.status === "cancelled" ? (
@@ -378,14 +406,56 @@ function OrderRows({ orders, handlers }: { orders: StaffOrder[]; handlers: RowHa
                 ) : null}
               </td>
               <td className="row-actions orders-row-actions">
-                {order.awaitingPickup ? (
+                {order.canConfirmPayment ? (
                   <button
                     className="button primary compact"
                     type="button"
                     disabled={pendingId === order.id}
-                    onClick={() => run(order.id, () => confirmPickup(order.id))}
+                    onClick={() => {
+                      const note = window.prompt(
+                        "Ghi chú xác nhận thanh toán (bắt buộc):",
+                        order.paymentMethod
+                          ? `Received ${PAYMENT_METHOD_LABELS[order.paymentMethod] ?? order.paymentMethod}`
+                          : "Payment received"
+                      );
+                      if (note == null) return;
+                      const ref = window.prompt(
+                        "Mã tham chiếu (check # / Zelle / transfer) — optional:",
+                        order.paymentReference ?? ""
+                      );
+                      if (ref === null) return;
+                      void run(order.id, () => confirmOrderPayment(order.id, note, ref));
+                    }}
                   >
-                    {pendingId === order.id ? "…" : "Xác nhận pickup"}
+                    {pendingId === order.id ? "…" : "Confirm payment"}
+                  </button>
+                ) : null}
+                {order.canMarkPickupReady ? (
+                  <button
+                    className="button blue compact"
+                    type="button"
+                    disabled={pendingId === order.id}
+                    onClick={() =>
+                      run(order.id, () =>
+                        markPickupReady(order.id, "Order ready for customer pickup")
+                      )
+                    }
+                    title="Customer will see Ready for pickup on their account"
+                  >
+                    {pendingId === order.id ? "…" : "Sẵn sàng pickup"}
+                  </button>
+                ) : null}
+                {order.canConfirmPickedUp ? (
+                  <button
+                    className={
+                      order.awaitingPickup ? "button primary compact" : "button secondary compact"
+                    }
+                    type="button"
+                    disabled={pendingId === order.id}
+                    onClick={() => run(order.id, () => confirmPickup(order.id))}
+                    title="Customer has collected the order at the store"
+                  >
+                    {pendingId === order.id ? "…" : "Xác nhận đã lấy"}
                   </button>
                 ) : null}
                 {order.canCancelPickup ? (
@@ -563,7 +633,9 @@ export function OrdersManager({ orders }: { orders: StaffOrder[] }) {
   const canPrevDay = dayIndex >= 0 && dayIndex < completedDayKeys.length - 1; // older
   const canNextDay = dayIndex > 0; // newer
 
-  const awaitingCount = openOrders.filter((o) => o.awaitingPickup || o.awaitingDelivery).length;
+  const awaitingCount = openOrders.filter(
+    (o) => o.awaitingPickupPrep || o.awaitingPickup || o.awaitingDelivery
+  ).length;
 
   async function run(id: string, fn: () => Promise<{ ok: true } | { ok: false; error: string }>) {
     setPendingId(id);

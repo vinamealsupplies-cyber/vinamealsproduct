@@ -3,10 +3,52 @@
 import { revalidatePath } from "next/cache";
 import { getViewer } from "@/lib/auth";
 import type { AddressFormState } from "@/lib/data/address-form";
+import type { CustomerAddress } from "@/lib/data/address-types";
 import { getOwnCustomerId } from "@/lib/data/addresses";
 import { normalizeUsPhone, US_STATE_CODES, US_ZIP_PATTERN } from "@/lib/data/us-states";
 import { callerKey, checkRateLimit, RATE_LIMITS } from "@/lib/rate-limit";
 import { createAdminClient } from "@/lib/supabase/admin";
+
+type DbAddressRow = {
+  id: string;
+  customer_id: string;
+  address_type: CustomerAddress["addressType"];
+  label: string | null;
+  recipient_name: string | null;
+  company_name: string | null;
+  phone: string | null;
+  line1: string;
+  line2: string | null;
+  city: string;
+  state_region: string;
+  postal_code: string;
+  country_code: string;
+  is_default: boolean;
+  created_at: string;
+};
+
+const ADDRESS_SELECT =
+  "id, customer_id, address_type, label, recipient_name, company_name, phone, line1, line2, city, state_region, postal_code, country_code, is_default, created_at";
+
+function mapAddressRow(row: DbAddressRow): CustomerAddress {
+  return {
+    id: row.id,
+    customerId: row.customer_id,
+    addressType: row.address_type,
+    label: row.label,
+    recipientName: row.recipient_name,
+    companyName: row.company_name,
+    phone: row.phone,
+    line1: row.line1,
+    line2: row.line2,
+    city: row.city,
+    stateRegion: row.state_region,
+    postalCode: row.postal_code,
+    countryCode: row.country_code,
+    isDefault: row.is_default,
+    createdAt: row.created_at
+  };
+}
 
 function fail(message: string): AddressFormState {
   return { status: "error", message };
@@ -67,6 +109,7 @@ function revalidateAddressPaths() {
   revalidatePath("/account");
   revalidatePath("/account/addresses");
   revalidatePath("/cart");
+  revalidatePath("/checkout");
 }
 
 /** Gỡ cờ default cũ cùng loại trước khi gán default mới (partial unique index). */
@@ -129,16 +172,18 @@ export async function createShippingAddress(
       country_code: "US",
       is_default: makeDefault
     })
-    .select("id")
+    .select(ADDRESS_SELECT)
     .single();
 
   if (error) return fail(error.message);
 
+  const address = mapAddressRow(data as DbAddressRow);
   revalidateAddressPaths();
   return {
     status: "success",
     message: "Shipping address saved.",
-    addressId: data.id
+    addressId: address.id,
+    address
   };
 }
 
@@ -177,7 +222,7 @@ export async function updateShippingAddress(
   const makeDefault = parsed.isDefault || existing.is_default;
   if (makeDefault) await clearDefaultShipping(customerId, addressId);
 
-  const { error } = await admin
+  const { data, error } = await admin
     .from("customer_addresses")
     .update({
       label: parsed.label,
@@ -193,12 +238,20 @@ export async function updateShippingAddress(
       is_default: makeDefault
     })
     .eq("id", addressId)
-    .eq("customer_id", customerId);
+    .eq("customer_id", customerId)
+    .select(ADDRESS_SELECT)
+    .single();
 
   if (error) return fail(error.message);
 
+  const address = mapAddressRow(data as DbAddressRow);
   revalidateAddressPaths();
-  return { status: "success", message: "Shipping address updated.", addressId };
+  return {
+    status: "success",
+    message: "Shipping address updated.",
+    addressId: address.id,
+    address
+  };
 }
 
 export async function deleteShippingAddress(formData: FormData): Promise<void> {

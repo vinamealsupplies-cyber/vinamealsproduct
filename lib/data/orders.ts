@@ -38,6 +38,8 @@ export type StaffOrder = {
   currency: string;
   createdAt: string;
   notes: string | null;
+  /** Staff marked order ready for customer to collect. */
+  pickupReadyAt: string | null;
   pickedUpAt: string | null;
   fulfilledAt: string | null;
   pickupLocation: string | null;
@@ -61,8 +63,20 @@ export type StaffOrder = {
   staffEvents: OrderStaffEvent[];
   itemCount: number;
   items: StaffOrderItem[];
-  /** Đơn pickup đã xác nhận nhưng CHƯA lấy hàng → cần chú ý (nhấp nháy đỏ). */
+  /**
+   * Pickup still preparing (confirmed, not ready yet).
+   * Badge: đang chuẩn bị.
+   */
+  awaitingPickupPrep: boolean;
+  /**
+   * Pickup ready for customer (ready_at set, not collected).
+   * Badge: sẵn sàng lấy — nhấp nháy.
+   */
   awaitingPickup: boolean;
+  /** Staff can mark ready for customer. */
+  canMarkPickupReady: boolean;
+  /** Staff can confirm customer collected. */
+  canConfirmPickedUp: boolean;
   /** Đơn ship confirmed — chờ xác nhận đã giao. */
   awaitingDelivery: boolean;
   canCancel: boolean;
@@ -71,6 +85,17 @@ export type StaffOrder = {
   canEditTracking: boolean;
   /** Pickup đã xác nhận → có thể huỷ pickup (trả về chờ lấy). */
   canCancelPickup: boolean;
+  /** Offline payment method chosen at checkout. */
+  paymentMethod: string | null;
+  paymentReference: string | null;
+  paymentConfirmedAt: string | null;
+  /** From invoice balance — unpaid offline orders need staff confirm. */
+  paymentStatus: "paid" | "pending" | "partial" | "none";
+  invoiceId: string | null;
+  invoiceNumber: string | null;
+  amountPaid: number;
+  balanceDue: number;
+  canConfirmPayment: boolean;
 };
 
 type DbCustomer = {
@@ -102,6 +127,7 @@ type DbOrder = {
   currency: string;
   created_at: string;
   notes: string | null;
+  pickup_ready_at?: string | null;
   picked_up_at: string | null;
   fulfilled_at: string | null;
   shipping_carrier: string | null;
@@ -117,9 +143,20 @@ type DbOrder = {
   last_staff_note: string | null;
   last_staff_action: string | null;
   last_staff_at: string | null;
+  payment_method?: string | null;
+  payment_reference?: string | null;
+  payment_confirmed_at?: string | null;
   customer: DbCustomer | DbCustomer[] | null;
   location: { name: string | null } | { name: string | null }[] | null;
   items: DbItem[] | null;
+};
+
+type InvoicePayInfo = {
+  invoiceId: string;
+  invoiceNumber: string | null;
+  amountPaid: number;
+  balanceDue: number;
+  status: string;
 };
 
 function one<T>(value: T | T[] | null): T | null {
@@ -161,15 +198,39 @@ function mapItems(items: DbItem[] | null): StaffOrderItem[] {
   });
 }
 
-function mapOrder(row: DbOrder, staffEvents: OrderStaffEvent[] = []): StaffOrder {
+function mapOrder(
+  row: DbOrder,
+  staffEvents: OrderStaffEvent[] = [],
+  pay: InvoicePayInfo | null = null
+): StaffOrder {
   const customer = one(row.customer);
   const location = one(row.location);
   const items = mapItems(row.items);
-  const awaitingPickup =
-    row.fulfillment_method === "pickup" && row.status === "confirmed" && row.picked_up_at == null;
+  const isPickupOpen =
+    row.fulfillment_method === "pickup" &&
+    row.status === "confirmed" &&
+    row.picked_up_at == null;
+  const awaitingPickupPrep = isPickupOpen && !row.pickup_ready_at;
+  const awaitingPickup = isPickupOpen && Boolean(row.pickup_ready_at);
+  const canMarkPickupReady = awaitingPickupPrep;
+  const canConfirmPickedUp = isPickupOpen;
   const awaitingDelivery = row.fulfillment_method === "ship" && row.status === "confirmed";
   const fullName = customerFullName(customer);
   const company = customer?.company_name?.trim() || null;
+  const total = num(row.total_amount);
+  const amountPaid = pay?.amountPaid ?? 0;
+  const balanceDue = pay
+    ? pay.balanceDue
+    : total;
+  let paymentStatus: StaffOrder["paymentStatus"] = "none";
+  if (pay) {
+    if (pay.status === "paid" || balanceDue <= 0.009) paymentStatus = "paid";
+    else if (amountPaid > 0) paymentStatus = "partial";
+    else paymentStatus = "pending";
+  } else if (row.payment_confirmed_at) {
+    paymentStatus = "paid";
+  }
+
   return {
     id: row.id,
     number: row.order_number ?? row.id.slice(0, 8),
@@ -179,10 +240,11 @@ function mapOrder(row: DbOrder, staffEvents: OrderStaffEvent[] = []): StaffOrder
     status: row.status,
     channel: row.channel,
     fulfillmentMethod: row.fulfillment_method,
-    total: num(row.total_amount),
+    total,
     currency: row.currency,
     createdAt: row.created_at,
     notes: row.notes,
+    pickupReadyAt: row.pickup_ready_at ?? null,
     pickedUpAt: row.picked_up_at,
     fulfilledAt: row.fulfilled_at,
     pickupLocation: location?.name ?? null,
@@ -206,7 +268,10 @@ function mapOrder(row: DbOrder, staffEvents: OrderStaffEvent[] = []): StaffOrder
     staffEvents,
     itemCount: items.length,
     items,
+    awaitingPickupPrep,
     awaitingPickup,
+    canMarkPickupReady,
+    canConfirmPickedUp,
     awaitingDelivery,
     canCancel: row.status === "confirmed",
     canEditNotes: row.status !== "cancelled",
@@ -214,7 +279,17 @@ function mapOrder(row: DbOrder, staffEvents: OrderStaffEvent[] = []): StaffOrder
     canCancelPickup:
       row.fulfillment_method === "pickup" &&
       row.status === "fulfilled" &&
-      row.picked_up_at != null
+      row.picked_up_at != null,
+    paymentMethod: row.payment_method ?? null,
+    paymentReference: row.payment_reference ?? null,
+    paymentConfirmedAt: row.payment_confirmed_at ?? null,
+    paymentStatus,
+    invoiceId: pay?.invoiceId ?? null,
+    invoiceNumber: pay?.invoiceNumber ?? null,
+    amountPaid,
+    balanceDue,
+    canConfirmPayment:
+      row.status !== "cancelled" && paymentStatus !== "paid" && Boolean(pay?.invoiceId)
   };
 }
 
@@ -238,10 +313,11 @@ export async function getOrdersForStaff(): Promise<StaffOrder[]> {
   const { data, error } = await supabase
     .from("sales_orders")
     .select(
-      `id, order_number, status, channel, fulfillment_method, total_amount, currency, created_at, notes, picked_up_at, fulfilled_at,
+      `id, order_number, status, channel, fulfillment_method, total_amount, currency, created_at, notes, pickup_ready_at, picked_up_at, fulfilled_at,
        shipping_carrier, tracking_number, tracking_url, shipped_at, picked_up_by, picked_up_by_name,
        cancelled_by_name, cancel_note, cancelled_at,
        last_staff_actor_name, last_staff_note, last_staff_action, last_staff_at,
+       payment_method, payment_reference, payment_confirmed_at,
        customer:customers ( first_name, last_name, company_name, phone, auth_user_id ),
        location:inventory_locations ( name ),
        items:sales_order_items ( id, product_name_snapshot, variant_name_snapshot, sku_snapshot, quantity, unit_price, line_total, line_note )`
@@ -253,7 +329,30 @@ export async function getOrdersForStaff(): Promise<StaffOrder[]> {
   if (error) throw new Error(`Failed to load orders: ${error.message}`);
 
   const rows = (data ?? []) as unknown as DbOrder[];
-  const eventsByOrder = await getStaffEventsForOrders(rows.map((r) => r.id));
+  const orderIds = rows.map((r) => r.id);
+  const eventsByOrder = await getStaffEventsForOrders(orderIds);
+
+  const payByOrder = new Map<string, InvoicePayInfo>();
+  if (orderIds.length) {
+    const { data: invoices } = await supabase
+      .from("invoices")
+      .select("id, invoice_number, order_id, total_amount, amount_paid, status, balance_due")
+      .in("order_id", orderIds)
+      .order("created_at", { ascending: false });
+    for (const inv of invoices ?? []) {
+      if (!inv.order_id || payByOrder.has(inv.order_id)) continue;
+      payByOrder.set(inv.order_id, {
+        invoiceId: inv.id,
+        invoiceNumber: inv.invoice_number,
+        amountPaid: num(inv.amount_paid),
+        balanceDue:
+          inv.balance_due != null
+            ? num(inv.balance_due)
+            : Math.max(0, num(inv.total_amount) - num(inv.amount_paid)),
+        status: inv.status
+      });
+    }
+  }
 
   // Bổ sung họ tên / SĐT từ profiles khi hồ sơ customers còn trống.
   const authIds = [
@@ -309,7 +408,7 @@ export async function getOrdersForStaff(): Promise<StaffOrder[]> {
         row.cancelled_at = row.cancelled_at || cancelEv.createdAt;
       }
     }
-    return mapOrder(row, events);
+    return mapOrder(row, events, payByOrder.get(row.id) ?? null);
   });
 }
 

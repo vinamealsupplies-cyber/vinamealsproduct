@@ -26,6 +26,8 @@ export type CustomerOrder = {
   placedAt: string;
   createdAt: string;
   notes: string | null;
+  /** Staff marked ready for customer to collect at store. */
+  pickupReadyAt: string | null;
   pickedUpAt: string | null;
   fulfilledAt: string | null;
   /** Thời điểm thanh toán thành công (payments.received_at), null nếu chưa thanh toán. */
@@ -77,6 +79,7 @@ type DbOrder = {
   placed_at: string | null;
   created_at: string;
   notes: string | null;
+  pickup_ready_at?: string | null;
   picked_up_at: string | null;
   fulfilled_at: string | null;
   items: DbItem[] | null;
@@ -96,6 +99,7 @@ function asArray<T>(value: T | T[] | null | undefined): T[] {
 function statusCopy(order: {
   status: CustomerOrderStatus;
   fulfillmentMethod: CustomerFulfillment;
+  pickupReadyAt: string | null;
   pickedUpAt: string | null;
 }): { label: string; detail: string; isOpen: boolean } {
   if (order.status === "cancelled") {
@@ -113,11 +117,17 @@ function statusCopy(order: {
   }
   if (order.status === "confirmed") {
     if (order.fulfillmentMethod === "pickup") {
+      if (order.pickupReadyAt) {
+        return {
+          label: "Ready for pickup",
+          detail:
+            "Your order is ready at the store. Bring your order number and a photo ID to collect it.",
+          isOpen: true
+        };
+      }
       return {
-        label: "Ready for pickup",
-        detail: order.pickedUpAt
-          ? "Pickup recorded."
-          : "We are preparing your order. Come pick it up when ready.",
+        label: "Preparing",
+        detail: "We are preparing your order. We’ll mark it ready for pickup when it’s done.",
         isOpen: true
       };
     }
@@ -193,6 +203,7 @@ function mapOrder(row: DbOrder): CustomerOrder {
   const copy = statusCopy({
     status: row.status,
     fulfillmentMethod,
+    pickupReadyAt: row.pickup_ready_at ?? null,
     pickedUpAt: row.picked_up_at
   });
   const payment = paymentInfo(row);
@@ -207,6 +218,7 @@ function mapOrder(row: DbOrder): CustomerOrder {
     placedAt: row.placed_at ?? row.created_at,
     createdAt: row.created_at,
     notes: row.notes,
+    pickupReadyAt: row.pickup_ready_at ?? null,
     pickedUpAt: row.picked_up_at,
     fulfilledAt: row.fulfilled_at,
     paidAt: payment.paidAt,
@@ -242,7 +254,7 @@ export async function getOwnOrders(authUserId: string): Promise<CustomerOrder[]>
   const { data, error } = await supabase
     .from("sales_orders")
     .select(
-      `id, order_number, status, fulfillment_method, total_amount, currency, placed_at, created_at, notes, picked_up_at, fulfilled_at,
+      `id, order_number, status, fulfillment_method, total_amount, currency, placed_at, created_at, notes, pickup_ready_at, picked_up_at, fulfilled_at,
        items:sales_order_items ( id, product_name_snapshot, variant_name_snapshot, sku_snapshot, quantity, unit_price, line_total, line_note ),
        invoices ( id, amount_paid, total_amount, status, payments ( received_at, status, amount, payment_method, created_at ) )`
     )

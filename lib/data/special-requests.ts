@@ -6,7 +6,6 @@ import { createAdminClient } from "@/lib/supabase/admin";
 
 export type { SpecialRequest };
 
-/** Giữ tối đa N phrase / user — xóa ít dùng nhất khi vượt. */
 const MAX_PER_USER = 40;
 const LIST_LIMIT = 30;
 
@@ -33,16 +32,18 @@ export async function getOwnSpecialRequests(userId: string): Promise<SpecialRequ
     .select("id, body, use_count, last_used_at")
     .eq("user_id", userId)
     .order("last_used_at", { ascending: false })
-    .order("use_count", { ascending: false })
     .limit(LIST_LIMIT);
 
-  if (error || !data) return [];
-  return (data as DbRow[]).map(mapRow);
+  if (error) {
+    console.error("[special-requests] list", error.message);
+    return [];
+  }
+  return ((data ?? []) as DbRow[]).map(mapRow);
 }
 
 /**
- * Ghi nhớ / bump phrase khi user dùng special request.
- * Trùng (không phân biệt hoa thường) → tăng use_count + last_used_at.
+ * Remember / bump a phrase. Match case-insensitively in JS (avoids flaky ilike).
+ * Always returns the full saved list for the user.
  */
 export async function recordSpecialRequest(
   userId: string,
@@ -54,26 +55,19 @@ export async function recordSpecialRequest(
   }
 
   const supabase = createAdminClient();
+  const existingList = await getOwnSpecialRequests(userId);
+  const match = existingList.find((item) => item.body.toLowerCase() === body.toLowerCase());
+  const now = new Date().toISOString();
 
-  // Tìm bản trùng case-insensitive (unique index lower(btrim(body))).
-  const { data: existing, error: findErr } = await supabase
-    .from("user_special_requests")
-    .select("id, body, use_count, last_used_at")
-    .eq("user_id", userId)
-    .ilike("body", body.replace(/[%_\\]/g, "\\$&"))
-    .maybeSingle();
-
-  if (findErr) return { ok: false, error: findErr.message };
-
-  if (existing) {
+  if (match) {
     const { error: updErr } = await supabase
       .from("user_special_requests")
       .update({
         body,
-        use_count: (existing.use_count ?? 1) + 1,
-        last_used_at: new Date().toISOString()
+        use_count: (match.useCount ?? 1) + 1,
+        last_used_at: now
       })
-      .eq("id", existing.id)
+      .eq("id", match.id)
       .eq("user_id", userId);
     if (updErr) return { ok: false, error: updErr.message };
   } else {
@@ -81,29 +75,36 @@ export async function recordSpecialRequest(
       user_id: userId,
       body: body.slice(0, CART_NOTE_MAX),
       use_count: 1,
-      last_used_at: new Date().toISOString()
+      last_used_at: now
     });
     if (insErr) {
-      // Race unique → retry as update.
       if (insErr.code === "23505") {
-        return recordSpecialRequest(userId, body);
+        // Unique race — bump the existing row.
+        const again = await getOwnSpecialRequests(userId);
+        const hit = again.find((item) => item.body.toLowerCase() === body.toLowerCase());
+        if (hit) {
+          await supabase
+            .from("user_special_requests")
+            .update({ use_count: hit.useCount + 1, last_used_at: now, body })
+            .eq("id", hit.id);
+        }
+      } else {
+        return { ok: false, error: insErr.message };
       }
-      return { ok: false, error: insErr.message };
-    }
+    } else {
+      // Prune oldest when over cap.
+      const { data: allIds } = await supabase
+        .from("user_special_requests")
+        .select("id")
+        .eq("user_id", userId)
+        .order("last_used_at", { ascending: true });
 
-    // Prune nếu vượt MAX_PER_USER.
-    const { data: allIds } = await supabase
-      .from("user_special_requests")
-      .select("id")
-      .eq("user_id", userId)
-      .order("last_used_at", { ascending: true })
-      .order("use_count", { ascending: true });
-
-    const rows = allIds ?? [];
-    if (rows.length > MAX_PER_USER) {
-      const drop = rows.slice(0, rows.length - MAX_PER_USER).map((r: { id: string }) => r.id);
-      if (drop.length) {
-        await supabase.from("user_special_requests").delete().in("id", drop);
+      const rows = allIds ?? [];
+      if (rows.length > MAX_PER_USER) {
+        const drop = rows.slice(0, rows.length - MAX_PER_USER).map((r: { id: string }) => r.id);
+        if (drop.length) {
+          await supabase.from("user_special_requests").delete().in("id", drop);
+        }
       }
     }
   }
@@ -129,7 +130,7 @@ export async function deleteSpecialRequest(
   return { ok: true, items: await getOwnSpecialRequests(userId) };
 }
 
-/** Ghi nhớ hàng loạt (sau checkout — mỗi note khác nhau 1 lần). */
+/** Remember many phrases (e.g. after checkout). */
 export async function recordSpecialRequestsBatch(
   userId: string,
   bodies: string[]

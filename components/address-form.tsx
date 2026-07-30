@@ -1,13 +1,12 @@
 "use client";
 
-import { useActionState, useEffect, useRef } from "react";
+import { useRef, useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import { MapPin, Save } from "lucide-react";
 import {
-  createShippingAddress,
-  updateShippingAddress
-} from "@/app/account/addresses/actions";
-import { initialAddressFormState, type AddressFormState } from "@/lib/data/address-form";
+  initialAddressFormState,
+  type AddressFormState
+} from "@/lib/data/address-form";
 import type { CustomerAddress } from "@/lib/data/address-types";
 import { formatUsPhoneDisplay, US_STATES } from "@/lib/data/us-states";
 
@@ -22,6 +21,10 @@ type AddressFormProps = {
   submitLabel?: string;
 };
 
+/**
+ * Lưu địa chỉ qua /api/account/addresses (POST/PATCH), không qua Server Action ID.
+ * Tránh lỗi "Server Action was not found" khi tab giữ bundle cũ sau deploy.
+ */
 export function AddressForm({
   address = null,
   onSuccess,
@@ -31,28 +34,71 @@ export function AddressForm({
 }: AddressFormProps) {
   const router = useRouter();
   const isEdit = Boolean(address);
-  const actionFn = isEdit ? updateShippingAddress : createShippingAddress;
   const handledSuccess = useRef<string | null>(null);
+  const [state, setState] = useState<AddressFormState>(initialAddressFormState);
+  const [pending, setPending] = useState(false);
 
-  const [state, formAction, pending] = useActionState(
-    async (prev: AddressFormState, formData: FormData) => {
-      const result = await actionFn(prev, formData);
-      return result;
-    },
-    initialAddressFormState
-  );
+  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (pending) return;
 
-  useEffect(() => {
-    if (state.status !== "success") return;
-    const key = state.addressId ?? state.message;
-    if (handledSuccess.current === key) return;
-    handledSuccess.current = key;
-    router.refresh();
-    onSuccess?.(state);
-  }, [state, onSuccess, router]);
+    const form = event.currentTarget;
+    const formData = new FormData(form);
+    setPending(true);
+    setState(initialAddressFormState);
+
+    try {
+      const res = await fetch("/api/account/addresses", {
+        method: isEdit ? "PATCH" : "POST",
+        body: formData,
+        credentials: "same-origin"
+      });
+
+      let result: AddressFormState;
+      try {
+        result = (await res.json()) as AddressFormState;
+      } catch {
+        result = {
+          status: "error",
+          message: "Could not read the server response. Please refresh and try again."
+        };
+      }
+
+      if (!result?.status) {
+        result = {
+          status: "error",
+          message: res.ok
+            ? "Unexpected response from server."
+            : "Could not save address. Please refresh the page and try again."
+        };
+      }
+
+      setState(result);
+
+      if (result.status === "success") {
+        const key = result.addressId ?? result.message;
+        if (handledSuccess.current !== key) {
+          handledSuccess.current = key;
+          router.refresh();
+          onSuccess?.(result);
+        }
+      }
+    } catch {
+      setState({
+        status: "error",
+        message: "Network error while saving. Please try again."
+      });
+    } finally {
+      setPending(false);
+    }
+  }
 
   return (
-    <form className={compact ? "address-form compact" : "address-form"} action={formAction}>
+    <form
+      className={compact ? "address-form compact" : "address-form"}
+      onSubmit={handleSubmit}
+      noValidate={false}
+    >
       {address ? <input type="hidden" name="addressId" value={address.id} /> : null}
 
       {state.status !== "idle" ? (

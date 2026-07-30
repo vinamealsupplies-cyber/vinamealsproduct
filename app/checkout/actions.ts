@@ -2,6 +2,15 @@
 
 import { revalidatePath } from "next/cache";
 import { getViewer } from "@/lib/auth";
+import {
+  computeBusinessDiscount,
+  isBusinessPaymentMethod,
+  isOfflinePaymentMethod,
+  PAYMENT_INSTRUCTIONS,
+  type BusinessPaymentMethod,
+  type OfflinePaymentMethod
+} from "@/lib/business-order";
+import { getOwnBusinessAccount } from "@/lib/data/business-account";
 import { getOwnShippingAddresses } from "@/lib/data/addresses";
 import type { CustomerAddress } from "@/lib/data/address-types";
 import { actorAuditMeta, writeAuditLog } from "@/lib/data/audit-log";
@@ -9,32 +18,42 @@ import { clearOwnCartItems } from "@/lib/data/cart";
 import { getProducts } from "@/lib/data/products";
 import { getOwnSpecialRequests } from "@/lib/data/special-requests";
 import { recordSpecialRequestsBatch } from "@/lib/data/special-requests";
-import { getOwnWholesaleAccount } from "@/lib/data/wholesale-account";
+import { getStoreBusinessProfile } from "@/lib/data/store-settings";
 import { isSupabaseAdminConfigured } from "@/lib/env";
 import { callerKey, checkRateLimit, RATE_LIMITS } from "@/lib/rate-limit";
 import type { Product } from "@/lib/sample-data";
 import type { SpecialRequest } from "@/lib/special-request-types";
+import {
+  defaultStoreBusinessProfile,
+  type StoreBusinessProfile
+} from "@/lib/store-profile";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { toUserFacingError } from "@/lib/user-facing-error";
-import { evaluateWholesaleEligibility } from "@/lib/wholesale";
 
-// Checkout test: tạo sales_order confirmed + invoice PAID + payment succeeded
-// để test Reports / Invoices / Payments (giả lập đã thu tiền, chưa Stripe thật).
+// Web checkout: retail/sale unit prices + optional business discount %.
+// Offline payment (check / Zelle / bank transfer) → invoice issued, unpaid.
+// Admin confirms payment later (no auto-paid test checkout).
 
 const PICKUP_LOCATION_CODE = "STORE-PICKUP";
 const LINE_NOTE_MAX = 300;
+const SHIPPING_FLAT_RATE = 12.5;
 
 export type CheckoutItem = {
   productId: string;
   quantity: number;
-  /** Yêu cầu đặc biệt cho món (tùy chọn). */
   note?: string;
 };
 
 export type CheckoutOptions = {
   fulfillmentMethod?: "pickup" | "ship";
-  /** Bắt buộc khi ship — id customer_addresses của khách. */
   shippingAddressId?: string | null;
+  paymentMethod?: BusinessPaymentMethod | OfflinePaymentMethod | string;
+  paymentReference?: string | null;
+  /**
+   * Test path: create invoice + payment succeeded immediately
+   * (same as the old “test checkout” for Orders / Invoices / Reports).
+   */
+  forcePaidTest?: boolean;
 };
 
 export type CheckoutResult =
@@ -43,7 +62,15 @@ export type CheckoutResult =
       orderNumber: string;
       invoiceNumber: string | null;
       total: number;
+      discountAmount: number;
       fulfillmentMethod: "pickup" | "ship";
+      /** Business: card | offline; retail / test may be null. */
+      paymentMethod: BusinessPaymentMethod | OfflinePaymentMethod | null;
+      paymentInstructions: string | null;
+      awaitingPayment: boolean;
+      isBusinessOrder: boolean;
+      /** True when forcePaidTest was used. */
+      isTestPaid?: boolean;
     }
   | { ok: false; error: string };
 
@@ -54,10 +81,14 @@ export type CheckoutBootstrap =
       shippingAddresses: CustomerAddress[];
       specialRequests: SpecialRequest[];
       customerName: string;
+      isBusiness: boolean;
+      businessDiscountPercent: number | null;
+      companyName: string | null;
+      /** Seller pay-to details for offline methods (Zelle / bank / check). */
+      storeProfile: StoreBusinessProfile;
     }
   | { ok: false; error: string; signedIn: boolean };
 
-/** Client-side bootstrap so /checkout SSR stays tiny (avoids Worker/RSC crashes). */
 export async function loadCheckoutBootstrap(): Promise<CheckoutBootstrap> {
   try {
     const viewer = await getViewer();
@@ -66,18 +97,30 @@ export async function loadCheckoutBootstrap(): Promise<CheckoutBootstrap> {
     }
 
     const canLoad = isSupabaseAdminConfigured();
-    const [catalogR, addrR, reqR] = await Promise.allSettled([
+    const [catalogR, addrR, reqR, bizR, storeR] = await Promise.allSettled([
       getProducts(),
       canLoad ? getOwnShippingAddresses(viewer.id) : Promise.resolve([] as CustomerAddress[]),
-      canLoad ? getOwnSpecialRequests(viewer.id) : Promise.resolve([] as SpecialRequest[])
+      canLoad ? getOwnSpecialRequests(viewer.id) : Promise.resolve([] as SpecialRequest[]),
+      canLoad ? getOwnBusinessAccount(viewer.id) : Promise.resolve(null),
+      canLoad ? getStoreBusinessProfile() : Promise.resolve(null)
     ]);
+
+    const biz = bizR.status === "fulfilled" ? bizR.value : null;
+    const storeProfile =
+      storeR.status === "fulfilled" && storeR.value
+        ? storeR.value
+        : defaultStoreBusinessProfile();
 
     return {
       ok: true,
       catalog: catalogR.status === "fulfilled" ? catalogR.value : [],
       shippingAddresses: addrR.status === "fulfilled" ? addrR.value : [],
       specialRequests: reqR.status === "fulfilled" ? reqR.value : [],
-      customerName: viewer.fullName || viewer.email || "Customer"
+      customerName: viewer.fullName || viewer.email || "Customer",
+      isBusiness: Boolean(biz?.isBusiness),
+      businessDiscountPercent: biz?.discountPercent ?? null,
+      companyName: biz?.companyName ?? null,
+      storeProfile
     };
   } catch (err) {
     return {
@@ -93,7 +136,6 @@ type VariantRow = {
   sku: string;
   retail_price: number | string;
   sale_price: number | string | null;
-  wholesale_price: number | string | null;
   cost_price: number | string | null;
   is_default: boolean;
   is_active: boolean;
@@ -117,12 +159,20 @@ function cleanNote(note: unknown): string | null {
   return trimmed || null;
 }
 
+/** @deprecated use placeOrder — kept for any old client bundles. */
 export async function placeTestOrder(
   items: CheckoutItem[],
   options: CheckoutOptions = {}
 ): Promise<CheckoutResult> {
+  return placeOrder(items, options);
+}
+
+export async function placeOrder(
+  items: CheckoutItem[],
+  options: CheckoutOptions = {}
+): Promise<CheckoutResult> {
   try {
-    return await placeTestOrderInner(items, options);
+    return await placeOrderInner(items, options);
   } catch (err) {
     return {
       ok: false,
@@ -131,7 +181,7 @@ export async function placeTestOrder(
   }
 }
 
-async function placeTestOrderInner(
+async function placeOrderInner(
   items: CheckoutItem[],
   options: CheckoutOptions = {}
 ): Promise<CheckoutResult> {
@@ -146,11 +196,33 @@ async function placeTestOrderInner(
     return { ok: false, error: "Too many attempts. Wait a minute and try again." };
   }
 
+  const supabase = createAdminClient();
+  const business = await getOwnBusinessAccount(viewer.id);
+  const isBusinessAccount = Boolean(business?.isBusiness);
+  const forcePaidTest = Boolean(options.forcePaidTest);
+
+  // Business: card (like retail) + offline check/Zelle/bank.
+  // Retail: no payment method UI (Stripe later / test paid).
+  // forcePaidTest skips selection and marks paid for testing.
+  let paymentMethod: BusinessPaymentMethod | null = null;
+  let paymentReference: string | null = null;
+  if (isBusinessAccount && !forcePaidTest) {
+    if (!isBusinessPaymentMethod(options.paymentMethod)) {
+      return {
+        ok: false,
+        error: "Select a payment method: card, check, Zelle, or bank transfer."
+      };
+    }
+    paymentMethod = options.paymentMethod;
+    paymentReference = String(options.paymentReference ?? "")
+      .trim()
+      .slice(0, 120) || null;
+  }
+
   const fulfillmentMethod: "pickup" | "ship" =
     options.fulfillmentMethod === "ship" ? "ship" : "pickup";
   const shippingAddressId = options.shippingAddressId?.trim() || null;
 
-  // Gộp trùng productId: cộng qty, gộp ghi chú (nếu khác nhau).
   const wanted = new Map<string, { quantity: number; notes: string[] }>();
   for (const item of items) {
     const id = String(item?.productId ?? "").trim();
@@ -167,27 +239,24 @@ async function placeTestOrderInner(
   }
   if (wanted.size === 0) return { ok: false, error: "Invalid cart." };
 
-  const supabase = createAdminClient();
-  const wholesaleAccount = await getOwnWholesaleAccount(viewer.id);
-
   const { data: productRows, error: prodErr } = await supabase
     .from("products")
     .select(
-      "id, name, status, product_variants ( id, sku, retail_price, sale_price, wholesale_price, cost_price, is_default, is_active )"
+      "id, name, status, product_variants ( id, sku, retail_price, sale_price, cost_price, is_default, is_active )"
     )
     .in("id", [...wanted.keys()]);
   if (prodErr) return { ok: false, error: "Could not load products. Try again." };
 
-  // Tính total qty + wholesale subtotal trước để quyết định qualifies.
-  let cartQuantity = 0;
-  let wholesaleCartAmount = 0;
-  const priced: {
-    row: ProductRow;
-    variant: VariantRow;
+  const orderItems: {
+    product_id: string;
+    variant_id: string | null;
+    product_name_snapshot: string;
+    sku_snapshot: string;
     quantity: number;
-    notes: string[];
-    retailUnit: number;
-    wholesaleUnit: number;
+    unit_price: number;
+    unit_cost_snapshot: number;
+    line_note: string | null;
+    discount_amount: number;
   }[] = [];
 
   for (const row of (productRows ?? []) as unknown as ProductRow[]) {
@@ -202,47 +271,34 @@ async function placeTestOrderInner(
     const retail = num(variant.retail_price);
     const rawSale =
       variant.sale_price == null || variant.sale_price === "" ? null : num(variant.sale_price);
-    const retailUnit = rawSale != null && rawSale >= 0 && rawSale < retail ? rawSale : retail;
-    const wholesaleRaw =
-      variant.wholesale_price == null || variant.wholesale_price === ""
-        ? null
-        : num(variant.wholesale_price);
-    const wholesaleUnit =
-      wholesaleRaw != null && wholesaleRaw >= 0 ? wholesaleRaw : retailUnit;
+    const unitPrice = rawSale != null && rawSale >= 0 && rawSale < retail ? rawSale : retail;
 
-    cartQuantity += wantedLine.quantity;
-    wholesaleCartAmount += wholesaleUnit * wantedLine.quantity;
-    priced.push({
-      row,
-      variant,
+    orderItems.push({
+      product_id: row.id,
+      variant_id: variant.id ?? null,
+      product_name_snapshot: row.name,
+      sku_snapshot: variant.sku ?? "",
       quantity: wantedLine.quantity,
-      notes: wantedLine.notes,
-      retailUnit,
-      wholesaleUnit
+      unit_price: unitPrice,
+      unit_cost_snapshot: num(variant.cost_price),
+      line_note: wantedLine.notes.length
+        ? wantedLine.notes.join("; ").slice(0, LINE_NOTE_MAX)
+        : null,
+      discount_amount: 0
     });
   }
 
-  if (priced.length === 0) return { ok: false, error: "No valid products in the cart." };
+  if (orderItems.length === 0) return { ok: false, error: "No valid products in the cart." };
 
-  const eligibility = evaluateWholesaleEligibility(
-    wholesaleAccount,
-    cartQuantity,
-    wholesaleCartAmount
+  const merchandiseSubtotal = orderItems.reduce(
+    (sum, item) => sum + item.unit_price * item.quantity,
+    0
   );
-  const useWholesale = eligibility.qualifies;
 
-  const orderItems = priced.map((line) => ({
-    product_id: line.row.id,
-    variant_id: line.variant.id ?? null,
-    product_name_snapshot: line.row.name,
-    sku_snapshot: line.variant.sku ?? "",
-    quantity: line.quantity,
-    unit_price: useWholesale ? line.wholesaleUnit : line.retailUnit,
-    unit_cost_snapshot: num(line.variant.cost_price),
-    line_note: line.notes.length ? line.notes.join("; ").slice(0, LINE_NOTE_MAX) : null
-  }));
+  // Business discount % only for approved business accounts.
+  const discountPercent = business?.isBusiness ? business.discountPercent : null;
+  const discountAmount = computeBusinessDiscount(merchandiseSubtotal, discountPercent);
 
-  // Đồng bộ họ tên + SĐT từ profile (không hiện email trên Orders).
   const { data: profile } = await supabase
     .from("profiles")
     .select("full_name, phone, email")
@@ -277,7 +333,6 @@ async function placeTestOrderInner(
       .single();
     customerId = createdCustomer?.id ?? null;
   } else {
-    // Bổ sung tên/SĐT nếu hồ sơ khách còn trống.
     const patch: Record<string, string> = {};
     if (!existingCustomer?.first_name && firstName) patch.first_name = firstName;
     if (!existingCustomer?.last_name && lastName) patch.last_name = lastName;
@@ -289,7 +344,6 @@ async function placeTestOrderInner(
 
   if (!customerId) return { ok: false, error: "Could not create a customer profile. Try again." };
 
-  const SHIPPING_FLAT_RATE = 12.5;
   let pickupLocationId: string | null = null;
   let shippingAmount = 0;
   let shippingSnapshot: Record<string, unknown> | null = null;
@@ -334,11 +388,36 @@ async function placeTestOrderInner(
     };
   }
 
-  const subtotal = orderItems.reduce((sum, item) => sum + item.unit_price * item.quantity, 0);
-  const taxAmount = 0; // Stripe Tax / sales tax phase sau.
-  const total = subtotal + shippingAmount + taxAmount;
+  const taxAmount = 0;
+  const subtotal = merchandiseSubtotal;
+  const total = Math.max(0, subtotal - discountAmount + shippingAmount + taxAmount);
   const now = new Date().toISOString();
-  const issueDate = now.slice(0, 10); // YYYY-MM-DD
+  const issueDate = now.slice(0, 10);
+  const isBusinessOrder = isBusinessAccount;
+  // Offline methods need staff confirm; card follows retail path (test-paid until Stripe).
+  const payByCard = paymentMethod === "card";
+  const awaitingPayment =
+    isBusinessOrder && !forcePaidTest && isOfflinePaymentMethod(paymentMethod);
+
+  const noteParts = forcePaidTest
+    ? [
+        `Web order (${fulfillmentMethod}).`,
+        "Test checkout — paid in full (not real Stripe).",
+        isBusinessOrder ? "Business account (test paid)." : "Retail test paid."
+      ]
+    : isBusinessOrder
+      ? [
+          `Web order (${fulfillmentMethod}).`,
+          paymentMethod ? `Pay by ${paymentMethod.replace("_", " ")}.` : null,
+          awaitingPayment ? "Awaiting payment confirmation." : null,
+          payByCard ? "Card payment (Stripe path — test paid until Stripe is live)." : null,
+          "Business discount order.",
+          discountPercent != null && discountPercent > 0
+            ? `Business discount ${discountPercent}%.`
+            : null,
+          paymentReference ? `Customer ref: ${paymentReference}` : null
+        ]
+      : [`Web order (${fulfillmentMethod}).`, "Retail order."];
 
   const { data: order, error: orderErr } = await supabase
     .from("sales_orders")
@@ -352,17 +431,30 @@ async function placeTestOrderInner(
       shipping_amount: shippingAmount,
       shipping_address_snapshot: shippingSnapshot,
       subtotal,
+      discount_amount: discountAmount,
       tax_amount: taxAmount,
       total_amount: total,
+      payment_method: forcePaidTest
+        ? "test_checkout"
+        : isBusinessOrder
+          ? paymentMethod
+          : null,
+      payment_reference: forcePaidTest ? null : isBusinessOrder ? paymentReference : null,
       placed_at: now,
       created_by: viewer.id,
-      notes: useWholesale
-        ? `Web order (${fulfillmentMethod}, wholesale). Paid in full (test checkout).`
-        : `Web order (${fulfillmentMethod}). Paid in full (test checkout).`
+      notes: noteParts.filter(Boolean).join(" ")
     })
     .select("id, order_number")
     .single();
+
   if (orderErr || !order) {
+    if (orderErr?.message?.includes("payment_method")) {
+      return {
+        ok: false,
+        error:
+          "Database needs migration 20260729140000_business_offline_payment.sql (payment_method)."
+      };
+    }
     return { ok: false, error: orderErr?.message || "Could not create the order. Try again." };
   }
 
@@ -371,16 +463,9 @@ async function placeTestOrderInner(
     .insert(orderItems.map((item) => ({ ...item, order_id: order.id })));
   if (itemsErr) {
     await supabase.from("sales_orders").delete().eq("id", order.id);
-    if (itemsErr.message.includes("line_note")) {
-      return {
-        ok: false,
-        error: "Database is missing line_note. Run migration 20260728210000_order_item_line_note.sql."
-      };
-    }
     return { ok: false, error: "Could not save order lines. Try again." };
   }
 
-  // --- Invoice + payment (đã thu đủ) để Reports / Invoices / Payments có số ---
   const orderId = order.id as string;
   async function rollbackOrder() {
     await supabase.from("sales_orders").delete().eq("id", orderId);
@@ -396,7 +481,7 @@ async function placeTestOrderInner(
       issue_date: issueDate,
       due_date: issueDate,
       subtotal,
-      discount_amount: 0,
+      discount_amount: discountAmount,
       tax_amount: taxAmount,
       shipping_amount: shippingAmount,
       total_amount: total,
@@ -404,7 +489,11 @@ async function placeTestOrderInner(
       fulfillment_method: fulfillmentMethod,
       tax_exempt_snapshot: false,
       billing_address_snapshot: shippingSnapshot,
-      notes: `Auto-invoice for ${order.order_number} (test paid checkout).`,
+      notes: forcePaidTest
+        ? `Invoice for ${order.order_number} (test paid checkout).`
+        : isBusinessOrder
+          ? `Invoice for ${order.order_number} — pay by ${paymentMethod}, awaiting confirmation.`
+          : `Invoice for ${order.order_number}.`,
       issued_at: now,
       created_by: viewer.id
     })
@@ -440,7 +529,7 @@ async function placeTestOrderInner(
     return { ok: false, error: "Could not save invoice lines. Try again." };
   }
 
-  // Re-read total after item triggers recalculate (avoids amount mismatch).
+  // Re-read total after item triggers (if any).
   const { data: invFresh } = await supabase
     .from("invoices")
     .select("id, invoice_number, total_amount")
@@ -448,39 +537,62 @@ async function placeTestOrderInner(
     .maybeSingle();
   const payAmount = Math.max(num(invFresh?.total_amount ?? total), 0.01);
 
-  const { data: payment, error: payErr } = await supabase
-    .from("payments")
-    .insert({
+  if (forcePaidTest || !awaitingPayment) {
+    // Card (business or retail) / test paid: invoice paid until real Stripe.
+    const methodLabel = forcePaidTest
+      ? "test_checkout"
+      : payByCard
+        ? "card"
+        : "test_checkout";
+    await supabase.from("payments").insert({
       invoice_id: invoice.id,
       payment_kind: "payment",
       status: "succeeded",
       amount: payAmount,
       currency: "USD",
-      payment_method: "test_checkout",
-      provider: "vinameals_test",
+      payment_method: methodLabel,
+      provider: payByCard && !forcePaidTest ? "stripe_pending" : "vinameals_test",
       provider_payment_id: `test_${orderId}`,
       reference: order.order_number,
       received_at: now,
-      notes: "Test checkout — paid in full (not real Stripe).",
+      notes: forcePaidTest
+        ? "Test checkout — paid in full (not real Stripe)."
+        : payByCard
+          ? "Business card payment (Stripe later — test paid for now)."
+          : "Retail web order (payment method UI not shown; Stripe later).",
       created_by: viewer.id
-    })
-    .select("id")
-    .single();
-
-  if (payErr || !payment) {
-    await supabase.from("payments").delete().eq("invoice_id", invoice.id);
-    await supabase.from("invoices").delete().eq("id", invoice.id);
-    await rollbackOrder();
-    return {
-      ok: false,
-      error: payErr?.message || "Could not record payment. Try again."
-    };
+    });
+    await supabase
+      .from("sales_orders")
+      .update({
+        payment_method: methodLabel,
+        payment_confirmed_at: now,
+        payment_confirmed_by: viewer.id
+      })
+      .eq("id", orderId);
+  } else if (isBusinessOrder && paymentMethod && isOfflinePaymentMethod(paymentMethod)) {
+    // Business offline: pending until staff confirms.
+    await supabase.from("payments").insert({
+      invoice_id: invoice.id,
+      payment_kind: "payment",
+      status: "pending",
+      amount: payAmount,
+      currency: "USD",
+      payment_method: paymentMethod,
+      provider: "offline",
+      reference: paymentReference || order.order_number,
+      notes: `Customer selected ${paymentMethod}. Awaiting staff confirmation.`,
+      created_by: viewer.id
+    });
   }
 
-  // One audit entry only (keeps Worker CPU lower).
   await writeAuditLog({
     actorUserId: viewer.id,
-    action: "order.create_paid",
+    action: forcePaidTest
+      ? "order.create_paid"
+      : isBusinessOrder
+        ? "order.create_awaiting_payment"
+        : "order.create",
     entityType: "sales_order",
     entityId: orderId,
     after: {
@@ -488,21 +600,21 @@ async function placeTestOrderInner(
       status: "confirmed",
       fulfillmentMethod,
       total: payAmount,
+      discountAmount,
+      paymentMethod: forcePaidTest ? "test_checkout" : paymentMethod ?? "retail",
       invoiceNumber: invFresh?.invoice_number ?? invoice.invoice_number,
-      paymentId: payment.id,
-      paid: true
+      paid: !awaitingPayment
     },
     metadata: {
       ...actorAuditMeta(viewer),
       orderNumber: order.order_number,
-      invoiceNumber: invFresh?.invoice_number ?? invoice.invoice_number,
-      wholesaleApplied: useWholesale,
-      fulfillmentMethod,
-      paid: true
+      paymentMethod: forcePaidTest ? "test_checkout" : paymentMethod ?? null,
+      isBusinessOrder,
+      forcePaidTest,
+      discountPercent: discountPercent ?? 0
     }
   });
 
-  // Best-effort: special requests + clear cart (must not fail the order).
   try {
     await recordSpecialRequestsBatch(
       viewer.id,
@@ -525,11 +637,24 @@ async function placeTestOrderInner(
   revalidatePath("/account");
   revalidatePath("/cart");
   revalidatePath("/checkout");
+
   return {
     ok: true,
     orderNumber: order.order_number ?? orderId,
     invoiceNumber: invFresh?.invoice_number ?? invoice.invoice_number ?? null,
     total: payAmount,
-    fulfillmentMethod
+    discountAmount,
+    fulfillmentMethod,
+    paymentMethod: forcePaidTest ? null : paymentMethod,
+    paymentInstructions:
+      !forcePaidTest &&
+      isBusinessOrder &&
+      paymentMethod &&
+      isOfflinePaymentMethod(paymentMethod)
+        ? PAYMENT_INSTRUCTIONS[paymentMethod]
+        : null,
+    awaitingPayment,
+    isBusinessOrder,
+    isTestPaid: forcePaidTest
   };
 }

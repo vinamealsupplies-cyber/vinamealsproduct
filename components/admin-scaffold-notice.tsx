@@ -21,8 +21,7 @@ const LIVE_PATHS = [
   "/admin/reports",
   "/admin/orders",
   "/admin/invoices",
-  "/admin/payments",
-  "/admin/tax"
+  "/admin/payments"
 ];
 
 export function AdminScaffoldNotice({ demo }: { demo: boolean }) {

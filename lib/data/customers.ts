@@ -23,9 +23,11 @@ export type AdminCustomer = {
   status: CustomerStatus;
   notes: string | null;
   taxExemptStatus: string;
-  /** quantity | amount — ngưỡng mở giá sỉ (chỉ wholesale). */
+  /** @deprecated legacy min threshold — no longer used for storefront. */
   wholesaleMinKind: WholesaleMinKind | null;
   wholesaleMinValue: number | null;
+  /** Order-level discount % for business offline orders. */
+  businessDiscountPercent: number | null;
   /** Có tài khoản đăng nhập gắn kèm hay không — ảnh hưởng tới việc được xoá. */
   hasLogin: boolean;
   createdAt: string;
@@ -45,6 +47,7 @@ type DbCustomer = {
   tax_exempt_status: string;
   wholesale_min_kind: WholesaleMinKind | null;
   wholesale_min_value: number | string | null;
+  business_discount_percent: number | string | null;
   auth_user_id: string | null;
   created_at: string;
 };
@@ -73,6 +76,7 @@ function mapCustomer(row: DbCustomer): AdminCustomer {
         ? row.wholesale_min_kind
         : null,
     wholesaleMinValue: numOrNull(row.wholesale_min_value),
+    businessDiscountPercent: numOrNull(row.business_discount_percent),
     hasLogin: Boolean(row.auth_user_id),
     createdAt: row.created_at
   };
@@ -83,7 +87,7 @@ export async function getCustomersForStaff(): Promise<AdminCustomer[]> {
   const { data, error } = await supabase
     .from("customers")
     .select(
-      "id, customer_number, first_name, last_name, company_name, email, phone, customer_type, status, notes, tax_exempt_status, wholesale_min_kind, wholesale_min_value, auth_user_id, created_at"
+      "id, customer_number, first_name, last_name, company_name, email, phone, customer_type, status, notes, tax_exempt_status, wholesale_min_kind, wholesale_min_value, business_discount_percent, auth_user_id, created_at"
     )
     .order("customer_number", { ascending: true });
 

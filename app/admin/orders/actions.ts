@@ -30,6 +30,7 @@ type OrderSnapshot = {
   status: string;
   fulfillment_method: string | null;
   notes: string | null;
+  pickup_ready_at?: string | null;
   picked_up_at: string | null;
   fulfilled_at: string | null;
   total_amount: number | string | null;
@@ -44,7 +45,7 @@ type OrderSnapshot = {
 };
 
 const ORDER_SELECT =
-  "id, order_number, status, fulfillment_method, notes, picked_up_at, fulfilled_at, total_amount, shipping_carrier, tracking_number, tracking_url, shipped_at, picked_up_by, picked_up_by_name, cancelled_by_name, cancel_note";
+  "id, order_number, status, fulfillment_method, notes, pickup_ready_at, picked_up_at, fulfilled_at, total_amount, shipping_carrier, tracking_number, tracking_url, shipped_at, picked_up_by, picked_up_by_name, cancelled_by_name, cancel_note";
 
 async function requireOps(): Promise<{ viewer: Viewer } | { error: string }> {
   const viewer = await getViewer();
@@ -203,6 +204,85 @@ export async function saveShipmentTracking(
   return { ok: true };
 }
 
+/**
+ * Pickup: staff marks order READY for the customer to come collect.
+ * Status stays confirmed; customer sees “Ready for pickup”.
+ */
+export async function markPickupReady(
+  orderId: string,
+  staffNote = ""
+): Promise<OrderActionResult> {
+  const gate = await requireOps();
+  if ("error" in gate) return { ok: false, error: gate.error };
+  if (!orderId) return { ok: false, error: "Thiếu mã đơn." };
+
+  const before = await loadOrder(orderId);
+  if (!before) return { ok: false, error: "Không tìm thấy đơn." };
+  if (before.fulfillment_method !== "pickup") {
+    return { ok: false, error: "Chỉ áp dụng cho đơn nhận tại cửa hàng." };
+  }
+  if (before.status !== "confirmed") {
+    return { ok: false, error: "Đơn không còn chờ xử lý." };
+  }
+  if (before.picked_up_at) {
+    return { ok: false, error: "Khách đã lấy hàng rồi." };
+  }
+  if (before.pickup_ready_at) {
+    return { ok: false, error: "Đơn đã được đánh dấu sẵn sàng pickup." };
+  }
+
+  const actorName = actorDisplayName(gate.viewer);
+  const note =
+    staffNote.trim().slice(0, 500) || `Đơn sẵn sàng để khách đến lấy — ${actorName}`;
+  const supabase = createAdminClient();
+  const now = new Date().toISOString();
+
+  const { data, error } = await supabase
+    .from("sales_orders")
+    .update({
+      pickup_ready_at: now,
+      updated_at: now
+    })
+    .eq("id", orderId)
+    .eq("fulfillment_method", "pickup")
+    .eq("status", "confirmed")
+    .is("picked_up_at", null)
+    .is("pickup_ready_at", null)
+    .select(ORDER_SELECT);
+
+  if (error) {
+    if (error.message.includes("pickup_ready_at")) {
+      return {
+        ok: false,
+        error: "Database thiếu cột pickup_ready_at. Chạy migration fulfillment pickup/ship."
+      };
+    }
+    return { ok: false, error: "Không cập nhật được đơn. Thử lại." };
+  }
+  if (!data?.length) {
+    return { ok: false, error: "Không đánh dấu sẵn sàng (có thể đã làm trước đó)." };
+  }
+
+  await stampStaff(orderId, gate.viewer, "pickup_ready", note);
+  await writeAuditLog({
+    actorUserId: gate.viewer.id,
+    action: "order.pickup_ready",
+    entityType: "sales_order",
+    entityId: orderId,
+    before,
+    after: data[0],
+    metadata: {
+      ...actorAuditMeta(gate.viewer),
+      orderNumber: data[0].order_number,
+      staffNote: note,
+      actorName
+    }
+  });
+
+  revalidateOrders();
+  return { ok: true };
+}
+
 /** Pickup: khách đã lấy hàng → fulfilled. Ghi tên người xác nhận. Note tuỳ chọn. */
 export async function confirmPickup(orderId: string, staffNote = ""): Promise<OrderActionResult> {
   const gate = await requireOps();
@@ -214,14 +294,16 @@ export async function confirmPickup(orderId: string, staffNote = ""): Promise<Or
 
   const confirmerName = actorDisplayName(gate.viewer);
   const note =
-    staffNote.trim().slice(0, 500) || `Xác nhận pickup bởi ${confirmerName}`;
+    staffNote.trim().slice(0, 500) || `Xác nhận khách đã lấy hàng — ${confirmerName}`;
   const supabase = createAdminClient();
   const now = new Date().toISOString();
+  // Ensure pickup_ready_at is set (constraint allows ready null OR ready <= picked_up).
+  const readyAt = before.pickup_ready_at ?? now;
   const { data, error } = await supabase
     .from("sales_orders")
     .update({
       picked_up_at: now,
-      pickup_ready_at: now,
+      pickup_ready_at: readyAt,
       status: "fulfilled",
       fulfilled_at: now,
       picked_up_by: gate.viewer.id,
@@ -572,5 +654,143 @@ export async function updateOrderNotes(
   });
 
   revalidateOrders();
+  return { ok: true };
+}
+
+/**
+ * Confirm offline payment (check / Zelle / bank transfer) for an order invoice.
+ * Marks pending payments succeeded or inserts a new succeeded payment.
+ */
+export async function confirmOrderPayment(
+  orderId: string,
+  staffNote = "",
+  reference = ""
+): Promise<OrderActionResult> {
+  const gate = await requireOps();
+  if ("error" in gate) return { ok: false, error: gate.error };
+  if (!orderId) return { ok: false, error: "Missing order id." };
+
+  const noteGate = requireStaffNote(staffNote);
+  if (!noteGate.ok) return noteGate;
+
+  const supabase = createAdminClient();
+  const before = await loadOrder(orderId);
+  if (!before) return { ok: false, error: "Order not found." };
+  if (before.status === "cancelled") return { ok: false, error: "Order is cancelled." };
+
+  const { data: invoice } = await supabase
+    .from("invoices")
+    .select("id, invoice_number, total_amount, amount_paid, status, balance_due")
+    .eq("order_id", orderId)
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (!invoice) return { ok: false, error: "No invoice for this order." };
+
+  const total = typeof invoice.total_amount === "string"
+    ? Number.parseFloat(invoice.total_amount)
+    : Number(invoice.total_amount);
+  const paid = typeof invoice.amount_paid === "string"
+    ? Number.parseFloat(invoice.amount_paid)
+    : Number(invoice.amount_paid ?? 0);
+  const due = Math.max(0, (Number.isFinite(total) ? total : 0) - (Number.isFinite(paid) ? paid : 0));
+
+  if (due <= 0.009 || invoice.status === "paid") {
+    return { ok: false, error: "Invoice is already paid." };
+  }
+
+  const { data: orderPay } = await supabase
+    .from("sales_orders")
+    .select("payment_method, payment_reference, order_number")
+    .eq("id", orderId)
+    .maybeSingle();
+
+  const method = orderPay?.payment_method || "other";
+  const ref =
+    reference.trim().slice(0, 120) ||
+    orderPay?.payment_reference ||
+    orderPay?.order_number ||
+    null;
+  const now = new Date().toISOString();
+  const actorName = actorDisplayName(gate.viewer);
+
+  // Prefer upgrading existing pending payment for this invoice.
+  const { data: pending } = await supabase
+    .from("payments")
+    .select("id, amount")
+    .eq("invoice_id", invoice.id)
+    .eq("status", "pending")
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (pending?.id) {
+    const { error } = await supabase
+      .from("payments")
+      .update({
+        status: "succeeded",
+        amount: due,
+        payment_method: method,
+        reference: ref,
+        received_at: now,
+        notes: `Confirmed by ${actorName}. ${noteGate.note}`,
+        created_by: gate.viewer.id
+      })
+      .eq("id", pending.id);
+    if (error) return { ok: false, error: error.message };
+  } else {
+    const { error } = await supabase.from("payments").insert({
+      invoice_id: invoice.id,
+      payment_kind: "payment",
+      status: "succeeded",
+      amount: due,
+      currency: "USD",
+      payment_method: method,
+      provider: "offline",
+      reference: ref,
+      received_at: now,
+      notes: `Confirmed by ${actorName}. ${noteGate.note}`,
+      created_by: gate.viewer.id
+    });
+    if (error) return { ok: false, error: error.message };
+  }
+
+  await supabase
+    .from("sales_orders")
+    .update({
+      payment_confirmed_at: now,
+      payment_confirmed_by: gate.viewer.id,
+      payment_reference: ref,
+      updated_at: now
+    })
+    .eq("id", orderId);
+
+  const stampErr = await stampStaff(orderId, gate.viewer, "confirm_payment", noteGate.note);
+  if (stampErr) return stampErr;
+
+  await writeAuditLog({
+    actorUserId: gate.viewer.id,
+    action: "order.confirm_payment",
+    entityType: "sales_order",
+    entityId: orderId,
+    after: {
+      orderNumber: before.order_number,
+      amount: due,
+      paymentMethod: method,
+      reference: ref
+    },
+    metadata: {
+      ...actorAuditMeta(gate.viewer),
+      orderNumber: before.order_number,
+      staffNote: noteGate.note,
+      actorName
+    }
+  });
+
+  revalidateOrders();
+  revalidatePath("/admin/invoices");
+  revalidatePath("/admin/payments");
+  revalidatePath("/admin/reports");
   return { ok: true };
 }

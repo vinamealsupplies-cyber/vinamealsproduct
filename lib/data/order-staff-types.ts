@@ -7,6 +7,7 @@ export type OrderStaffAction =
   | "save_tracking"
   | "confirm_shipped"
   | "confirm_pickup"
+  | "pickup_ready"
   | "confirm_delivered";
 
 export type OrderStaffEvent = {
@@ -25,7 +26,8 @@ export const ORDER_STAFF_ACTION_LABEL: Record<string, string> = {
   update_notes: "Sửa ghi chú",
   save_tracking: "Sửa / lưu tracking",
   confirm_shipped: "Xác nhận đã ship",
-  confirm_pickup: "Xác nhận pickup",
+  pickup_ready: "Sẵn sàng pickup",
+  confirm_pickup: "Xác nhận đã lấy hàng",
   confirm_delivered: "Xác nhận đã giao"
 };
 

@@ -29,11 +29,8 @@ function readForm(formData: FormData) {
   const text = (name: string, max = 160) => String(formData.get(name) ?? "").trim().slice(0, max) || null;
   const customerType = String(formData.get("customerType") ?? "retail");
   const status = String(formData.get("status") ?? "active");
-  const minKindRaw = String(formData.get("wholesaleMinKind") ?? "").trim();
-  const minKind =
-    minKindRaw === "quantity" || minKindRaw === "amount" ? minKindRaw : null;
-  const minValueRaw = String(formData.get("wholesaleMinValue") ?? "").trim();
-  const minValueParsed = minValueRaw ? Number.parseFloat(minValueRaw) : null;
+  const discountRaw = String(formData.get("businessDiscountPercent") ?? "").trim();
+  const discountParsed = discountRaw ? Number.parseFloat(discountRaw) : null;
 
   return {
     firstName: text("firstName"),
@@ -44,9 +41,8 @@ function readForm(formData: FormData) {
     notes: text("notes", 1000),
     customerType: CUSTOMER_TYPES.has(customerType) ? customerType : "retail",
     status: CUSTOMER_STATUSES.has(status) ? status : "active",
-    wholesaleMinKind: minKind as "quantity" | "amount" | null,
-    wholesaleMinValue:
-      minValueParsed != null && Number.isFinite(minValueParsed) ? minValueParsed : null
+    businessDiscountPercent:
+      discountParsed != null && Number.isFinite(discountParsed) ? discountParsed : null
   };
 }
 
@@ -60,26 +56,32 @@ function validate(input: ReturnType<typeof readForm>) {
   // Ràng buộc customers_wholesale_company_check trong DB cũng chặn, nhưng báo
   // sớm ở đây thì thông báo dễ hiểu hơn lỗi Postgres.
   if (input.customerType === "wholesale" && !input.companyName) {
-    return "Wholesale customers need a company name.";
+    return "Business customers need a company name.";
   }
-  if (input.customerType === "wholesale") {
-    if (!input.wholesaleMinKind) {
-      return "Set wholesale minimum as quantity or order amount.";
-    }
-    if (input.wholesaleMinValue == null || input.wholesaleMinValue <= 0) {
-      return "Wholesale minimum must be greater than zero.";
-    }
+  if (
+    input.businessDiscountPercent != null &&
+    (input.businessDiscountPercent < 0 || input.businessDiscountPercent > 100)
+  ) {
+    return "Business discount must be between 0 and 100%.";
   }
   return null;
 }
 
-function wholesaleFields(input: ReturnType<typeof readForm>) {
+function businessFields(input: ReturnType<typeof readForm>) {
   if (input.customerType !== "wholesale") {
-    return { wholesale_min_kind: null, wholesale_min_value: null };
+    return {
+      wholesale_min_kind: null,
+      wholesale_min_value: null,
+      business_discount_percent: null,
+      wholesale_status: "not_requested" as const
+    };
   }
   return {
-    wholesale_min_kind: input.wholesaleMinKind,
-    wholesale_min_value: input.wholesaleMinValue
+    // Legacy min threshold no longer used for storefront pricing.
+    wholesale_min_kind: null,
+    wholesale_min_value: null,
+    business_discount_percent: input.businessDiscountPercent,
+    wholesale_status: "approved" as const
   };
 }
 
@@ -130,7 +132,7 @@ export async function createCustomerAction(
       notes: input.notes,
       customer_type: input.customerType,
       status: input.status,
-      ...wholesaleFields(input)
+      ...businessFields(input)
     })
     .select("id")
     .single();
@@ -186,7 +188,7 @@ export async function updateCustomerAction(
       notes: input.notes,
       customer_type: input.customerType,
       status: input.status,
-      ...wholesaleFields(input)
+      ...businessFields(input)
     })
     .eq("id", id);
 

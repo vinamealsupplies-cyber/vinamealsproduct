@@ -7,7 +7,14 @@ export default function WholesalePage() {
       <section className="content-hero wholesale-content-hero">
         <span className="kicker light">Business customers</span><h1>Wholesale tools for markets, cafés, and food businesses.</h1>
         <p>Keep business pricing, invoice history, balances, and approved exemption records connected to one customer account.</p>
-        <Link className="button light" href="/login">Create an account <ArrowRight size={17} /></Link>
+        <div className="button-row" style={{ marginTop: 8 }}>
+          <Link className="button light" href="/account/business-application">
+            Apply for wholesale &amp; resale <ArrowRight size={17} />
+          </Link>
+          <Link className="button secondary" href="/login?next=/account/business-application">
+            Sign in
+          </Link>
+        </div>
       </section>
       <section className="section info-card-grid">
         <article><Building2 size={25} /><h2>Business profile</h2><p>Company name, contact details, billing addresses, price level, credit terms, and notes.</p></article>

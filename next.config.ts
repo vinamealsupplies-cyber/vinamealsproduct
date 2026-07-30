@@ -50,8 +50,38 @@ const nextConfig: NextConfig = {
       { protocol: "https", hostname: "**.cloudflarestream.com" }
     ]
   },
+  // Cùng key build + runtime (Worker secret + .env.local) để Server Action IDs
+  // ổn định giữa các instance. Generate: openssl rand -base64 32
+  experimental: {
+    serverActions: {
+      bodySizeLimit: "2mb"
+    }
+  },
   async headers() {
-    return [{ source: "/:path*", headers: securityHeaders }];
+    return [
+      // Hashed assets: cache dài. HTML/RSC: không cache — nếu browser giữ HTML
+      // cũ sau deploy sẽ gọi Server Action ID không còn trên Worker
+      // ("Server Action was not found on the server").
+      {
+        source: "/_next/static/:path*",
+        headers: [
+          {
+            key: "Cache-Control",
+            value: "public, max-age=31536000, immutable"
+          }
+        ]
+      },
+      {
+        source: "/:path*",
+        headers: [
+          ...securityHeaders,
+          {
+            key: "Cache-Control",
+            value: "private, no-cache, no-store, max-age=0, must-revalidate"
+          }
+        ]
+      }
+    ];
   }
 };
 

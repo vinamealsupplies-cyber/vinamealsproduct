@@ -1,17 +1,23 @@
 "use client";
 
-import { useId, useState } from "react";
-import { MessageSquareText, Plus, X } from "lucide-react";
+import { useId, useRef, useState } from "react";
+import { ChevronDown, MessageSquareText, Plus, Trash2, X } from "lucide-react";
 import {
   rememberSpecialRequest,
   removeSpecialRequest
 } from "@/app/cart/special-request-actions";
-import { CART_NOTE_MAX } from "@/lib/cart-types";
+import {
+  joinCartNoteTags,
+  parseCartNoteTags
+} from "@/lib/cart-types";
 import type { SpecialRequest } from "@/lib/special-request-types";
 
 /**
- * Special request: chọn từ list phrase hay dùng của account, hoặc gõ mới.
- * Khi chọn / blur text mới → ghi vào cart line + remember vào list tài khoản.
+ * Multi-tag special requests on one cart line:
+ * - Tags show as small lines above the input.
+ * - Click a saved phrase → ADD a tag (does not replace others).
+ * - Type new text + press Add → ADD a tag (no auto-add on blur).
+ * - New phrases are also saved to the account Saved dropdown.
  */
 export function SpecialRequestPicker({
   productId,
@@ -24,53 +30,75 @@ export function SpecialRequestPicker({
   productId: string;
   value?: string;
   suggestions: SpecialRequest[];
-  /** Áp dụng note vào cart line. */
   onChange: (productId: string, note: string) => void;
   onSuggestionsChange: (items: SpecialRequest[]) => void;
   label?: string;
 }) {
   const fieldId = useId();
-  const [text, setText] = useState(value ?? "");
-  const [customOpen, setCustomOpen] = useState(Boolean(value?.trim()) && !suggestions.some((s) => s.body === value));
+  const listId = useId();
+  const rootRef = useRef<HTMLDivElement>(null);
+  const [draft, setDraft] = useState("");
+  const [open, setOpen] = useState(false);
   const [busyId, setBusyId] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
   const [synced, setSynced] = useState({ value, productId });
+  const [tags, setTags] = useState<string[]>(() => parseCartNoteTags(value));
 
-  // Cart line (value / product) đổi → reset ô nhập ngay trong render, thay cho
-  // setState trong effect (rule react-hooks/set-state-in-effect).
   if (synced.value !== value || synced.productId !== productId) {
     setSynced({ value, productId });
-    setText(value ?? "");
-    if (value?.trim() && !suggestions.some((s) => s.body === value)) {
-      setCustomOpen(true);
+    setTags(parseCartNoteTags(value));
+    setDraft("");
+  }
+
+  const savedCount = suggestions.length;
+
+  function commitTags(nextTags: string[]) {
+    setTags(nextTags);
+    const joined = joinCartNoteTags(nextTags);
+    onChange(productId, joined ?? "");
+  }
+
+  async function rememberPhrase(phrase: string) {
+    setSaving(true);
+    try {
+      const result = await rememberSpecialRequest(phrase);
+      if (result.ok && result.items) onSuggestionsChange(result.items);
+    } finally {
+      setSaving(false);
     }
   }
 
-  const selectedBody = text.trim();
-
-  async function applyBody(body: string, remember: boolean) {
-    const next = body.slice(0, CART_NOTE_MAX);
-    setText(next);
-    onChange(productId, next);
-    if (remember && next.trim()) {
-      const result = await rememberSpecialRequest(next);
-      if (result.ok) onSuggestionsChange(result.items);
+  function addTag(raw: string, alsoRemember: boolean) {
+    const phrase = raw.trim();
+    if (!phrase) return;
+    const exists = tags.some((t) => t.toLowerCase() === phrase.toLowerCase());
+    if (!exists) {
+      commitTags([...tags, phrase]);
     }
+    setDraft("");
+    setOpen(false);
+    if (alsoRemember) void rememberPhrase(phrase);
   }
 
-  function handleSelect(item: SpecialRequest) {
-    setCustomOpen(false);
-    void applyBody(item.body, true);
+  function removeTag(tag: string) {
+    commitTags(tags.filter((t) => t !== tag));
   }
 
-  function handleClear() {
-    setText("");
-    setCustomOpen(false);
-    onChange(productId, "");
+  function handleAddClick() {
+    addTag(draft, true);
   }
 
-  async function handleRemoveSuggestion(event: React.MouseEvent, id: string) {
+  function handleSelectSaved(item: SpecialRequest) {
+    addTag(item.body, true);
+  }
+
+  async function handleRemoveSaved(event: React.MouseEvent, id: string) {
     event.preventDefault();
     event.stopPropagation();
+    if (id.startsWith("local-")) {
+      onSuggestionsChange(suggestions.filter((s) => s.id !== id));
+      return;
+    }
     setBusyId(id);
     try {
       const result = await removeSpecialRequest(id);
@@ -80,82 +108,139 @@ export function SpecialRequestPicker({
     }
   }
 
-  function handleBlur() {
-    void applyBody(text, true);
+  function handleMenuBlur(event: React.FocusEvent<HTMLDivElement>) {
+    const next = event.relatedTarget as Node | null;
+    if (next && rootRef.current?.contains(next)) return;
+    setOpen(false);
   }
 
   return (
-    <div className="cart-line-note special-request-picker">
+    <div className="cart-line-note special-request-picker" ref={rootRef} onBlur={handleMenuBlur}>
       <div className="special-request-label">
         <span>
           <MessageSquareText size={13} aria-hidden="true" /> {label}
         </span>
-        {selectedBody ? (
-          <button type="button" className="special-request-clear" onClick={handleClear}>
-            Clear
+        {tags.length > 0 ? (
+          <button
+            type="button"
+            className="special-request-clear"
+            onClick={() => commitTags([])}
+          >
+            Clear all
           </button>
         ) : null}
       </div>
 
-      {suggestions.length > 0 ? (
-        <ul className="special-request-list" aria-label="Saved special requests">
-          {suggestions.map((item) => {
-            const active = selectedBody === item.body;
-            return (
-              <li key={item.id}>
-                <button
-                  type="button"
-                  className={`special-request-chip${active ? " is-active" : ""}`}
-                  onClick={() => handleSelect(item)}
-                  title={item.body}
-                  disabled={busyId === item.id}
-                >
-                  <span className="special-request-chip-text">{item.body}</span>
-                </button>
-                <button
-                  type="button"
-                  className="special-request-chip-remove"
-                  aria-label={`Remove saved request: ${item.body}`}
-                  disabled={busyId === item.id}
-                  onClick={(e) => void handleRemoveSuggestion(e, item.id)}
-                >
-                  <X size={12} aria-hidden="true" />
-                </button>
-              </li>
-            );
-          })}
-          <li>
-            <button
-              type="button"
-              className={`special-request-chip special-request-chip-new${customOpen ? " is-active" : ""}`}
-              onClick={() => setCustomOpen(true)}
-            >
-              <Plus size={13} aria-hidden="true" /> New
-            </button>
-          </li>
+      {/* Selected tags for THIS line — small rows above the input */}
+      {tags.length > 0 ? (
+        <ul className="special-request-tags" aria-label="Selected special requests">
+          {tags.map((tag) => (
+            <li key={tag}>
+              <span className="special-request-tag-text">{tag}</span>
+              <button
+                type="button"
+                className="special-request-tag-remove"
+                aria-label={`Remove ${tag}`}
+                onClick={() => removeTag(tag)}
+              >
+                <X size={12} aria-hidden="true" />
+              </button>
+            </li>
+          ))}
         </ul>
       ) : null}
 
-      {customOpen || suggestions.length === 0 ? (
-        <label className="special-request-custom" htmlFor={fieldId}>
-          {suggestions.length === 0 ? (
-            <span className="special-request-hint">Add a request — it will be saved for next time</span>
-          ) : (
-            <span className="special-request-hint">Custom request</span>
-          )}
-          <textarea
+      <div className="special-request-row">
+        <div className="special-request-input-wrap">
+          <input
             id={fieldId}
-            rows={2}
-            maxLength={CART_NOTE_MAX}
-            placeholder="e.g. ripe fruit, no ice, call on arrival…"
-            value={text}
-            onChange={(e) => setText(e.target.value)}
-            onBlur={handleBlur}
+            className="special-request-input"
+            type="text"
+            maxLength={120}
+            placeholder="Type a special request…"
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") {
+                e.preventDefault();
+                handleAddClick();
+              }
+            }}
           />
-        </label>
-      ) : selectedBody && !suggestions.some((s) => s.body === selectedBody) ? (
-        <p className="special-request-selected-preview">{selectedBody}</p>
+        </div>
+
+        <button
+          type="button"
+          className="button primary compact special-request-add-btn"
+          disabled={!draft.trim()}
+          onClick={handleAddClick}
+        >
+          <Plus size={14} aria-hidden="true" /> Add
+        </button>
+
+        <button
+          type="button"
+          className={`special-request-dropdown-btn${open ? " is-open" : ""}`}
+          aria-expanded={open}
+          aria-controls={listId}
+          aria-label={
+            savedCount > 0 ? `Saved phrases, ${savedCount} saved` : "Saved phrases (none yet)"
+          }
+          onClick={() => setOpen((v) => !v)}
+        >
+          {savedCount > 0 ? (
+            <span className="special-request-dropdown-count">{savedCount}</span>
+          ) : null}
+          <span className="special-request-dropdown-label">Saved</span>
+          <ChevronDown size={14} aria-hidden="true" />
+        </button>
+      </div>
+
+      {open ? (
+        <div className="special-request-menu" id={listId} role="listbox">
+          {suggestions.length === 0 ? (
+            <p className="special-request-menu-empty">
+              No saved phrases yet. Type a request and press <strong>Add</strong> — it will appear
+              here next time.
+            </p>
+          ) : (
+            <ul className="special-request-menu-list">
+              {suggestions.map((item) => {
+                const already = tags.some((t) => t.toLowerCase() === item.body.toLowerCase());
+                return (
+                  <li key={item.id} role="option" aria-selected={already}>
+                    <button
+                      type="button"
+                      className={`special-request-menu-item${already ? " is-active" : ""}`}
+                      onClick={() => handleSelectSaved(item)}
+                      disabled={busyId === item.id || already}
+                      title={already ? "Already added" : item.body}
+                    >
+                      <span>{item.body}</span>
+                      {already ? <em>added</em> : null}
+                    </button>
+                    <button
+                      type="button"
+                      className="special-request-menu-remove"
+                      aria-label={`Remove saved phrase ${item.body}`}
+                      disabled={busyId === item.id}
+                      onClick={(e) => void handleRemoveSaved(e, item.id)}
+                    >
+                      <Trash2 size={13} aria-hidden="true" />
+                    </button>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+        </div>
       ) : null}
+
+      <p className="special-request-hint">
+        Press <strong>Add</strong> to attach a note to this item. Open <strong>Saved</strong> to reuse
+        past phrases.
+        {saving ? " Saving…" : null}
+      </p>
     </div>
   );
 }

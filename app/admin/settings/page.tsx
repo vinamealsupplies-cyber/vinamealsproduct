@@ -1,18 +1,78 @@
-import { Save } from "lucide-react";
+import type { Metadata } from "next";
 import { AdminPageHeader } from "@/components/admin-page-header";
+import { StoreBusinessSettingsForm } from "@/components/store-business-settings-form";
 import { requireStaffPage } from "@/lib/auth";
+import { getStoreBusinessProfile } from "@/lib/data/store-settings";
+
+export const metadata: Metadata = { title: "Store settings" };
 
 export default async function SettingsPage() {
-  await requireStaffPage();
+  const viewer = await requireStaffPage();
+  const profile = await getStoreBusinessProfile();
+  const canEdit = viewer.isManager;
+
   return (
     <>
-      <AdminPageHeader eyebrow="Configuration" title="Store settings" description="Centralize storefront, inventory, invoice, media, and account controls." />
-      <form className="admin-form">
-        <section className="form-card"><div className="form-card-heading"><div><h2>Store identity</h2><p>Used in storefront metadata and customer documents.</p></div></div><div className="form-grid two-columns"><label>Store name<input defaultValue="Vinameals" /></label><label>Support email<input type="email" placeholder="support@example.com" /></label><label>Default currency<select defaultValue="USD"><option>USD</option></select></label><label>Default timezone<select defaultValue="America/Los_Angeles"><option>America/Los_Angeles</option></select></label></div></section>
-        <section className="form-card"><div className="form-card-heading"><div><h2>Inventory defaults</h2><p>Control initial location and stock behavior.</p></div></div><div className="form-grid two-columns"><label>Default location code<input defaultValue="MAIN" /></label></div><div className="checkbox-row"><label><input type="checkbox" defaultChecked /> Prevent sale below available quantity</label><label><input type="checkbox" defaultChecked /> Show low-stock warnings</label></div></section>
-        <section className="form-card"><div className="form-card-heading"><div><h2>Commerce modules</h2><p>Payment, shipping, and tax calculation remain disabled until configured.</p></div></div><div className="settings-switch-list"><label><span><strong>Checkout and payment</strong><small>Add a payment provider and webhook reconciliation.</small></span><input type="checkbox" disabled /></label><label><span><strong>Shipping rates</strong><small>Add zones, carriers, cold-chain rules, and fulfillment.</small></span><input type="checkbox" disabled /></label><label><span><strong>Automated sales tax</strong><small>Add a tax engine or reviewed jurisdiction rules.</small></span><input type="checkbox" disabled /></label></div></section>
-        <div className="sticky-form-actions"><button className="button primary" type="button"><Save size={17} /> Save settings</button></div>
-      </form>
+      <AdminPageHeader
+        eyebrow="Configuration"
+        title="Store settings"
+        description="Business information printed on customer invoices, including Zelle and bank transfer details."
+      />
+
+      {!canEdit ? (
+        <div className="legal-callout compact">
+          <h2>View only</h2>
+          <p>
+            Staff can review these fields. Only managers and admins can save changes to company
+            payment details.
+          </p>
+        </div>
+      ) : null}
+
+      {canEdit ? (
+        <StoreBusinessSettingsForm initial={profile} />
+      ) : (
+        <section className="form-card">
+          <div className="form-card-heading">
+            <div>
+              <h2>{profile.legalName || "Store"}</h2>
+              <p>Current invoice identity (read-only).</p>
+            </div>
+          </div>
+          <dl className="detail-list">
+            <div>
+              <dt>Email / phone</dt>
+              <dd>
+                {profile.email || "—"} · {profile.phone || "—"}
+              </dd>
+            </div>
+            <div>
+              <dt>Address</dt>
+              <dd>
+                {[profile.addressLine1, profile.addressLine2, profile.city, profile.state, profile.postalCode]
+                  .filter(Boolean)
+                  .join(", ") || "—"}
+              </dd>
+            </div>
+            <div>
+              <dt>Zelle</dt>
+              <dd>
+                {profile.zelleName || profile.zelleEmailOrPhone
+                  ? [profile.zelleName, profile.zelleEmailOrPhone].filter(Boolean).join(" · ")
+                  : "Not set"}
+              </dd>
+            </div>
+            <div>
+              <dt>Bank</dt>
+              <dd>
+                {profile.bankName
+                  ? `${profile.bankName} · ${profile.bankAccountName || "—"}`
+                  : "Not set"}
+              </dd>
+            </div>
+          </dl>
+        </section>
+      )}
     </>
   );
 }

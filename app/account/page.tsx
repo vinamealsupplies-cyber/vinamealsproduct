@@ -1,23 +1,17 @@
 import Link from "next/link";
 import { Building2, FileText, MapPin, Package, ShieldCheck, UserRound } from "lucide-react";
-import { ProfileEditor } from "@/components/profile-editor";
-import { PurchaseHistory } from "@/components/purchase-history";
 import { SetupNotice } from "@/components/setup-notice";
 import { getViewer } from "@/lib/auth";
 import { getOwnShippingAddresses } from "@/lib/data/addresses";
 import { getOwnOrders } from "@/lib/data/customer-orders";
-import { getOwnCustomer } from "@/lib/data/tax-exemption";
+import {
+  TAX_STATUS_LABELS,
+  WHOLESALE_STATUS_LABELS
+} from "@/lib/business-application/constants";
+import { getOwnCustomerForBusinessApp } from "@/lib/data/business-applications";
 import { formatUsPhoneDisplay } from "@/lib/data/us-states";
 import { isSupabaseAdminConfigured } from "@/lib/env";
 import { createAdminClient } from "@/lib/supabase/admin";
-
-const TAX_STATUS_COPY: Record<string, string> = {
-  not_requested: "Not requested",
-  pending: "Waiting for review",
-  approved: "Approved",
-  rejected: "Rejected",
-  expired: "Expired"
-};
 
 export default async function AccountPage() {
   const viewer = await getViewer();
@@ -38,7 +32,7 @@ export default async function AccountPage() {
 
   const canLoad = !viewer.demo && isSupabaseAdminConfigured();
   const [customer, addresses, orders, profileRow] = await Promise.all([
-    canLoad ? getOwnCustomer(viewer.id) : Promise.resolve(null),
+    canLoad ? getOwnCustomerForBusinessApp(viewer.id) : Promise.resolve(null),
     canLoad ? getOwnShippingAddresses(viewer.id) : Promise.resolve([]),
     canLoad ? getOwnOrders(viewer.id) : Promise.resolve([]),
     canLoad
@@ -51,6 +45,9 @@ export default async function AccountPage() {
       : Promise.resolve(null)
   ]);
   const taxStatus = customer?.tax_exempt_status ?? "not_requested";
+  const wholesaleStatus =
+    (customer as { wholesale_status?: string } | null)?.wholesale_status ??
+    (customer?.customer_type === "wholesale" ? "approved" : "not_requested");
   const defaultAddress = addresses.find((a) => a.isDefault) ?? addresses[0] ?? null;
   const openCount = orders.filter((o) => o.isOpen).length;
   const pastCount = orders.length - openCount;
@@ -87,27 +84,31 @@ export default async function AccountPage() {
         </SetupNotice>
       ) : null}
 
-      <div id="profile" className="account-profile-block">
-        {viewer.demo ? (
-          <section className="account-card">
-            <UserRound />
-            <h2>Profile</h2>
-            <p>Connect Supabase (turn off demo mode) to edit your name, phone, and company.</p>
-          </section>
-        ) : (
-          <ProfileEditor
-            initial={{
-              fullName: profileFullName,
-              email: viewer.email,
-              phone: profilePhone ? formatUsPhoneDisplay(profilePhone) || profilePhone : "",
-              companyName: profileCompany,
-              role: viewer.role
-            }}
-          />
-        )}
-      </div>
-
       <div className="account-grid">
+        <section className="account-card">
+          <UserRound />
+          <h2>Profile</h2>
+          {viewer.demo ? (
+            <p>Connect Supabase (turn off demo mode) to edit your name, phone, and company.</p>
+          ) : (
+            <>
+              <p>
+                {profileFullName || "No name saved yet"}
+                {profilePhone
+                  ? ` · ${formatUsPhoneDisplay(profilePhone) || profilePhone}`
+                  : ""}
+                {profileCompany ? ` · ${profileCompany}` : ""}
+              </p>
+              <span className={`status-pill ${profileFullName ? "status-approved" : "status-not-requested"}`}>
+                {viewer.email}
+              </span>
+              <Link className="text-link" href="/account/profile">
+                Edit profile
+              </Link>
+            </>
+          )}
+        </section>
+
         <section className="account-card">
           <Package />
           <h2 className="orders-heading-with-badge">
@@ -132,13 +133,13 @@ export default async function AccountPage() {
             </>
           ) : (
             <>
-              <p>Your purchase history and live order status appear below after you place an order.</p>
+              <p>Your orders, invoices, and live status appear here after you place an order.</p>
               <span className="status-pill status-not-requested">No orders yet</span>
             </>
           )}
-          <a className="text-link" href="#purchase-history">
-            View purchase history
-          </a>
+          <Link className="text-link" href="/account/orders">
+            Orders &amp; purchase history
+          </Link>
         </section>
 
         <section className="account-card">
@@ -167,28 +168,46 @@ export default async function AccountPage() {
 
         <section className="account-card">
           <Building2 />
-          <h2>Tax exemption</h2>
-          <p>Wholesale pricing and tax-exemption approval are stored as separate controls.</p>
-          <span className={`status-pill status-${taxStatus.replaceAll("_", "-")}`}>
-            {TAX_STATUS_COPY[taxStatus] ?? taxStatus}
-          </span>
-          <Link className="text-link" href="/account/tax-exemption">
-            {taxStatus === "not_requested" || taxStatus === "rejected"
-              ? "Apply for tax exemption"
-              : "View application"}
+          <h2>Business &amp; tax exemption</h2>
+          <p>Wholesale pricing and tax-exempt status are reviewed separately.</p>
+          <div style={{ display: "grid", gap: 6 }}>
+            <span className={`status-pill status-${String(wholesaleStatus).replaceAll("_", "-")}`}>
+              Wholesale:{" "}
+              {WHOLESALE_STATUS_LABELS[wholesaleStatus] ??
+                (customer?.customer_type === "wholesale" ? "Approved" : wholesaleStatus)}
+            </span>
+            <span className={`status-pill status-${taxStatus.replaceAll("_", "-")}`}>
+              Tax:{" "}
+              {TAX_STATUS_LABELS[taxStatus] ??
+                ({
+                  not_requested: "Not requested",
+                  pending: "Pending review",
+                  approved: "Approved",
+                  rejected: "Rejected",
+                  expired: "Expired"
+                } as Record<string, string>)[taxStatus] ??
+                taxStatus}
+            </span>
+          </div>
+          <Link className="text-link" href="/account/business-application">
+            {taxStatus === "not_requested" &&
+            (wholesaleStatus === "not_requested" || !wholesaleStatus)
+              ? "Apply for wholesale & resale"
+              : "View applications"}
           </Link>
         </section>
 
         <section className="account-card">
           <FileText />
           <h2>Invoices</h2>
-          <p>Customer-visible invoice history will appear here after billing is fully connected.</p>
-          <span className="status-pill status-not-requested">Coming soon</span>
+          <p>
+            Open any past order and tap <strong>View invoice</strong> to print or save as PDF.
+          </p>
+          <span className="status-pill status-approved">From order history</span>
+          <Link className="text-link" href="/account/orders">
+            Go to orders
+          </Link>
         </section>
-      </div>
-
-      <div id="purchase-history">
-        <PurchaseHistory orders={orders} />
       </div>
 
       <form action="/auth/signout" method="post">

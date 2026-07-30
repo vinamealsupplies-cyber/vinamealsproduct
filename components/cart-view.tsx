@@ -13,11 +13,12 @@ import { useCart } from "@/lib/cart";
 import type { Product } from "@/lib/sample-data";
 import { usd } from "@/lib/format";
 import type { SpecialRequest } from "@/lib/special-request-types";
+import type { BusinessAccount } from "@/lib/business-order";
+import { computeBusinessDiscount } from "@/lib/business-order";
 import {
   SITE_OVERLOADED_MESSAGE,
   toUserFacingError
 } from "@/lib/user-facing-error";
-import { evaluateWholesaleEligibility, type WholesaleAccount } from "@/lib/wholesale";
 
 const SESSION_RETRY_DELAY_MS = 700;
 
@@ -34,10 +35,7 @@ export function CartView() {
   const [catalog, setCatalog] = useState<Product[]>([]);
   const [shippingAddresses, setShippingAddresses] = useState<CustomerAddress[]>([]);
   const [savedRequests, setSavedRequests] = useState<SpecialRequest[]>([]);
-  const [wholesaleAccount, setWholesaleAccount] = useState<WholesaleAccount | null>(null);
-  const [wholesalePriceByProductId, setWholesalePriceByProductId] = useState<
-    Record<string, number>
-  >({});
+  const [businessAccount, setBusinessAccount] = useState<BusinessAccount | null>(null);
 
   // Đọc trạng thái đăng nhập mới nhất bên trong effect chạy-một-lần.
   const cartSignedInRef = useRef(cartSignedIn);
@@ -77,8 +75,7 @@ export function CartView() {
         setCatalog(boot.catalog);
         setShippingAddresses(boot.shippingAddresses);
         setSavedRequests(boot.specialRequests);
-        setWholesaleAccount(boot.wholesaleAccount);
-        setWholesalePriceByProductId(boot.wholesalePriceByProductId);
+        setBusinessAccount(boot.businessAccount);
       } catch (err) {
         if (!cancelled) {
           // Giữ sessionSignedIn = null: lỗi gọi action KHÔNG phải bằng chứng
@@ -194,18 +191,9 @@ export function CartView() {
 
   const cartQuantity = lines.reduce((sum, line) => sum + line.quantity, 0);
   const retailSubtotal = lines.reduce((sum, line) => sum + line.product.price * line.quantity, 0);
-  const wholesaleSubtotal = lines.reduce((sum, line) => {
-    const unit =
-      wholesalePriceByProductId[line.product.id] ??
-      line.product.wholesalePrice ??
-      line.product.price;
-    return sum + unit * line.quantity;
-  }, 0);
-  const wholesale = evaluateWholesaleEligibility(
-    wholesaleAccount,
-    cartQuantity,
-    wholesaleSubtotal
-  );
+  const businessDiscount = businessAccount?.isBusiness
+    ? computeBusinessDiscount(retailSubtotal, businessAccount.discountPercent)
+    : 0;
 
   return (
     <div className="page-shell shell narrow-page">
@@ -226,11 +214,6 @@ export function CartView() {
       <ul className="cart-items">
         {lines.map(({ product, quantity, note }) => {
           const image = product.media.find((item) => item.type === "image" && item.src);
-          const wholesaleUnit = wholesalePriceByProductId[product.id];
-          const showWholesaleUnit =
-            wholesale.isWholesale &&
-            wholesaleUnit != null &&
-            wholesaleUnit < product.price - 1e-9;
 
           return (
             <li className="cart-item cart-item-with-note" key={product.id}>
@@ -252,21 +235,7 @@ export function CartView() {
                   ) : (
                     <>{usd.format(product.price)} each</>
                   )}
-                  {showWholesaleUnit ? (
-                    <span className="cart-wholesale-hint">
-                      {" "}
-                      · Wholesale {usd.format(wholesaleUnit)}
-                      {!wholesale.qualifies ? " (when min met)" : " applied"}
-                    </span>
-                  ) : null}
                 </span>
-                <SpecialRequestPicker
-                  productId={product.id}
-                  value={note}
-                  suggestions={savedRequests}
-                  onChange={(id, next) => setNote(id, next)}
-                  onSuggestionsChange={setSavedRequests}
-                />
               </div>
               <div className="quantity-control" aria-label={`Quantity for ${product.name}`}>
                 <button
@@ -287,10 +256,7 @@ export function CartView() {
                 </button>
               </div>
               <strong className="cart-line-total">
-                {usd.format(
-                  (wholesale.qualifies && wholesaleUnit != null ? wholesaleUnit : product.price) *
-                    quantity
-                )}
+                {usd.format(product.price * quantity)}
               </strong>
               <button
                 className="cart-remove"
@@ -300,6 +266,15 @@ export function CartView() {
               >
                 <X size={17} />
               </button>
+              <div className="cart-item-note-row">
+                <SpecialRequestPicker
+                  productId={product.id}
+                  value={note}
+                  suggestions={savedRequests}
+                  onChange={(id, next) => setNote(id, next)}
+                  onSuggestionsChange={setSavedRequests}
+                />
+              </div>
             </li>
           );
         })}
@@ -312,15 +287,25 @@ export function CartView() {
       </div>
 
       <SetupNotice title="Test checkout (marked paid)">
-        Placing an order creates a sales order, invoice, and a paid-in-full receipt so you can test
-        Orders, Invoices, Payments, and Reports. Real card payments (Stripe) come later.
+        On checkout, use <strong>Place test order — mark as paid</strong> to create a sales order,
+        invoice, and paid receipt for testing Orders / Invoices / Payments / Reports. Real Stripe
+        card payments come later.
+        {businessAccount?.isBusiness
+          ? ` Business accounts can pay by card or offline (check / Zelle / bank transfer).${
+              businessAccount.discountPercent
+                ? ` Discount: ${businessAccount.discountPercent}%.`
+                : ""
+            }`
+          : ""}
       </SetupNotice>
 
       <FulfillmentPicker
         retailSubtotal={retailSubtotal}
-        wholesaleSubtotal={wholesaleSubtotal}
-        wholesale={wholesale}
+        businessDiscount={businessDiscount}
+        isBusiness={Boolean(businessAccount?.isBusiness)}
+        businessDiscountPercent={businessAccount?.discountPercent ?? null}
         shippingAddresses={shippingAddresses}
+        onShippingAddressesChange={setShippingAddresses}
         signedIn={sessionSignedIn === true || cartSignedIn}
       />
     </div>

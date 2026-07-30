@@ -1,12 +1,19 @@
 import Link from "next/link";
-import { Package, PackageOpen, ShoppingBag } from "lucide-react";
+import { FileText, Package, PackageOpen, ShoppingBag } from "lucide-react";
 import type { CustomerOrder } from "@/lib/data/customer-orders";
 import { formatDate, formatDateTime, usd } from "@/lib/format";
 
-function statusClass(status: CustomerOrder["status"], isOpen: boolean) {
-  if (status === "cancelled") return "status-cancelled";
-  if (status === "fulfilled") return "status-fulfilled";
-  if (isOpen) return "status-confirmed";
+function statusClass(order: CustomerOrder) {
+  if (order.status === "cancelled") return "status-cancelled";
+  if (order.status === "fulfilled") return "status-fulfilled";
+  if (
+    order.fulfillmentMethod === "pickup" &&
+    order.status === "confirmed" &&
+    order.pickupReadyAt
+  ) {
+    return "status-approved";
+  }
+  if (order.isOpen) return "status-confirmed";
   return "status-draft";
 }
 
@@ -29,7 +36,11 @@ function paymentLine(order: CustomerOrder) {
 
 function OrderCard({ order }: { order: CustomerOrder }) {
   return (
-    <article className={`purchase-order-card ${order.isOpen ? "is-open" : ""}`}>
+    <article
+      className={`purchase-order-card ${order.isOpen ? "is-open" : ""}${
+        order.pickupReadyAt && order.status === "confirmed" ? " is-pickup-ready" : ""
+      }`}
+    >
       <header className="purchase-order-head">
         <div>
           <p className="purchase-order-number">
@@ -48,9 +59,14 @@ function OrderCard({ order }: { order: CustomerOrder }) {
           <p className={`purchase-payment-line ${order.paidAt ? "is-paid" : "is-pending"}`}>
             {paymentLine(order)}
           </p>
+          {order.pickupReadyAt && order.status === "confirmed" ? (
+            <p className="purchase-ready-banner" role="status">
+              Ready for pickup — bring order number <strong>{order.number}</strong> and photo ID.
+            </p>
+          ) : null}
         </div>
         <div className="purchase-order-status">
-          <span className={`status-badge ${statusClass(order.status, order.isOpen)}`}>
+          <span className={`status-badge ${statusClass(order)}`}>
             {order.statusLabel}
           </span>
           <p>{order.statusDetail}</p>
@@ -95,15 +111,23 @@ function OrderCard({ order }: { order: CustomerOrder }) {
       </div>
 
       <footer className="purchase-order-foot">
-        <span>
-          {order.fulfilledAt
-            ? `Completed ${formatDate(order.fulfilledAt)}`
-            : order.pickedUpAt
-              ? `Picked up ${formatDate(order.pickedUpAt)}`
-              : order.isOpen
-                ? "We’ll update this status as your order moves."
-                : null}
-        </span>
+        <div className="purchase-order-foot-left">
+          <span>
+            {order.fulfilledAt
+              ? `Completed ${formatDate(order.fulfilledAt)}`
+              : order.pickedUpAt
+                ? `Picked up ${formatDate(order.pickedUpAt)}`
+                : order.isOpen
+                  ? "We’ll update this status as your order moves."
+                  : null}
+          </span>
+          <Link
+            className="button secondary compact"
+            href={`/account/orders/${order.id}/invoice`}
+          >
+            <FileText size={14} aria-hidden="true" /> View invoice
+          </Link>
+        </div>
         <strong>{usd.format(order.total)}</strong>
       </footer>
     </article>

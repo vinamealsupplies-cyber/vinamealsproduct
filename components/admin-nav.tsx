@@ -12,7 +12,6 @@ import {
   LayoutDashboard,
   type LucideIcon,
   PackagePlus,
-  Percent,
   ReceiptText,
   ScrollText,
   Settings,
@@ -51,7 +50,8 @@ const groups: { label: string; items: NavItem[] }[] = [
       { href: "/admin/customers", label: "Customers", icon: UsersRound, seller: true },
       { href: "/admin/invoices", label: "Invoices", icon: FileText, seller: true },
       { href: "/admin/payments", label: "Payments", icon: CircleDollarSign, seller: true },
-      { href: "/admin/tax-exemptions", label: "Tax exemptions", icon: ShieldCheck }
+      { href: "/admin/business-applications", label: "Business apps", icon: ShieldCheck },
+      { href: "/admin/tax-exemptions", label: "Tax exemptions", icon: FileText }
     ]
   },
   {
@@ -60,7 +60,6 @@ const groups: { label: string; items: NavItem[] }[] = [
       { href: "/admin/expenses", label: "Expenses", icon: ReceiptText },
       { href: "/admin/reports", label: "Reports", icon: BarChart3 },
       { href: "/admin/activity", label: "Activity log", icon: ScrollText, seller: true },
-      { href: "/admin/tax", label: "Sales tax", icon: Percent },
       { href: "/admin/accounts", label: "Accounts", icon: UserCog, adminOnly: true },
       { href: "/admin/settings", label: "Settings", icon: Settings }
     ]

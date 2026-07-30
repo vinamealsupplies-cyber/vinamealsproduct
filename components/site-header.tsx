@@ -1,7 +1,8 @@
 import { Suspense } from "react";
 import Image from "next/image";
 import Link from "next/link";
-import { ShieldCheck, Star, UserRound } from "lucide-react";
+import { ShieldCheck, Star } from "lucide-react";
+import { AccountMenu } from "@/components/account-menu";
 import { CartAccountBridge } from "@/components/cart-account-bridge";
 import { CartLink } from "@/components/cart-link";
 import { CategoryMenu } from "@/components/category-menu";
@@ -69,14 +70,13 @@ export async function SiteHeader() {
               <span>Seller</span>
             </Link>
           ) : null}
-          <Link
-            className="header-action"
-            href={viewer ? "/account#purchase-history" : "/login"}
-            aria-label={viewer ? "Account" : "Sign in"}
-          >
-            <UserRound size={19} aria-hidden="true" />
-            <span className="header-account-label">{viewer ? "Account" : "Sign in"}</span>
-          </Link>
+          <AccountMenu
+            signedIn={Boolean(viewer)}
+            fullName={viewer?.fullName}
+            email={viewer?.email}
+            canAccessAdmin={Boolean(viewer?.canAccessAdmin)}
+            adminLabel={viewer?.isSeller ? "Seller workspace" : "Admin"}
+          />
           <CartLink />
         </nav>
       </div>

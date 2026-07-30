@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useState, useSyncExternalStore } from "react";
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { MapPin, Plus } from "lucide-react";
 import { AddressForm } from "@/components/address-form";
 import type { AddressFormState } from "@/lib/data/address-form";
@@ -17,6 +17,8 @@ type ShippingAddressPickerProps = {
   /** Id đang chọn (controlled optional). */
   selectedId?: string | null;
   onSelect?: (addressId: string | null) => void;
+  /** Đồng bộ list với parent (cart/checkout bootstrap state). */
+  onAddressesChange?: (addresses: CustomerAddress[]) => void;
 };
 
 let memoryId: string | null = null;
@@ -66,22 +68,86 @@ function resolveSelection(
 }
 
 /**
+ * Gộp list từ parent với list local — giữ địa chỉ vừa thêm mà parent chưa thấy.
+ * Trả về `prev` nguyên vẹn khi không đổi để tránh render thừa.
+ */
+function mergeFromProps(
+  fromProps: CustomerAddress[],
+  prev: CustomerAddress[]
+): CustomerAddress[] {
+  if (fromProps.length === 0 && prev.length === 0) return prev;
+  const byId = new Map(prev.map((a) => [a.id, a]));
+  // Prop thắng khi trùng id — server là nguồn sự thật.
+  for (const a of fromProps) byId.set(a.id, a);
+  const merged = Array.from(byId.values()).sort((a, b) => {
+    if (a.isDefault !== b.isDefault) return a.isDefault ? -1 : 1;
+    return (b.createdAt || "").localeCompare(a.createdAt || "");
+  });
+  if (
+    merged.length === prev.length &&
+    merged.every((a, i) => a.id === prev[i]?.id && a.isDefault === prev[i]?.isDefault)
+  ) {
+    return prev;
+  }
+  return merged;
+}
+
+function mergeAddressList(
+  current: CustomerAddress[],
+  next: CustomerAddress
+): CustomerAddress[] {
+  const without = current.filter((a) => a.id !== next.id);
+  const cleared = next.isDefault
+    ? without.map((a) => (a.isDefault ? { ...a, isDefault: false } : a))
+    : without;
+  // Default + newest first (match server order).
+  return [next, ...cleared].sort((a, b) => {
+    if (a.isDefault !== b.isDefault) return a.isDefault ? -1 : 1;
+    return (b.createdAt || "").localeCompare(a.createdAt || "");
+  });
+}
+
+/**
  * Chọn địa chỉ ship đã lưu khi fulfillment = ship.
- * Cuối danh sách luôn có "Add new address" mở form inline.
+ * "Add new address" mở form inline (thay list) — dễ thấy hơn form ẩn dưới.
  */
 export function ShippingAddressPicker({
   addresses,
   signedIn,
   selectedId: controlledId,
-  onSelect
+  onSelect,
+  onAddressesChange
 }: ShippingAddressPickerProps) {
   const [showForm, setShowForm] = useState(false);
+  const [localAddresses, setLocalAddresses] = useState<CustomerAddress[]>(addresses);
+  const formWrapRef = useRef<HTMLDivElement>(null);
   const storedId = useSyncExternalStore(subscribe, readStoredId, getServerSnapshot);
+
+  // Sync từ parent khi bootstrap load / refresh — nhưng giữ địa chỉ vừa thêm nếu parent
+  // chưa kịp cập nhật (cart/checkout state chỉ load 1 lần).
+  //
+  // Chỉnh ngay trong render thay vì trong effect: setState trong effect gây cascading
+  // render (rule react-hooks/set-state-in-effect). So sánh bằng reference giống hệt
+  // dependency array cũ, nên parent render lại mới kích hoạt merge — không lặp vô hạn.
+  const [syncedProps, setSyncedProps] = useState(addresses);
+  if (addresses !== syncedProps) {
+    setSyncedProps(addresses);
+    setLocalAddresses((prev) => mergeFromProps(addresses, prev));
+  }
+
+  useEffect(() => {
+    if (!showForm) return;
+    // Form mở → cuộn vào view (cart dài, form dễ bị khuất).
+    const id = window.requestAnimationFrame(() => {
+      formWrapRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+    });
+    return () => window.cancelAnimationFrame(id);
+  }, [showForm]);
 
   const selectedId =
     controlledId !== undefined
-      ? resolveSelection(addresses, controlledId)
-      : resolveSelection(addresses, storedId);
+      ? resolveSelection(localAddresses, controlledId)
+      : resolveSelection(localAddresses, storedId);
 
   const select = useCallback(
     (id: string | null) => {
@@ -91,13 +157,28 @@ export function ShippingAddressPicker({
     [onSelect]
   );
 
+  const openForm = useCallback(() => {
+    setShowForm(true);
+  }, []);
+
+  const closeForm = useCallback(() => {
+    setShowForm(false);
+  }, []);
+
   const handleCreated = useCallback(
     (result: AddressFormState) => {
       if (result.status !== "success" || !result.addressId) return;
+      if (result.address) {
+        setLocalAddresses((prev) => {
+          const next = mergeAddressList(prev, result.address!);
+          onAddressesChange?.(next);
+          return next;
+        });
+      }
       setShowForm(false);
       select(result.addressId);
     },
-    [select]
+    [select, onAddressesChange]
   );
 
   if (!signedIn) {
@@ -114,6 +195,29 @@ export function ShippingAddressPicker({
     );
   }
 
+  if (showForm) {
+    return (
+      <div className="shipping-address-block" ref={formWrapRef}>
+        <div className="shipping-address-heading">
+          <strong>
+            <MapPin size={15} aria-hidden="true" /> Add shipping address
+          </strong>
+          <button className="text-link" type="button" onClick={closeForm}>
+            Cancel
+          </button>
+        </div>
+        <div className="shipping-address-form-wrap is-open">
+          <AddressForm
+            compact
+            submitLabel="Save and use this address"
+            onCancel={closeForm}
+            onSuccess={handleCreated}
+          />
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="shipping-address-block">
       <div className="shipping-address-heading">
@@ -125,13 +229,16 @@ export function ShippingAddressPicker({
         </Link>
       </div>
 
-      {addresses.length === 0 && !showForm ? (
-        <p className="field-hint">No saved addresses yet. Add one to use at checkout.</p>
-      ) : null}
-
-      {addresses.length > 0 ? (
+      {localAddresses.length === 0 ? (
+        <div className="shipping-address-empty">
+          <p className="field-hint">No saved addresses yet. Add one to use at checkout.</p>
+          <button className="button secondary compact" type="button" onClick={openForm}>
+            <Plus size={15} aria-hidden="true" /> Add new address
+          </button>
+        </div>
+      ) : (
         <ul className="shipping-address-list" role="radiogroup" aria-label="Shipping address">
-          {addresses.map((address) => {
+          {localAddresses.map((address) => {
             const lines = formatAddressMultiline(address);
             const checked = selectedId === address.id;
             return (
@@ -146,10 +253,7 @@ export function ShippingAddressPicker({
                     name="shippingAddressId"
                     value={address.id}
                     checked={checked}
-                    onChange={() => {
-                      setShowForm(false);
-                      select(address.id);
-                    }}
+                    onChange={() => select(address.id)}
                   />
                   <span>
                     <span className="shipping-address-option-top">
@@ -170,27 +274,12 @@ export function ShippingAddressPicker({
           })}
 
           <li className="shipping-address-add-row">
-            <button className="text-link" type="button" onClick={() => setShowForm(true)}>
+            <button className="text-link" type="button" onClick={openForm}>
               <Plus size={15} aria-hidden="true" /> Add new address
             </button>
           </li>
         </ul>
-      ) : (
-        <button className="text-link" type="button" onClick={() => setShowForm(true)}>
-          <Plus size={15} aria-hidden="true" /> Add new address
-        </button>
       )}
-
-      {showForm ? (
-        <div className="shipping-address-form-wrap">
-          <AddressForm
-            compact
-            submitLabel="Save and use this address"
-            onCancel={() => setShowForm(false)}
-            onSuccess={handleCreated}
-          />
-        </div>
-      ) : null}
     </div>
   );
 }
