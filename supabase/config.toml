@@ -201,7 +201,8 @@ password_requirements = ""
 
 [auth.rate_limit]
 # Number of emails that can be sent per hour. Requires auth.email.smtp to be enabled.
-email_sent = 2
+# 2 là trần của built-in email; có SMTP riêng thì nâng lên cho đủ dùng.
+email_sent = 30
 # Number of SMS messages that can be sent per hour. Requires auth.sms to be enabled.
 sms_sent = 30
 # Number of anonymous sign-ins that can be made per hour per IP address. Requires enable_anonymous_sign_ins = true.
@@ -241,15 +242,22 @@ otp_length = 8
 # Number of seconds before the email OTP expires (defaults to 1 hour).
 otp_expiry = 3600
 
-# Use a production-ready SMTP server
-# [auth.email.smtp]
-# enabled = true
-# host = "smtp.sendgrid.net"
-# port = 587
-# user = "apikey"
-# pass = "env(SENDGRID_API_KEY)"
-# admin_email = "admin@email.com"
-# sender_name = "Admin"
+# SMTP thật (Resend) — thay cho built-in email của Supabase, vốn luôn gửi từ
+# noreply@mail.app.supabase.io và bị giới hạn 2 email/giờ.
+#
+# ⚠️ CHƯA ĐƯỢC `supabase config push` KHI CHƯA CÓ ĐỦ 2 THỨ:
+#   1. SMTP_PASSWORD (API key Resend) nằm trong môi trường lúc push
+#   2. Domain vinamealsupplies.com đã verified bên Resend + SPF đã sửa
+#      (SPF hiện là `v=spf1 -all` = chặn mọi thư → email confirm sẽ bị drop)
+# Push khi thiếu key sẽ đẩy mật khẩu rỗng lên và làm CHẾT toàn bộ email đăng ký.
+[auth.email.smtp]
+enabled = true
+host = "smtp.resend.com"
+port = 587
+user = "resend"
+pass = "env(SMTP_PASSWORD)"
+admin_email = "support@vinamealsupplies.com"
+sender_name = "Vinameals"
 
 # Uncomment to customize email template
 # [auth.email.template.invite]

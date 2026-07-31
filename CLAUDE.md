@@ -78,6 +78,28 @@ Quy trình an toàn: chạy push → **đọc kỹ diff CLI in ra** → nếu th
 là thứ production đang bật thì sửa `config.toml` cho khớp rồi push lại, đến khi
 CLI báo `Remote Auth config is up to date`.
 
+### Email xác nhận — SMTP Resend (ĐANG DỞ)
+Built-in email của Supabase luôn gửi từ `noreply@mail.app.supabase.io` (khoá cứng,
+không đổi được) và trần 2 email/giờ. Để gửi từ `support@vinamealsupplies.com`,
+khối `[auth.email.smtp]` trong `config.toml` đã cấu hình sẵn cho Resend.
+
+**Chưa push được** — thiếu 3 điều kiện, tất cả đều nằm ngoài tầm Claude:
+1. `SMTP_PASSWORD` (API key Resend) trong `.env.local` — **không commit**.
+2. Domain verified bên Resend: thêm bản ghi DKIM/SPF **trong Cloudflare**
+   (nameserver là Cloudflare; Squarespace chỉ là registrar — sửa DNS ở
+   Squarespace KHÔNG có tác dụng).
+3. SPF hiện là `v=spf1 -all` (= domain không gửi thư). Phải đổi thành
+   `v=spf1 include:_spf.resend.com -all`, nếu không email confirm bị drop.
+
+Token wrangler chỉ có `zone (read)` → Claude **không** thêm được bản ghi DNS.
+
+Trước khi push, kiểm tra: `grep -q SMTP_PASSWORD .env.local` và
+`dig +short TXT resend._domainkey.vinamealsupplies.com` phải ra kết quả.
+Push khi thiếu key sẽ đẩy mật khẩu rỗng → **chết toàn bộ email đăng ký**.
+
+Domain chưa có MX → `support@` không nhận được thư. Cần nhận thì bật Cloudflare
+Email Routing (token có `email_routing (write)`, Claude làm được).
+
 ## Phân quyền admin (đã đúng theo yêu cầu)
 - Enum `public.app_role`: `customer | seller | staff | manager | admin`.
 - **Role `seller`** (28/7): chỉ quản lý fulfillment. Vào CHUNG khu `/admin` nhưng nav
