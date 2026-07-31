@@ -1,0 +1,12 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "vinameals-inbound-email",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-07-23",
+  "observability": { "enabled": true },
+  // URL Supabase là công khai (giống NEXT_PUBLIC_SUPABASE_URL). Service role key
+  // là SECRET — set bằng: wrangler secret put SUPABASE_SERVICE_ROLE_KEY
+  "vars": {
+    "SUPABASE_URL": "https://zoegstxkzdetcckgjqkj.supabase.co"
+  }
+}

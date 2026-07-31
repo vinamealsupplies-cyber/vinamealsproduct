@@ -16,6 +16,8 @@ export default defineConfig([
     // image/ chỉ chứa asset (logo) + tài liệu tham khảo tải về (trang HTML lưu
     // kèm _files/*.js) — không phải source, không lint.
     "image/**",
+    // Worker nhận email là dự án Cloudflare riêng (deps + tsconfig riêng).
+    "email-worker/**",
     "next-env.d.ts"
   ])
 ]);
