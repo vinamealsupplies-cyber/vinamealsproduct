@@ -112,8 +112,17 @@ KHÔNG tính (envelope là subdomain). Thư qua được **chỉ nhờ DKIM** (`
 khít). DKIM hỏng = thư bị **từ chối thẳng**, không vào spam. Cân nhắc đổi
 `aspf=s` → `aspf=r` để có hai chân.
 
-Domain chưa có MX ở gốc → `support@` **không nhận** được thư. Cần nhận thì bật
-Cloudflare Email Routing (token có `email_routing (write)`).
+### Nhận thư ở support@ — Cloudflare Email Routing (XONG 31/7)
+`support@vinamealsupplies.com` → chuyển tiếp về `vinamealsupplies@gmail.com`.
+Bật bằng wrangler (token có `email_routing (write)`):
+`wrangler email routing {enable,addresses create,rules create}`.
+Catch-all vẫn **disabled/drop** — chỉ đúng `support@` được chuyển tiếp.
+
+⚠️ Việc bật này **đã đổi SPF ở gốc**: `v=spf1 -all` → `v=spf1
+include:_spf.mx.cloudflare.net ~all` (Cloudflare tự thay, không tạo bản ghi
+trùng). Gốc giờ mềm hơn (`~all` thay vì `-all`), nhưng DMARC `p=reject` vẫn là
+lớp chặn giả mạo. Không ảnh hưởng Resend vì Resend gửi qua envelope
+`send.vinamealsupplies.com` có SPF riêng.
 
 ## Phân quyền admin (đã đúng theo yêu cầu)
 - Enum `public.app_role`: `customer | seller | staff | manager | admin`.
