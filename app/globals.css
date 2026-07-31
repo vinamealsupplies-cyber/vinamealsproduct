@@ -2751,3 +2751,24 @@ a.oauth-button { text-decoration: none; color: inherit; box-sizing: border-box; 
   .inbox-row > a > .status-pill { grid-column: 2; justify-self: start; }
   .email-body-frame { max-height: 420px; }
 }
+
+.signature-form { display: grid; gap: 14px; }
+.signature-form textarea { width: 100%; resize: vertical; }
+.signature-preview {
+  display: grid; gap: 4px;
+  padding: 14px; border: 1px dashed #cfe0d6; border-radius: 14px; background: #fafcfb;
+}
+.signature-preview > small:first-child { color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: .06em; font-weight: 850; }
+.signature-preview-body { margin: 4px 0 0; white-space: pre-wrap; color: #444; font-size: 13px; }
+.signature-preview-locked {
+  display: flex; align-items: center; gap: 6px;
+  margin: 8px 0 0; padding-top: 10px; border-top: 1px solid var(--line);
+  color: #6b7280; font-size: 12px;
+}
+.signature-form .button { justify-self: start; }
+
+.invoice-send { display: grid; gap: 4px; min-width: 150px; }
+.invoice-send .button { white-space: nowrap; }
+.invoice-send-msg { font-size: 11px; line-height: 1.4; }
+.invoice-send-msg.ok { color: var(--green-dark); }
+.invoice-send-msg.error { color: #b42318; }

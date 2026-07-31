@@ -14,7 +14,6 @@ import {
   Mail,
   PackagePlus,
   ReceiptText,
-  ScrollText,
   Settings,
   ShieldCheck,
   ShoppingBasket,
@@ -62,7 +61,6 @@ const groups: { label: string; items: NavItem[] }[] = [
     items: [
       { href: "/admin/expenses", label: "Expenses", icon: ReceiptText },
       { href: "/admin/reports", label: "Reports", icon: BarChart3 },
-      { href: "/admin/activity", label: "Activity log", icon: ScrollText, seller: true },
       { href: "/admin/accounts", label: "Accounts", icon: UserCog, adminOnly: true },
       { href: "/admin/settings", label: "Settings", icon: Settings }
     ]

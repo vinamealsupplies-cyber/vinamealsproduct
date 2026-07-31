@@ -29,17 +29,20 @@ export function SearchableTable({
   rows,
   searchPlaceholder = "Search",
   defaultSortKey,
+  defaultAscending = true,
   emptyMessage = "No matching records."
 }: {
   columns: Column[];
   rows: Row[];
   searchPlaceholder?: string;
   defaultSortKey?: string;
+  /** false = mới nhất lên đầu (hợp với sổ giao dịch theo ngày). */
+  defaultAscending?: boolean;
   emptyMessage?: string;
 }) {
   const [query, setQuery] = useState("");
   const [sortKey, setSortKey] = useState(defaultSortKey ?? columns[0]?.key ?? "");
-  const [ascending, setAscending] = useState(true);
+  const [ascending, setAscending] = useState(defaultAscending);
 
   const visibleRows = useMemo(() => {
     const needle = query.trim().toLowerCase();

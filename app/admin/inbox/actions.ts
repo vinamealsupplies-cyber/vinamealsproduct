@@ -172,3 +172,32 @@ export async function startThread(
   revalidatePath("/admin/inbox");
   return { status: "success", message: `Đã gửi tới ${to} — ký tên ${composed.sentByName}.` };
 }
+
+/** Lưu chữ ký cá nhân của chính người đang đăng nhập. */
+export async function saveMySignature(
+  _prev: InboxActionState,
+  formData: FormData
+): Promise<InboxActionState> {
+  const viewer = await getViewer();
+  if (!viewer?.canAccessAdmin) return fail("Bạn không có quyền.");
+  if (viewer.demo) return fail("Chế độ demo không lưu được.");
+
+  if (!(await checkRateLimit(await callerKey("inbox-sig", viewer.id), RATE_LIMITS.mutation))) {
+    return fail("Lưu quá nhanh. Đợi một chút rồi thử lại.");
+  }
+
+  // Chỉ lưu cho CHÍNH mình — không nhận id người khác từ form.
+  const signature = readField(formData, "signature", 600);
+  const { error } = await createAdminClient()
+    .from("profiles")
+    .update({ email_signature: signature || null })
+    .eq("id", viewer.id);
+
+  if (error) return fail(error.message);
+
+  revalidatePath("/admin/inbox/signature");
+  return {
+    status: "success",
+    message: signature ? "Đã lưu chữ ký." : "Đã xoá chữ ký."
+  };
+}

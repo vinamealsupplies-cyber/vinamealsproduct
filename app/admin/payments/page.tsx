@@ -38,6 +38,7 @@ export default async function PaymentsPage() {
         rows={rows}
         searchPlaceholder="Search payment, customer, or invoice"
         defaultSortKey="date"
+        defaultAscending={false}
         emptyMessage="No payments recorded yet. Receipts are posted against invoices."
       />
     </>

@@ -1,6 +1,7 @@
 "use client";
 
 import { useActionState } from "react";
+import Link from "next/link";
 import { Send, ShieldCheck } from "lucide-react";
 import { sendThreadReply } from "@/app/admin/inbox/actions";
 import { initialInboxActionState } from "@/lib/email/form-state";
@@ -41,10 +42,20 @@ export function InboxReplyForm({
         <ShieldCheck size={14} aria-hidden="true" /> Thư sẽ tự động ký{" "}
         <strong>Sent by {senderName}</strong> — không sửa được.{" "}
         {hasSignature ? (
-          <>Chữ ký cá nhân của bạn được chèn phía trên dòng này.</>
+          <>
+            Chữ ký cá nhân của bạn được chèn phía trên dòng này —{" "}
+            <Link className="text-link" href="/admin/inbox/signature">
+              sửa
+            </Link>
+            .
+          </>
         ) : (
           <>
-            Bạn chưa đặt chữ ký cá nhân — thêm ở <a href="/admin/settings">Settings</a>.
+            Bạn chưa đặt chữ ký cá nhân —{" "}
+            <Link className="text-link" href="/admin/inbox/signature">
+              thêm ngay
+            </Link>
+            .
           </>
         )}
       </p>

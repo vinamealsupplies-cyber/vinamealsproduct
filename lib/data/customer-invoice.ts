@@ -91,8 +91,15 @@ function formatAddressLines(snap: AddressSnap | null | undefined): string[] {
  * Full invoice document for the signed-in customer's order.
  * Ownership enforced via customers.auth_user_id.
  */
-export async function getOwnOrderInvoice(
-  authUserId: string,
+/**
+ * Lõi dựng invoice view. Dùng chung cho hai lối vào:
+ *  - khách tự xem invoice của mình (getOwnOrderInvoice)
+ *  - staff xem trong khu admin (getInvoiceForAdmin)
+ * Tách ra để không phải nhân đôi phần map dài phía dưới; phần phân quyền nằm ở
+ * hàm gọi, không nằm ở đây.
+ */
+async function loadInvoiceView(
+  customerId: string,
   orderId: string
 ): Promise<CustomerInvoiceView | null> {
   const supabase = createAdminClient();
@@ -102,7 +109,7 @@ export async function getOwnOrderInvoice(
     .select(
       "id, customer_number, first_name, last_name, company_name, email, phone, customer_type"
     )
-    .eq("auth_user_id", authUserId)
+    .eq("id", customerId)
     .maybeSingle();
   if (!customer) return null;
 
@@ -281,4 +288,34 @@ export async function getOwnOrderInvoice(
     currency: order.currency || "USD",
     notes: invoice?.notes || order.notes
   };
+}
+
+/** Khách tự xem invoice của chính mình — scope theo auth user. */
+export async function getOwnOrderInvoice(
+  authUserId: string,
+  orderId: string
+): Promise<CustomerInvoiceView | null> {
+  const { data: customer } = await createAdminClient()
+    .from("customers")
+    .select("id")
+    .eq("auth_user_id", authUserId)
+    .maybeSingle();
+  if (!customer) return null;
+  return loadInvoiceView(customer.id as string, orderId);
+}
+
+/**
+ * Staff xem invoice trong khu admin — tra theo invoice id.
+ * Phân quyền do trang gọi đảm nhiệm (requireAdminAccessPage).
+ */
+export async function getInvoiceForAdmin(
+  invoiceId: string
+): Promise<CustomerInvoiceView | null> {
+  const { data: invoice } = await createAdminClient()
+    .from("invoices")
+    .select("order_id, customer_id")
+    .eq("id", invoiceId)
+    .maybeSingle();
+  if (!invoice?.order_id || !invoice?.customer_id) return null;
+  return loadInvoiceView(invoice.customer_id as string, invoice.order_id as string);
 }
