@@ -19,13 +19,16 @@ export function AccountMenu({
   fullName,
   email,
   canAccessAdmin = false,
-  adminLabel = "Admin"
+  adminLabel = "Admin",
+  showBusinessApplication = true
 }: {
   signedIn: boolean;
   fullName?: string;
   email?: string;
   canAccessAdmin?: boolean;
   adminLabel?: string;
+  /** false khi business đã được duyệt — không còn đơn nào để xin. */
+  showBusinessApplication?: boolean;
 }) {
   const ref = useRef<HTMLDivElement>(null);
   const panelId = useId();
@@ -92,10 +95,12 @@ export function AccountMenu({
             <MapPin size={16} aria-hidden="true" />
             Shipping addresses
           </Link>
-          <Link href="/account/business-application" role="menuitem" onClick={close}>
-            <Building2 size={16} aria-hidden="true" />
-            Business &amp; tax exemption
-          </Link>
+          {showBusinessApplication ? (
+            <Link href="/account/business-application" role="menuitem" onClick={close}>
+              <Building2 size={16} aria-hidden="true" />
+              Business &amp; tax exemption
+            </Link>
+          ) : null}
 
           {canAccessAdmin ? (
             <>
@@ -108,8 +113,10 @@ export function AccountMenu({
           ) : null}
 
           <span className="account-dropdown-divider" aria-hidden="true" />
+          {/* Không gọi close() khi Sign out: setOpen(false) unmount form trước
+              khi browser kịp POST → bấm Sign out không có gì xảy ra. */}
           <form action="/auth/signout" method="post">
-            <button type="submit" role="menuitem" onClick={close}>
+            <button type="submit" role="menuitem">
               <LogOut size={16} aria-hidden="true" />
               Sign out
             </button>

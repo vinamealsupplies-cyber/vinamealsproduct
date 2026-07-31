@@ -5,7 +5,7 @@ import { MapPin, Pencil, Plus, Star, Trash2 } from "lucide-react";
 import {
   deleteShippingAddress,
   setDefaultShippingAddress
-} from "@/app/account/addresses/actions";
+} from "@/app/(storefront)/account/addresses/actions";
 import { AddressForm } from "@/components/address-form";
 import type { CustomerAddress } from "@/lib/data/address-types";
 import { formatAddressMultiline } from "@/lib/data/address-types";

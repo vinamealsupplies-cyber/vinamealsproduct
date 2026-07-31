@@ -1,5 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
-import { createOptionalClient } from "@/lib/supabase/server";
+import { isSupabaseConfigured } from "@/lib/env";
+import { createRouteHandlerClient } from "@/lib/supabase/route";
 
 // Đăng xuất là thao tác đổi trạng thái dựa trên cookie phiên. Route handler
 // (khác Server Action) KHÔNG có sẵn kiểm tra CSRF, nên trước đây một trang bất
@@ -30,7 +31,16 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  const supabase = await createOptionalClient();
-  if (supabase) await supabase.auth.signOut();
-  return NextResponse.redirect(new URL("/", request.url), { status: 303 });
+  // Cookie session phải được clear TRÊN response redirect.
+  // createOptionalClient() + cookies() không gắn Set-Cookie vào NextResponse
+  // redirect (đặc biệt trên OpenNext/Cloudflare) → đăng xuất "thành công" nhưng
+  // browser vẫn giữ cookie → vào lại vẫn logged in.
+  const response = NextResponse.redirect(new URL("/", request.url), { status: 303 });
+
+  if (isSupabaseConfigured()) {
+    const supabase = createRouteHandlerClient(request, response);
+    await supabase.auth.signOut();
+  }
+
+  return response;
 }

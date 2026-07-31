@@ -8,8 +8,10 @@ import { CartLink } from "@/components/cart-link";
 import { CategoryMenu } from "@/components/category-menu";
 import { HeaderSearch } from "@/components/header-search";
 import { getViewer } from "@/lib/auth";
+import { getOwnBusinessAccount } from "@/lib/data/business-account";
 import { getStorefrontCategories } from "@/lib/data/categories";
 import type { CategoryNode } from "@/lib/category-types";
+import { isSupabaseAdminConfigured } from "@/lib/env";
 import type { Viewer } from "@/lib/auth";
 
 /**
@@ -29,6 +31,15 @@ export async function SiteHeader() {
   if (categoriesResult.status === "fulfilled") categories = categoriesResult.value;
 
   const cartUserId = viewer && !viewer.demo ? viewer.id : null;
+
+  // Business đã được duyệt thì bỏ mục "application" khỏi menu (không còn gì để
+  // xin nữa). Chỉ 1 select 1 dòng theo index, và CHỈ khi đã đăng nhập — khách
+  // vào trang không tốn thêm round-trip nào. Vẫn xem lại được ở /account.
+  let businessApproved = false;
+  if (viewer && !viewer.demo && isSupabaseAdminConfigured()) {
+    const business = await getOwnBusinessAccount(viewer.id).catch(() => null);
+    businessApproved = Boolean(business?.isBusiness);
+  }
 
   return (
     <header className="site-header">
@@ -60,12 +71,20 @@ export async function SiteHeader() {
 
         <nav className="header-actions" aria-label="Account navigation">
           {viewer?.isStaff ? (
-            <Link className="header-action admin-link" href="/admin">
+            <Link
+              className="header-action admin-link"
+              href="/admin"
+              title="Open admin workspace (no shop chrome)"
+            >
               <ShieldCheck size={19} aria-hidden="true" />
               <span>Admin</span>
             </Link>
           ) : viewer?.isSeller ? (
-            <Link className="header-action admin-link" href="/admin">
+            <Link
+              className="header-action admin-link"
+              href="/admin"
+              title="Open seller workspace (no shop chrome)"
+            >
               <ShieldCheck size={19} aria-hidden="true" />
               <span>Seller</span>
             </Link>
@@ -74,6 +93,7 @@ export async function SiteHeader() {
             signedIn={Boolean(viewer)}
             fullName={viewer?.fullName}
             email={viewer?.email}
+            showBusinessApplication={!businessApproved}
             canAccessAdmin={Boolean(viewer?.canAccessAdmin)}
             adminLabel={viewer?.isSeller ? "Seller workspace" : "Admin"}
           />

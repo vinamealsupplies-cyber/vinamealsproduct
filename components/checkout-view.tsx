@@ -11,7 +11,7 @@ import {
   Store,
   Truck
 } from "lucide-react";
-import { loadCheckoutBootstrap, placeOrder } from "@/app/checkout/actions";
+import { loadCheckoutBootstrap, placeOrder } from "@/app/(storefront)/checkout/actions";
 import { ShippingAddressPicker } from "@/components/shipping-address-picker";
 import { SpecialRequestPicker } from "@/components/special-request-picker";
 import type { CustomerAddress } from "@/lib/data/address-types";

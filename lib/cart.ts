@@ -5,7 +5,7 @@ import {
   clearAccountCart,
   loadAccountCart,
   saveAccountCart
-} from "@/app/cart/actions";
+} from "@/app/(storefront)/cart/actions";
 import {
   normalizeCartNote,
   normalizeCartQuantity,

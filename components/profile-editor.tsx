@@ -5,7 +5,7 @@ import { Eraser, Save } from "lucide-react";
 import {
   clearProfileFieldAction,
   updateProfileAction
-} from "@/app/account/profile/actions";
+} from "@/app/(storefront)/account/profile/actions";
 import { initialAdminFormState, type AdminFormState } from "@/lib/data/admin-form";
 import { formatUsPhoneDisplay } from "@/lib/data/us-states";
 

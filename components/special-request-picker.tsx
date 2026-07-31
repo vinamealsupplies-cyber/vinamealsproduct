@@ -5,7 +5,7 @@ import { ChevronDown, MessageSquareText, Plus, Trash2, X } from "lucide-react";
 import {
   rememberSpecialRequest,
   removeSpecialRequest
-} from "@/app/cart/special-request-actions";
+} from "@/app/(storefront)/cart/special-request-actions";
 import {
   joinCartNoteTags,
   parseCartNoteTags

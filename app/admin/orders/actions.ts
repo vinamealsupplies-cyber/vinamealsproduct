@@ -87,7 +87,7 @@ async function stampStaff(
 
 /**
  * Lưu shipping info (carrier + tracking).
- * markShipped=true → xác nhận đã ship (fulfilled). Bắt buộc note + tên người sửa.
+ * markShipped=true → xác nhận đã ship (fulfilled). Note thao tác tuỳ chọn.
  */
 export async function saveShipmentTracking(
   orderId: string,
@@ -100,9 +100,6 @@ export async function saveShipmentTracking(
   const gate = await requireOps();
   if ("error" in gate) return { ok: false, error: gate.error };
   if (!orderId) return { ok: false, error: "Thiếu mã đơn." };
-
-  const noteGate = requireStaffNote(staffNote);
-  if (!noteGate.ok) return noteGate;
 
   const carrierCode = carrier.trim().toLowerCase();
   if (!isShippingCarrier(carrierCode)) {
@@ -131,6 +128,10 @@ export async function saveShipmentTracking(
   const now = new Date().toISOString();
   const supabase = createAdminClient();
   const actorName = actorDisplayName(gate.viewer);
+  // Note tuỳ chọn — log vẫn cần ≥1 ký tự (DB constraint); mặc định theo hành động.
+  const note =
+    staffNote.trim().slice(0, 500) ||
+    (markShipped ? `Xác nhận đã ship — ${actorName}` : `Lưu tracking — ${actorName}`);
 
   const patch: Record<string, unknown> = {
     shipping_carrier: carrierCode,
@@ -168,7 +169,7 @@ export async function saveShipmentTracking(
   if (!data?.length) return { ok: false, error: "Không tìm thấy đơn." };
 
   const action = markShipped ? "confirm_shipped" : "save_tracking";
-  const stampErr = await stampStaff(orderId, gate.viewer, action, noteGate.note);
+  const stampErr = await stampStaff(orderId, gate.viewer, action, note);
   if (stampErr) return stampErr;
 
   const after = data[0] as OrderSnapshot;
@@ -195,7 +196,7 @@ export async function saveShipmentTracking(
       ...actorAuditMeta(gate.viewer),
       orderNumber: after.order_number,
       markShipped,
-      staffNote: noteGate.note,
+      staffNote: note,
       actorName
     }
   });

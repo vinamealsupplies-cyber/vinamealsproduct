@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { submitBusinessApplication } from "@/app/account/business-application/actions";
+import { submitBusinessApplication } from "@/app/(storefront)/account/business-application/actions";
 import { initialBusinessApplicationFormState } from "@/lib/business-application/types";
 
 /**

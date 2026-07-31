@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import {
   createShippingAddress,
   updateShippingAddress
-} from "@/app/account/addresses/actions";
+} from "@/app/(storefront)/account/addresses/actions";
 import { initialAddressFormState } from "@/lib/data/address-form";
 
 /**

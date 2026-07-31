@@ -592,7 +592,7 @@ export function OrdersManager({ orders }: { orders: StaffOrder[] }) {
   const [customUrl, setCustomUrl] = useState("");
   const [cancelPickupOrder, setCancelPickupOrder] = useState<StaffOrder | null>(null);
   const [cancelPickupReason, setCancelPickupReason] = useState("");
-  /** Note bắt buộc khi sửa ghi chú / shipping. */
+  /** Note khi sửa ghi chú (bắt buộc) / shipping (tuỳ chọn). */
   const [staffActionNote, setStaffActionNote] = useState("");
   /**
    * Ngày filter cho mục đã hoàn tất / đã huỷ.
@@ -730,182 +730,233 @@ export function OrdersManager({ orders }: { orders: StaffOrder[] }) {
       ) : null}
 
       {editingNotes ? (
-        <div className="form-card compact-form-card orders-inline-panel">
-          <h2>Sửa ghi chú — {editingNotes.number}</h2>
-          <p className="field-hint">{STAFF_NOTE_HINT}</p>
-          <textarea
-            rows={4}
-            maxLength={2000}
-            value={notesDraft}
-            onChange={(e) => setNotesDraft(e.target.value)}
-            placeholder="Ghi chú nội bộ trên đơn (giao hàng, gọi khách…)"
+        <div className="orders-action-modal" role="dialog" aria-modal="true" aria-labelledby="orders-edit-notes-title">
+          <button
+            type="button"
+            className="orders-action-modal-backdrop"
+            aria-label="Đóng"
+            onClick={() => setEditingNotes(null)}
           />
-          <label className="orders-staff-note-field">
-            Note thao tác (bắt buộc)
-            <input
-              value={staffActionNote}
-              onChange={(e) => setStaffActionNote(e.target.value)}
-              placeholder="Vd. cập nhật SĐT khách, ghi chú ship…"
-              maxLength={500}
-              required
+          <div className="form-card compact-form-card orders-action-modal-panel">
+            <h2 id="orders-edit-notes-title">Sửa ghi chú — {editingNotes.number}</h2>
+            <p className="field-hint">{STAFF_NOTE_HINT}</p>
+            <textarea
+              rows={4}
+              maxLength={2000}
+              value={notesDraft}
+              onChange={(e) => setNotesDraft(e.target.value)}
+              placeholder="Ghi chú nội bộ trên đơn (giao hàng, gọi khách…)"
             />
-          </label>
-          <div className="button-row">
-            <button
-              className="button primary"
-              type="button"
-              disabled={pendingId === editingNotes.id || staffActionNote.trim().length < 3}
-              onClick={() =>
-                run(editingNotes.id, () =>
-                  updateOrderNotes(editingNotes.id, notesDraft, staffActionNote)
-                )
-              }
-            >
-              {pendingId === editingNotes.id ? "Đang lưu…" : "Lưu ghi chú"}
-            </button>
-            <button className="button secondary" type="button" onClick={() => setEditingNotes(null)}>
-              Đóng
-            </button>
+            <label className="orders-staff-note-field">
+              Note thao tác (bắt buộc)
+              <input
+                value={staffActionNote}
+                onChange={(e) => setStaffActionNote(e.target.value)}
+                placeholder="Vd. cập nhật SĐT khách, ghi chú ship…"
+                maxLength={500}
+                required
+              />
+            </label>
+            <div className="button-row">
+              <button
+                className="button primary"
+                type="button"
+                disabled={pendingId === editingNotes.id || staffActionNote.trim().length < 3}
+                onClick={() =>
+                  run(editingNotes.id, () =>
+                    updateOrderNotes(editingNotes.id, notesDraft, staffActionNote)
+                  )
+                }
+              >
+                {pendingId === editingNotes.id ? "Đang lưu…" : "Lưu ghi chú"}
+              </button>
+              <button className="button secondary" type="button" onClick={() => setEditingNotes(null)}>
+                Đóng
+              </button>
+            </div>
           </div>
         </div>
       ) : null}
 
       {canceling ? (
-        <div className="form-card compact-form-card orders-inline-panel">
-          <h2>Huỷ đơn {canceling.number}?</h2>
-          <p className="field-hint">
-            Bắt buộc note. Tên bạn (từ tài khoản) được ghi lại. Không huỷ đơn đã giao.
-          </p>
-          <label className="orders-staff-note-field">
-            Lý do huỷ (bắt buộc)
-            <input
-              value={cancelReason}
-              onChange={(e) => setCancelReason(e.target.value)}
-              placeholder="Vd. khách yêu cầu huỷ, hết hàng…"
-              maxLength={500}
-              required
-            />
-          </label>
-          <div className="button-row">
-            <button
-              className="button danger"
-              type="button"
-              disabled={pendingId === canceling.id || cancelReason.trim().length < 3}
-              onClick={() => run(canceling.id, () => cancelOrder(canceling.id, cancelReason))}
-            >
-              <XCircle size={16} aria-hidden="true" />
-              {pendingId === canceling.id ? "Đang huỷ…" : "Xác nhận huỷ đơn"}
-            </button>
-            <button className="button secondary" type="button" onClick={() => setCanceling(null)}>
-              Không huỷ
-            </button>
+        <div className="orders-action-modal" role="dialog" aria-modal="true" aria-labelledby="orders-cancel-title">
+          <button
+            type="button"
+            className="orders-action-modal-backdrop"
+            aria-label="Đóng"
+            onClick={() => setCanceling(null)}
+          />
+          <div className="form-card compact-form-card orders-action-modal-panel">
+            <h2 id="orders-cancel-title">Huỷ đơn {canceling.number}?</h2>
+            <p className="field-hint">
+              Bắt buộc note. Tên bạn (từ tài khoản) được ghi lại. Không huỷ đơn đã giao.
+            </p>
+            <label className="orders-staff-note-field">
+              Lý do huỷ (bắt buộc)
+              <input
+                value={cancelReason}
+                onChange={(e) => setCancelReason(e.target.value)}
+                placeholder="Vd. khách yêu cầu huỷ, hết hàng…"
+                maxLength={500}
+                required
+              />
+            </label>
+            <div className="button-row">
+              <button
+                className="button danger"
+                type="button"
+                disabled={pendingId === canceling.id || cancelReason.trim().length < 3}
+                onClick={() => run(canceling.id, () => cancelOrder(canceling.id, cancelReason))}
+              >
+                <XCircle size={16} aria-hidden="true" />
+                {pendingId === canceling.id ? "Đang huỷ…" : "Xác nhận huỷ đơn"}
+              </button>
+              <button className="button secondary" type="button" onClick={() => setCanceling(null)}>
+                Không huỷ
+              </button>
+            </div>
           </div>
         </div>
       ) : null}
 
       {cancelPickupOrder ? (
-        <div className="form-card compact-form-card orders-inline-panel">
-          <h2>Huỷ pickup — {cancelPickupOrder.number}?</h2>
-          <p className="field-hint">
-            Đơn sẽ trở lại <strong>chờ pickup</strong>.
-            {cancelPickupOrder.pickedUpByName
-              ? ` Trước đó do ${cancelPickupOrder.pickedUpByName} xác nhận.`
-              : ""}{" "}
-            Bắt buộc note + tên người huỷ.
-          </p>
-          <label className="orders-staff-note-field">
-            Lý do huỷ pickup (bắt buộc)
-            <input
-              value={cancelPickupReason}
-              onChange={(e) => setCancelPickupReason(e.target.value)}
-              placeholder="Vd. nhầm đơn, khách chưa lấy…"
-              maxLength={500}
-              required
-            />
-          </label>
-          <div className="button-row">
-            <button
-              className="button danger"
-              type="button"
-              disabled={pendingId === cancelPickupOrder.id || cancelPickupReason.trim().length < 3}
-              onClick={() =>
-                run(cancelPickupOrder.id, () =>
-                  cancelPickup(cancelPickupOrder.id, cancelPickupReason)
-                )
-              }
-            >
-              {pendingId === cancelPickupOrder.id ? "Đang huỷ…" : "Xác nhận huỷ pickup"}
-            </button>
-            <button
-              className="button secondary"
-              type="button"
-              onClick={() => setCancelPickupOrder(null)}
-            >
-              Không huỷ
-            </button>
+        <div className="orders-action-modal" role="dialog" aria-modal="true" aria-labelledby="orders-cancel-pickup-title">
+          <button
+            type="button"
+            className="orders-action-modal-backdrop"
+            aria-label="Đóng"
+            onClick={() => setCancelPickupOrder(null)}
+          />
+          <div className="form-card compact-form-card orders-action-modal-panel">
+            <h2 id="orders-cancel-pickup-title">Huỷ pickup — {cancelPickupOrder.number}?</h2>
+            <p className="field-hint">
+              Đơn sẽ trở lại <strong>chờ pickup</strong>.
+              {cancelPickupOrder.pickedUpByName
+                ? ` Trước đó do ${cancelPickupOrder.pickedUpByName} xác nhận.`
+                : ""}{" "}
+              Bắt buộc note + tên người huỷ.
+            </p>
+            <label className="orders-staff-note-field">
+              Lý do huỷ pickup (bắt buộc)
+              <input
+                value={cancelPickupReason}
+                onChange={(e) => setCancelPickupReason(e.target.value)}
+                placeholder="Vd. nhầm đơn, khách chưa lấy…"
+                maxLength={500}
+                required
+              />
+            </label>
+            <div className="button-row">
+              <button
+                className="button danger"
+                type="button"
+                disabled={pendingId === cancelPickupOrder.id || cancelPickupReason.trim().length < 3}
+                onClick={() =>
+                  run(cancelPickupOrder.id, () =>
+                    cancelPickup(cancelPickupOrder.id, cancelPickupReason)
+                  )
+                }
+              >
+                {pendingId === cancelPickupOrder.id ? "Đang huỷ…" : "Xác nhận huỷ pickup"}
+              </button>
+              <button
+                className="button secondary"
+                type="button"
+                onClick={() => setCancelPickupOrder(null)}
+              >
+                Không huỷ
+              </button>
+            </div>
           </div>
         </div>
       ) : null}
 
       {shippingOrder ? (
-        <div className="form-card compact-form-card orders-inline-panel">
-          <h2>
-            <Truck size={18} aria-hidden="true" /> Shipping info — {shippingOrder.number}
-          </h2>
-          <p className="field-hint">
-            Đơn <strong>ship</strong>. Nhập hãng + tracking. <strong>Note thao tác bắt buộc</strong>{" "}
-            — tên bạn được ghi lại.
-          </p>
-          <div className="form-grid two-columns">
-            <label>
-              Hãng vận chuyển
-              <select
-                value={carrier}
-                onChange={(e) => setCarrier(e.target.value as ShippingCarrier)}
-              >
-                {SHIPPING_CARRIERS.map((c) => (
-                  <option key={c.value} value={c.value}>
-                    {c.label}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label>
-              Mã số giao hàng (tracking)
-              <input
-                value={trackingNumber}
-                onChange={(e) => setTrackingNumber(e.target.value)}
-                placeholder="VD: 9400 1000 0000 0000 0000 00"
-                maxLength={80}
-                autoComplete="off"
-              />
-            </label>
-            <label className="full-width">
-              Link tra cứu tùy chỉnh (tuỳ chọn)
-              <input
-                value={customUrl}
-                onChange={(e) => setCustomUrl(e.target.value)}
-                placeholder="https://… — để trống sẽ dùng link FedEx/USPS/UPS/DHL"
-                maxLength={500}
-              />
-            </label>
-            <label className="full-width orders-staff-note-field">
-              Note thao tác (bắt buộc)
-              <input
-                value={staffActionNote}
-                onChange={(e) => setStaffActionNote(e.target.value)}
-                placeholder="Vd. cập nhật tracking FedEx, ship lần 1…"
-                maxLength={500}
-                required
-              />
-            </label>
-          </div>
-          <div className="button-row">
-            {shippingOrder.status === "confirmed" ? (
+        <div className="orders-action-modal" role="dialog" aria-modal="true" aria-labelledby="orders-shipping-title">
+          <button
+            type="button"
+            className="orders-action-modal-backdrop"
+            aria-label="Đóng"
+            onClick={() => setShippingOrder(null)}
+          />
+          <div className="form-card compact-form-card orders-action-modal-panel">
+            <h2 id="orders-shipping-title">
+              <Truck size={18} aria-hidden="true" /> Shipping info — {shippingOrder.number}
+            </h2>
+            <p className="field-hint">
+              Đơn <strong>ship</strong>. Nhập hãng + tracking. Note thao tác{" "}
+              <strong>tuỳ chọn</strong> — tên bạn vẫn được ghi lại.
+            </p>
+            <div className="form-grid two-columns">
+              <label>
+                Hãng vận chuyển
+                <select
+                  value={carrier}
+                  onChange={(e) => setCarrier(e.target.value as ShippingCarrier)}
+                >
+                  {SHIPPING_CARRIERS.map((c) => (
+                    <option key={c.value} value={c.value}>
+                      {c.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label>
+                Mã số giao hàng (tracking)
+                <input
+                  value={trackingNumber}
+                  onChange={(e) => setTrackingNumber(e.target.value)}
+                  placeholder="VD: 9400 1000 0000 0000 0000 00"
+                  maxLength={80}
+                  autoComplete="off"
+                />
+              </label>
+              <label className="full-width">
+                Link tra cứu tùy chỉnh (tuỳ chọn)
+                <input
+                  value={customUrl}
+                  onChange={(e) => setCustomUrl(e.target.value)}
+                  placeholder="https://… — để trống sẽ dùng link FedEx/USPS/UPS/DHL"
+                  maxLength={500}
+                />
+              </label>
+              <label className="full-width orders-staff-note-field">
+                Note thao tác (tuỳ chọn)
+                <input
+                  value={staffActionNote}
+                  onChange={(e) => setStaffActionNote(e.target.value)}
+                  placeholder="Vd. cập nhật tracking FedEx, ship lần 1…"
+                  maxLength={500}
+                />
+              </label>
+            </div>
+            <div className="button-row">
+              {shippingOrder.status === "confirmed" ? (
+                <button
+                  className="button primary"
+                  type="button"
+                  disabled={pendingId === shippingOrder.id}
+                  onClick={() =>
+                    run(shippingOrder.id, () =>
+                      saveShipmentTracking(
+                        shippingOrder.id,
+                        carrier,
+                        trackingNumber,
+                        customUrl,
+                        true,
+                        staffActionNote
+                      )
+                    )
+                  }
+                >
+                  <Truck size={16} aria-hidden="true" />
+                  {pendingId === shippingOrder.id ? "Đang lưu…" : "Xác nhận đã ship"}
+                </button>
+              ) : null}
               <button
-                className="button primary"
+                className="button secondary"
                 type="button"
-                disabled={pendingId === shippingOrder.id || staffActionNote.trim().length < 3}
+                disabled={pendingId === shippingOrder.id}
                 onClick={() =>
                   run(shippingOrder.id, () =>
                     saveShipmentTracking(
@@ -913,55 +964,35 @@ export function OrdersManager({ orders }: { orders: StaffOrder[] }) {
                       carrier,
                       trackingNumber,
                       customUrl,
-                      true,
+                      false,
                       staffActionNote
                     )
                   )
                 }
               >
-                <Truck size={16} aria-hidden="true" />
-                {pendingId === shippingOrder.id ? "Đang lưu…" : "Xác nhận đã ship"}
+                {pendingId === shippingOrder.id ? "…" : "Chỉ lưu tracking"}
               </button>
-            ) : null}
-            <button
-              className="button secondary"
-              type="button"
-              disabled={pendingId === shippingOrder.id || staffActionNote.trim().length < 3}
-              onClick={() =>
-                run(shippingOrder.id, () =>
-                  saveShipmentTracking(
-                    shippingOrder.id,
-                    carrier,
-                    trackingNumber,
-                    customUrl,
-                    false,
-                    staffActionNote
-                  )
-                )
-              }
-            >
-              {pendingId === shippingOrder.id ? "…" : "Chỉ lưu tracking"}
-            </button>
-            {shippingOrder.trackingUrl || trackingNumber ? (
-              <a
+              {shippingOrder.trackingUrl || trackingNumber ? (
+                <a
+                  className="button secondary"
+                  href={
+                    shippingOrder.trackingUrl ||
+                    `https://www.google.com/search?q=${encodeURIComponent(`${carrier} ${trackingNumber}`)}`
+                  }
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
+                  <ExternalLink size={16} aria-hidden="true" /> Tra cứu
+                </a>
+              ) : null}
+              <button
                 className="button secondary"
-                href={
-                  shippingOrder.trackingUrl ||
-                  `https://www.google.com/search?q=${encodeURIComponent(`${carrier} ${trackingNumber}`)}`
-                }
-                target="_blank"
-                rel="noopener noreferrer"
+                type="button"
+                onClick={() => setShippingOrder(null)}
               >
-                <ExternalLink size={16} aria-hidden="true" /> Tra cứu
-              </a>
-            ) : null}
-            <button
-              className="button secondary"
-              type="button"
-              onClick={() => setShippingOrder(null)}
-            >
-              Đóng
-            </button>
+                Đóng
+              </button>
+            </div>
           </div>
         </div>
       ) : null}

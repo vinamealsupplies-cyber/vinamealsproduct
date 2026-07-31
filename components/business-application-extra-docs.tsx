@@ -9,7 +9,7 @@ import {
   MAX_BUSINESS_DOC_BYTES,
   MAX_BUSINESS_DOCS
 } from "@/lib/business-application/constants";
-import { uploadAdditionalBusinessDocuments } from "@/app/account/business-application/actions";
+import { uploadAdditionalBusinessDocuments } from "@/app/(storefront)/account/business-application/actions";
 import {
   initialBusinessApplicationFormState,
   type BusinessApplicationFormState

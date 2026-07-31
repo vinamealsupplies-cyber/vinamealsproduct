@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import { Minus, Plus, ShoppingBag, Trash2, X } from "lucide-react";
-import { loadCartBootstrap } from "@/app/cart/bootstrap";
+import { loadCartBootstrap } from "@/app/(storefront)/cart/bootstrap";
 import { FulfillmentPicker } from "@/components/fulfillment-picker";
 import { SetupNotice } from "@/components/setup-notice";
 import { SpecialRequestPicker } from "@/components/special-request-picker";

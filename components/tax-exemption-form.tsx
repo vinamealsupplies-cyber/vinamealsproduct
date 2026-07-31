@@ -2,7 +2,7 @@
 
 import { useActionState, useState } from "react";
 import { FileUp, Send, ShieldCheck } from "lucide-react";
-import { submitTaxExemptionApplication } from "@/app/account/tax-exemption/actions";
+import { submitTaxExemptionApplication } from "@/app/(storefront)/account/tax-exemption/actions";
 import { initialTaxExemptionState, type TaxExemptionFormState } from "@/lib/data/tax-exemption-form";
 
 const MAX_FILES = 3;

@@ -1460,6 +1460,38 @@ a.oauth-button { text-decoration: none; color: inherit; box-sizing: border-box; 
   margin-bottom: 18px;
 }
 .orders-inline-panel { margin-bottom: 16px; }
+
+/* Modal thao tác đơn (shipping / huỷ / ghi chú) — fixed top, không bị order list che */
+.orders-action-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 90;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: 20px 16px 40px;
+  overflow-y: auto;
+}
+.orders-action-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  cursor: pointer;
+  background: rgba(9, 22, 19, 0.45);
+  backdrop-filter: blur(2px);
+}
+.orders-action-modal-panel {
+  position: relative;
+  z-index: 1;
+  top: auto; /* override sticky của .compact-form-card */
+  width: min(720px, 100%);
+  margin: 0 auto;
+  max-height: calc(100vh - 40px);
+  overflow-y: auto;
+  box-shadow: 0 18px 48px rgba(9, 22, 19, 0.22);
+}
 .orders-row-actions { display: flex; flex-wrap: wrap; gap: 6px; justify-content: flex-end; }
 .audit-action {
   font-size: 11px;
@@ -2517,28 +2549,6 @@ a.oauth-button { text-decoration: none; color: inherit; box-sizing: border-box; 
   main { min-height: 0 !important; }
 }
 
-/* Invoice offline payment box */
-.invoice-pay-box {
-  margin-top: 12px;
-  padding: 12px 14px;
-  border: 1px solid var(--line);
-  border-radius: 10px;
-  background: #f7fafc;
-  font-size: 12.5px;
-  line-height: 1.45;
-}
-.invoice-pay-box > strong { display: block; margin-bottom: 8px; font-size: 13px; }
-.invoice-pay-block { margin-top: 10px; padding-top: 8px; border-top: 1px dashed var(--line); }
-.invoice-pay-block:first-of-type { border-top: 0; padding-top: 0; margin-top: 4px; }
-.invoice-pay-label {
-  display: inline-block;
-  font-size: 10px;
-  font-weight: 800;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  color: #2f4f7c;
-  margin-bottom: 4px;
-}
 
 /* Offline payment instruction box (checkout + success) */
 .offline-pay-box {
@@ -2606,4 +2616,71 @@ a.oauth-button { text-decoration: none; color: inherit; box-sizing: border-box; 
   font-size: 13px;
   font-weight: 650;
   line-height: 1.4;
+}
+
+/* —— Admin app shell (no storefront header/footer) —— */
+.admin-app {
+  min-height: 100vh;
+  background: #f4f7f5;
+}
+.admin-topbar {
+  position: sticky;
+  top: 0;
+  z-index: 40;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 12px 20px;
+  background: var(--ink);
+  color: #fff;
+  border-bottom: 1px solid rgba(255,255,255,0.08);
+}
+.admin-topbar-brand {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+.admin-topbar-logo {
+  border-radius: 8px;
+  background: #fff;
+  object-fit: contain;
+}
+.admin-topbar-brand strong {
+  display: block;
+  font-size: 15px;
+  letter-spacing: -0.02em;
+}
+.admin-topbar-brand span {
+  display: block;
+  font-size: 12px;
+  color: rgba(255,255,255,0.72);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: min(420px, 55vw);
+}
+.admin-topbar-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  flex-shrink: 0;
+}
+.admin-topbar-actions .button.secondary {
+  background: rgba(255,255,255,0.08);
+  border-color: rgba(255,255,255,0.2);
+  color: #fff;
+}
+.admin-topbar-actions .button.secondary:hover:not(:disabled) {
+  background: rgba(255,255,255,0.16);
+  border-color: rgba(255,255,255,0.35);
+  color: #fff;
+}
+.admin-app .admin-shell {
+  padding-top: 20px;
+}
+@media (max-width: 720px) {
+  .admin-topbar { padding: 10px 14px; }
+  .admin-topbar-brand span { max-width: 42vw; }
 }

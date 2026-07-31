@@ -1,14 +1,10 @@
 import type { Metadata } from "next";
-import { Suspense } from "react";
-import { SiteFooter } from "@/components/site-footer";
-import { SiteHeader } from "@/components/site-header";
 import "./globals.css";
 
-// Header uses cookies/session — force dynamic so Next never static-bails mid-render.
+// Root shell only — no shop header/footer here so /admin is a separate chrome.
 export const dynamic = "force-dynamic";
 
 export const metadata: Metadata = {
-  // Real domain so OG/Twitter images resolve correctly when sharing.
   metadataBase: new URL("https://vinamealsupplies.com"),
   title: {
     default: "Vinameals — Real food make your life",
@@ -31,20 +27,10 @@ export const metadata: Metadata = {
   }
 };
 
-function HeaderFallback() {
-  return <header className="site-header" aria-hidden="true" style={{ minHeight: 120 }} />;
-}
-
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   return (
     <html lang="en">
-      <body>
-        <Suspense fallback={<HeaderFallback />}>
-          <SiteHeader />
-        </Suspense>
-        <main>{children}</main>
-        <SiteFooter />
-      </body>
+      <body>{children}</body>
     </html>
   );
 }
