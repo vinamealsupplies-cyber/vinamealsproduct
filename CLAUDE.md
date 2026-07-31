@@ -73,32 +73,47 @@ chỉnh lại cho khớp production — **đừng revert về mặc định**:
 | `[auth.email] max_frequency` | `1s` | `60s` (chống bơm email) |
 | `[auth.email] otp_length` | `6` | `8` |
 | `[auth.mfa.totp] enroll/verify_enabled` | `false` | `true` |
+| `[auth.external.google] enabled` | `false` | `true` |
+| `[auth.external.google] client_id` | `env(...)` | Client ID thật (viết thẳng) |
+
+**Quy tắc ghi đè của CLI** (rút ra sau 2 lần làm gãy đăng nhập Google, 31/7):
+giá trị **rỗng** thì không đẩy (Dashboard giữ nguyên); giá trị **khác rỗng** thì
+đẩy đè — *kể cả khi đó là placeholder `env(...)` chưa expand*. Lần 1 `enabled=false`
+tắt hẳn Google; lần 2 `client_id="env(SUPABASE_AUTH_EXTERNAL_GOOGLE_CLIENT_ID)"`
+ghi nguyên chuỗi đó vào client_id production. Vì vậy Client ID viết thẳng giá trị
+thật (không phải bí mật), còn `secret = ""` để Dashboard giữ bản thật.
 
 Quy trình an toàn: chạy push → **đọc kỹ diff CLI in ra** → nếu thấy dòng `-` nào
 là thứ production đang bật thì sửa `config.toml` cho khớp rồi push lại, đến khi
-CLI báo `Remote Auth config is up to date`.
+CLI báo `Remote Auth config is up to date`. Sau khi push đụng auth, kiểm chứng
+provider bằng `curl <SUPABASE_URL>/auth/v1/settings` — đừng tin mỗi diff.
 
-### Email xác nhận — SMTP Resend (ĐANG DỞ)
-Built-in email của Supabase luôn gửi từ `noreply@mail.app.supabase.io` (khoá cứng,
-không đổi được) và trần 2 email/giờ. Để gửi từ `support@vinamealsupplies.com`,
-khối `[auth.email.smtp]` trong `config.toml` đã cấu hình sẵn cho Resend.
+### Email xác nhận — SMTP Resend (XONG 31/7)
+Built-in email của Supabase luôn gửi từ `noreply@mail.app.supabase.io` (khoá cứng)
+và trần 2 email/giờ. Đã chuyển sang SMTP Resend, gửi từ
+`"Vinameals" <support@vinamealsupplies.com>` — đã kiểm chứng bằng email thật
+(Resend → Delivered).
 
-**Chưa push được** — thiếu 3 điều kiện, tất cả đều nằm ngoài tầm Claude:
-1. `SMTP_PASSWORD` (API key Resend) trong `.env.local` — **không commit**.
-2. Domain verified bên Resend: thêm bản ghi DKIM/SPF **trong Cloudflare**
-   (nameserver là Cloudflare; Squarespace chỉ là registrar — sửa DNS ở
-   Squarespace KHÔNG có tác dụng).
-3. SPF hiện là `v=spf1 -all` (= domain không gửi thư). Phải đổi thành
-   `v=spf1 include:_spf.resend.com -all`, nếu không email confirm bị drop.
+- `[auth.email.smtp]` trong `config.toml`; `pass = "env(SMTP_PASSWORD)"`.
+- `SMTP_PASSWORD` = API key Resend (scope *sending only*) trong `.env.local`.
+  Key này gọi `GET /domains` sẽ trả 401 "restricted to only send emails" —
+  **đó là bình thường**, không phải key hỏng.
+- DNS trên **Cloudflare** (Squarespace chỉ là registrar, sửa DNS ở đó vô tác dụng):
+  `resend._domainkey` TXT, `send` MX → `feedback-smtp.us-east-1.amazonses.com`,
+  `send` TXT → `v=spf1 include:amazonses.com ~all`.
+- **KHÔNG đụng SPF gốc** `v=spf1 -all`. Resend dùng return-path
+  `send.vinamealsupplies.com` nên SPF kiểm trên subdomain; `-all` ở gốc là lớp
+  chống giả mạo, giữ nguyên.
+- Token wrangler chỉ có `zone (read)` → không thêm DNS bằng CLI được. Đã tạo qua
+  API dashboard trong phiên trình duyệt (`POST /api/v4/zones/<id>/dns_records`).
 
-Token wrangler chỉ có `zone (read)` → Claude **không** thêm được bản ghi DNS.
+⚠️ **DMARC đang rất chặt**: `p=reject; adkim=s; aspf=s`. Với `aspf=s`, SPF
+KHÔNG tính (envelope là subdomain). Thư qua được **chỉ nhờ DKIM** (`d=` khớp
+khít). DKIM hỏng = thư bị **từ chối thẳng**, không vào spam. Cân nhắc đổi
+`aspf=s` → `aspf=r` để có hai chân.
 
-Trước khi push, kiểm tra: `grep -q SMTP_PASSWORD .env.local` và
-`dig +short TXT resend._domainkey.vinamealsupplies.com` phải ra kết quả.
-Push khi thiếu key sẽ đẩy mật khẩu rỗng → **chết toàn bộ email đăng ký**.
-
-Domain chưa có MX → `support@` không nhận được thư. Cần nhận thì bật Cloudflare
-Email Routing (token có `email_routing (write)`, Claude làm được).
+Domain chưa có MX ở gốc → `support@` **không nhận** được thư. Cần nhận thì bật
+Cloudflare Email Routing (token có `email_routing (write)`).
 
 ## Phân quyền admin (đã đúng theo yêu cầu)
 - Enum `public.app_role`: `customer | seller | staff | manager | admin`.

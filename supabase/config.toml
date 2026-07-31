@@ -341,11 +341,21 @@ max_frequency = "5s"
 # Google: bật trong Dashboard (hoặc set env + config push). Cần OAuth Web Client
 # từ Google Cloud Console. Authorized redirect URI của Google:
 #   https://zoegstxkzdetcckgjqkj.supabase.co/auth/v1/callback
+#
+# ⚠️ ĐỌC KỸ TRƯỚC KHI SỬA — hai lần đã làm gãy đăng nhập Google (31/7):
+#   1. `enabled = false` + config push  -> TẮT hẳn Google.
+#   2. `client_id = "env(...)"` mà biến không tồn tại + config push
+#      -> ghi chuỗi literal "env(SUPABASE_AUTH_EXTERNAL_GOOGLE_CLIENT_ID)"
+#         vào client_id trên production.
+# Quy tắc CLI: giá trị RỖNG thì không đẩy (giữ nguyên Dashboard); giá trị
+# KHÁC RỖNG thì đẩy đè — kể cả khi đó là placeholder env() chưa expand.
+# Vì vậy: client_id ghi thẳng giá trị thật (Client ID KHÔNG phải bí mật),
+# secret để rỗng để Dashboard giữ bản thật.
 [auth.external.google]
-enabled = false
-client_id = "env(SUPABASE_AUTH_EXTERNAL_GOOGLE_CLIENT_ID)"
-# DO NOT commit your OAuth provider secret to git.
-secret = "env(SUPABASE_AUTH_EXTERNAL_GOOGLE_SECRET)"
+enabled = true
+client_id = "1098767621295-nb9o2ufj8s80q8376n9k2koqdbh9eknf.apps.googleusercontent.com"
+# Để RỖNG có chủ đích — secret thật nằm trong Dashboard, không commit vào git.
+secret = ""
 redirect_uri = ""
 url = ""
 skip_nonce_check = false
