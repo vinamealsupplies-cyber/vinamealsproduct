@@ -2,8 +2,9 @@
 
 import { revalidatePath } from "next/cache";
 import { getViewer } from "@/lib/auth";
-import { findOrCreateThread } from "@/lib/data/inbox";
+import { getInvoiceForAdmin } from "@/lib/data/customer-invoice";
 import { getStoreBusinessProfile } from "@/lib/data/store-settings";
+import { renderInvoicePdfRemote } from "@/lib/email/invoice-pdf-remote";
 import type { InboxActionState } from "@/lib/email/form-state";
 import { sendEmail } from "@/lib/email/send";
 import { buildOutboundBody } from "@/lib/email/signature";
@@ -108,7 +109,6 @@ export async function sendInvoiceEmail(
   const isPaid = PAID_STATUSES.has(String(invoice.status)) || balance <= 0;
 
   const store = await getStoreBusinessProfile();
-  const storeName = store.displayName || store.legalName || "Vinameals";
 
   let subject: string;
   let text: string;
@@ -188,39 +188,35 @@ export async function sendInvoiceEmail(
     htmlBody
   });
 
+  // Đính kèm PDF invoice/biên nhận. Sinh PDF lỗi thì vẫn gửi (body đã có đủ
+  // thông tin) — mất file còn hơn không gửi được gì.
+  let attachments: { filename: string; content: string }[] | undefined;
+  try {
+    const view = await getInvoiceForAdmin(invoiceId);
+    if (view) {
+      const pdf = await renderInvoicePdfRemote(view, store);
+      if (pdf) {
+        const filename = `${isPaid ? "Receipt" : "Invoice"}-${number}.pdf`.replace(
+          /[^\w.-]+/g,
+          "-"
+        );
+        attachments = [{ filename, content: Buffer.from(pdf).toString("base64") }];
+      }
+    }
+  } catch (err) {
+    console.error("[invoice pdf] generation failed", err);
+  }
+
   const sent = await sendEmail({
     to: [contact.email],
     subject,
     text: composed.text,
-    html: composed.html
+    html: composed.html,
+    attachments
   });
   if (!sent.ok) return fail(`Không gửi được: ${sent.error}`);
 
-  // Ghi vào hộp thư để cả nhóm thấy invoice này đã được gửi, và ai gửi.
-  const threadId = await findOrCreateThread({
-    contactAddress: contact.email,
-    contactName: contact.name,
-    subject,
-    customerId: invoice.customer_id as string
-  });
-  if (threadId) {
-    await supabase.from("email_messages").insert({
-      thread_id: threadId,
-      direction: "outbound",
-      from_address: "support@vinamealsupplies.com",
-      from_name: storeName,
-      to_addresses: [contact.email],
-      subject,
-      text_body: composed.text,
-      html_body: composed.html,
-      sent_by: viewer.id,
-      sent_by_name: composed.sentByName,
-      provider_id: sent.id
-    });
-  }
-
   revalidatePath("/admin/invoices");
-  revalidatePath("/admin/inbox");
   return {
     status: "success",
     message: `${isPaid ? "Đã gửi biên nhận" : "Đã gửi nhắc thanh toán"} tới ${contact.email} — ký tên ${composed.sentByName}.`

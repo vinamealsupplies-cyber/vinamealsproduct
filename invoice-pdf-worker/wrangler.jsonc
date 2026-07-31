@@ -1,0 +1,8 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "vinameals-invoice-pdf",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-07-23",
+  "observability": { "enabled": true }
+  // Secret: wrangler secret put INVOICE_PDF_SECRET (khớp với app).
+}

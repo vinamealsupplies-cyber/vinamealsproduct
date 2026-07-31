@@ -21,6 +21,11 @@
     "directory": ".open-next/assets",
     "binding": "ASSETS"
   },
+  // Worker render PDF invoice (tách riêng vì pdf-lib không nhét vừa 3 MiB gói
+  // Free). URL công khai; INVOICE_PDF_SECRET là secret set qua wrangler.
+  "vars": {
+    "INVOICE_PDF_URL": "https://vinameals-invoice-pdf.vinameals.workers.dev/render"
+  },
   // Rate limiting ở biên cho các đường nhạy cảm (xem lib/rate-limit.ts).
   // namespace_id là số tự đặt, chỉ cần duy nhất trong worker này.
   "ratelimits": [

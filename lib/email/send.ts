@@ -29,6 +29,8 @@ export type SendEmailInput = {
   inReplyTo?: string | null;
   references?: string[] | null;
   replyTo?: string;
+  /** File đính kèm — `content` là base64 (Resend yêu cầu). */
+  attachments?: { filename: string; content: string }[];
 };
 
 export type SendEmailResult =
@@ -55,6 +57,7 @@ export async function sendEmail(input: SendEmailInput): Promise<SendEmailResult>
         text: input.text,
         html: input.html,
         reply_to: input.replyTo ?? "support@vinamealsupplies.com",
+        ...(input.attachments?.length ? { attachments: input.attachments } : {}),
         ...(Object.keys(headers).length ? { headers } : {})
       })
     });

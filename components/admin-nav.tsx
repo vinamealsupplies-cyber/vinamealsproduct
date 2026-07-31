@@ -11,7 +11,6 @@ import {
   FolderTree,
   LayoutDashboard,
   type LucideIcon,
-  Mail,
   PackagePlus,
   ReceiptText,
   Settings,
@@ -47,8 +46,6 @@ const groups: { label: string; items: NavItem[] }[] = [
     label: "Sell",
     items: [
       { href: "/admin/orders", label: "Orders", icon: PackagePlus, seller: true },
-      // Hộp thư dùng chung — seller/manager/admin cùng xem một nơi.
-      { href: "/admin/inbox", label: "Inbox", icon: Mail, seller: true },
       { href: "/admin/customers", label: "Customers", icon: UsersRound, seller: true },
       { href: "/admin/invoices", label: "Invoices", icon: FileText, seller: true },
       { href: "/admin/payments", label: "Payments", icon: CircleDollarSign, seller: true },
