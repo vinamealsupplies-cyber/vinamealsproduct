@@ -4,8 +4,13 @@ import { revalidatePath } from "next/cache";
 import { getViewer } from "@/lib/auth";
 import { findOrCreateThread, getThreadMessages, markThreadRead } from "@/lib/data/inbox";
 import type { InboxActionState } from "@/lib/email/form-state";
+import type { ContactHit } from "@/lib/email/inbox-types";
 import { buildOutboundBody } from "@/lib/email/signature";
 import { sendEmail } from "@/lib/email/send";
+import {
+  addSubjectTemplate,
+  listSubjectTemplates
+} from "@/lib/email/subject-templates";
 import { callerKey, checkRateLimit, RATE_LIMITS } from "@/lib/rate-limit";
 import { createAdminClient } from "@/lib/supabase/admin";
 
@@ -171,6 +176,57 @@ export async function startThread(
 
   revalidatePath("/admin/inbox");
   return { status: "success", message: `Đã gửi tới ${to} — ký tên ${composed.sentByName}.` };
+}
+
+/**
+ * Tìm contact để điền ô "Gửi tới" — nguồn là email tài khoản (`profiles`, tức
+ * email khách dùng lúc tạo account). Khách (role customer) xếp trước.
+ */
+export async function searchContacts(query: string): Promise<ContactHit[]> {
+  const viewer = await getViewer();
+  if (!viewer?.canAccessAdmin || viewer.demo) return [];
+
+  // Ký tự có nghĩa trong filter PostgREST (`,` `(` `)` …) phải bỏ, nếu không câu
+  // `.or()` sẽ vỡ cú pháp (hoặc bị lợi dụng chèn điều kiện).
+  const safe = query.replace(/[%,()*\\"'\s]+/g, " ").trim().slice(0, 60);
+  if (safe.length < 2) return [];
+
+  const { data } = await createAdminClient()
+    .from("profiles")
+    .select("email, full_name, role")
+    .eq("status", "active")
+    .or(`email.ilike.%${safe}%,full_name.ilike.%${safe}%`)
+    .limit(8);
+
+  const rows = (data ?? []) as { email: string | null; full_name: string | null; role: string | null }[];
+  return rows
+    .filter((r) => r.email)
+    .map((r) => ({ email: r.email as string, name: r.full_name?.trim() ?? "", role: r.role ?? "" }))
+    .sort(
+      (a, b) =>
+        (a.role === "customer" ? 0 : 1) - (b.role === "customer" ? 0 : 1) ||
+        a.name.localeCompare(b.name)
+    );
+}
+
+/** Danh sách tiêu đề mẫu (mặc định + tự thêm) cho dropdown khi soạn thư. */
+export async function loadSubjectTemplates(): Promise<string[]> {
+  const viewer = await getViewer();
+  if (!viewer?.canAccessAdmin) return [];
+  return listSubjectTemplates();
+}
+
+/** Lưu một tiêu đề tự tạo vào danh sách mẫu dùng chung. */
+export async function createSubjectTemplate(
+  subject: string
+): Promise<{ ok: true; templates: string[] } | { ok: false; error: string }> {
+  const viewer = await getViewer();
+  if (!viewer?.canAccessAdmin) return { ok: false, error: "Bạn không có quyền." };
+  if (viewer.demo) return { ok: false, error: "Chế độ demo không lưu được." };
+  if (!(await checkRateLimit(await callerKey("inbox-subj", viewer.id), RATE_LIMITS.mutation))) {
+    return { ok: false, error: "Thao tác quá nhanh. Đợi một chút." };
+  }
+  return addSubjectTemplate(subject, viewer.id);
 }
 
 /** Lưu chữ ký cá nhân của chính người đang đăng nhập. */
