@@ -19,6 +19,7 @@ import { getProducts } from "@/lib/data/products";
 import { getOwnSpecialRequests } from "@/lib/data/special-requests";
 import { recordSpecialRequestsBatch } from "@/lib/data/special-requests";
 import { getStoreBusinessProfile } from "@/lib/data/store-settings";
+import { normalizeUsPhone } from "@/lib/data/us-states";
 import { isSupabaseAdminConfigured } from "@/lib/env";
 import { callerKey, checkRateLimit, RATE_LIMITS } from "@/lib/rate-limit";
 import type { Product } from "@/lib/sample-data";
@@ -49,6 +50,11 @@ export type CheckoutOptions = {
   shippingAddressId?: string | null;
   paymentMethod?: BusinessPaymentMethod | OfflinePaymentMethod | string;
   paymentReference?: string | null;
+  /**
+   * Phone entered at checkout. Used when the account has none saved yet —
+   * it is stored back on the profile/customer for next time.
+   */
+  phone?: string | null;
   /**
    * Test path: create invoice + payment succeeded immediately
    * (same as the old “test checkout” for Orders / Invoices / Reports).
@@ -81,6 +87,8 @@ export type CheckoutBootstrap =
       shippingAddresses: CustomerAddress[];
       specialRequests: SpecialRequest[];
       customerName: string;
+      /** Phone already on the account, or null when none is saved yet. */
+      phone: string | null;
       isBusiness: boolean;
       businessDiscountPercent: number | null;
       companyName: string | null;
@@ -97,12 +105,26 @@ export async function loadCheckoutBootstrap(): Promise<CheckoutBootstrap> {
     }
 
     const canLoad = isSupabaseAdminConfigured();
-    const [catalogR, addrR, reqR, bizR, storeR] = await Promise.allSettled([
+    const admin = canLoad ? createAdminClient() : null;
+    const viewerId = viewer.id;
+
+    async function loadPhone(): Promise<string | null> {
+      if (!admin) return null;
+      const { data } = await admin
+        .from("profiles")
+        .select("phone")
+        .eq("id", viewerId)
+        .maybeSingle();
+      return (data?.phone ?? "").trim() || null;
+    }
+
+    const [catalogR, addrR, reqR, bizR, storeR, phoneR] = await Promise.allSettled([
       getProducts(),
       canLoad ? getOwnShippingAddresses(viewer.id) : Promise.resolve([] as CustomerAddress[]),
       canLoad ? getOwnSpecialRequests(viewer.id) : Promise.resolve([] as SpecialRequest[]),
       canLoad ? getOwnBusinessAccount(viewer.id) : Promise.resolve(null),
-      canLoad ? getStoreBusinessProfile() : Promise.resolve(null)
+      canLoad ? getStoreBusinessProfile() : Promise.resolve(null),
+      loadPhone()
     ]);
 
     const biz = bizR.status === "fulfilled" ? bizR.value : null;
@@ -117,6 +139,7 @@ export async function loadCheckoutBootstrap(): Promise<CheckoutBootstrap> {
       shippingAddresses: addrR.status === "fulfilled" ? addrR.value : [],
       specialRequests: reqR.status === "fulfilled" ? reqR.value : [],
       customerName: viewer.fullName || viewer.email || "Customer",
+      phone: phoneR.status === "fulfilled" ? phoneR.value : null,
       isBusiness: Boolean(biz?.isBusiness),
       businessDiscountPercent: biz?.discountPercent ?? null,
       companyName: biz?.companyName ?? null,
@@ -308,7 +331,29 @@ async function placeOrderInner(
   const nameParts = fullName ? fullName.split(/\s+/) : [];
   const firstName = nameParts[0] || null;
   const lastName = nameParts.length > 1 ? nameParts.slice(1).join(" ") : null;
-  const phone = (profile?.phone ?? "").trim() || null;
+
+  // Phone: use what the account already has; otherwise take what the customer
+  // typed at checkout, validate it, and save it back for next time.
+  const savedPhone = (profile?.phone ?? "").trim() || null;
+  let phone = savedPhone;
+  let phoneToPersist: string | null = null;
+  if (!savedPhone) {
+    const entered = String(options.phone ?? "").trim();
+    if (!entered) {
+      return { ok: false, error: "Please enter a phone number so we can reach you about this order." };
+    }
+    const normalized = normalizeUsPhone(entered);
+    if (!normalized) {
+      return { ok: false, error: "Please enter a valid U.S. phone number." };
+    }
+    phone = normalized;
+    phoneToPersist = normalized;
+  }
+
+  // Persist the new phone onto the account profile for future orders.
+  if (phoneToPersist) {
+    await supabase.from("profiles").update({ phone: phoneToPersist }).eq("id", viewer.id);
+  }
 
   let customerId: string | null = null;
   const { data: existingCustomer } = await supabase
@@ -336,6 +381,7 @@ async function placeOrderInner(
     const patch: Record<string, string> = {};
     if (!existingCustomer?.first_name && firstName) patch.first_name = firstName;
     if (!existingCustomer?.last_name && lastName) patch.last_name = lastName;
+    // Save the phone when the customer record has none (new or newly entered).
     if (!existingCustomer?.phone && phone) patch.phone = phone;
     if (Object.keys(patch).length) {
       await supabase.from("customers").update(patch).eq("id", customerId);

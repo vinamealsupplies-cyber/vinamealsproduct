@@ -7,6 +7,7 @@ import {
   CheckCircle2,
   CreditCard,
   Landmark,
+  Phone,
   ShoppingBag,
   Store,
   Truck
@@ -64,6 +65,8 @@ export function CheckoutView({
   const [shippingAddresses, setShippingAddresses] = useState<CustomerAddress[]>([]);
   const [savedRequests, setSavedRequests] = useState<SpecialRequest[]>([]);
   const [customerName, setCustomerName] = useState("Customer");
+  const [accountPhone, setAccountPhone] = useState<string | null>(null);
+  const [phoneInput, setPhoneInput] = useState("");
   const [shippingAddressId, setShippingAddressId] = useState<string | null>(null);
   const [isBusiness, setIsBusiness] = useState(false);
   const [businessDiscountPercent, setBusinessDiscountPercent] = useState<number | null>(null);
@@ -119,6 +122,7 @@ export function CheckoutView({
         setShippingAddresses(boot.shippingAddresses);
         setSavedRequests(boot.specialRequests);
         setCustomerName(boot.customerName);
+        setAccountPhone(boot.phone);
         setIsBusiness(boot.isBusiness);
         setBusinessDiscountPercent(boot.businessDiscountPercent);
         setCompanyName(boot.companyName);
@@ -154,6 +158,9 @@ export function CheckoutView({
       </div>
     );
   }
+
+  // Account has no phone yet → ask for one at checkout and save it back.
+  const needsPhone = !accountPhone;
 
   const lines = items
     .map((item) => ({ ...item, product: byId.get(item.productId) }))
@@ -298,6 +305,10 @@ export function CheckoutView({
         setError("Select a shipping address for delivery orders.");
         return;
       }
+      if (needsPhone && !phoneInput.trim()) {
+        setError("Please enter a phone number so we can reach you about this order.");
+        return;
+      }
       if (isBusiness && !forcePaidTest && !isBusinessPaymentMethod(paymentMethod)) {
         setError("Select a payment method.");
         return;
@@ -313,6 +324,7 @@ export function CheckoutView({
           {
             fulfillmentMethod: method,
             shippingAddressId: method === "ship" ? shippingAddressId : null,
+            phone: needsPhone ? phoneInput.trim() : undefined,
             paymentMethod: isBusiness && !forcePaidTest ? paymentMethod : undefined,
             paymentReference:
               isBusiness && !forcePaidTest ? paymentReference.trim() || null : null,
@@ -373,6 +385,34 @@ export function CheckoutView({
             </p>
           </div>
         </div>
+      ) : null}
+
+      {needsPhone ? (
+        <section className="form-card" style={{ marginBottom: 18 }}>
+          <div className="form-card-heading">
+            <div>
+              <h2>
+                <Phone size={18} aria-hidden="true" /> Contact phone number
+              </h2>
+              <p>
+                We don’t have a phone number on your account yet. Add one so we can reach you about
+                this order — we’ll save it to your account for next time.
+              </p>
+            </div>
+          </div>
+          <label>
+            Phone number *
+            <input
+              type="tel"
+              inputMode="tel"
+              autoComplete="tel"
+              value={phoneInput}
+              onChange={(e) => setPhoneInput(e.target.value)}
+              maxLength={20}
+              placeholder="(714) 555-1234"
+            />
+          </label>
+        </section>
       ) : null}
 
       <div className="checkout-fulfillment-block">
