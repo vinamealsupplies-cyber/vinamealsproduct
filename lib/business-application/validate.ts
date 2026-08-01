@@ -1,10 +1,6 @@
 import {
-  BUSINESS_CATEGORIES,
   DOCUMENT_TYPES,
-  ENTITY_TYPES,
   EXEMPTION_TYPES,
-  INTENDED_USES,
-  JOB_TITLES,
   MONTHLY_VOLUMES
 } from "@/lib/business-application/constants";
 import type { AddressJson, ApplicationTypeChoice } from "@/lib/business-application/types";
@@ -150,13 +146,10 @@ export function parseBusinessApplicationForm(
   const applicantFullName = field(formData, "applicantFullName", 120);
   if (!applicantFullName) return { error: "Full legal name is required." };
 
+  // Job title: không còn hỏi trong form gọn — cột NOT NULL nên để "".
   let applicantJobTitle = field(formData, "applicantJobTitle", 80);
   if (applicantJobTitle === "Other") {
     applicantJobTitle = field(formData, "applicantJobTitleOther", 80) || "Other";
-  }
-  if (!applicantJobTitle) return { error: "Job title is required." };
-  if (!(JOB_TITLES as readonly string[]).includes(applicantJobTitle) && applicantJobTitle.length < 2) {
-    return { error: "Job title is required." };
   }
 
   const applicantEmail = field(formData, "applicantEmail", 160).toLowerCase();
@@ -174,21 +167,11 @@ export function parseBusinessApplicationForm(
   const legalBusinessName = field(formData, "legalBusinessName", 160);
   if (!legalBusinessName) return { error: "Legal business name is required." };
 
+  // Form gọn không còn hỏi các mục này — cột NOT NULL nên để "" / null, không bắt buộc.
   const dbaName = field(formData, "dbaName", 160) || null;
   const entityType = field(formData, "entityType", 80);
-  if (!entityType || !(ENTITY_TYPES as readonly string[]).includes(entityType)) {
-    return { error: "Business entity type is required." };
-  }
-
   const businessCategory = field(formData, "businessCategory", 80);
-  if (!businessCategory || !(BUSINESS_CATEGORIES as readonly string[]).includes(businessCategory)) {
-    return { error: "Business category is required." };
-  }
-
   const businessDescription = field(formData, "businessDescription", 2000);
-  if (!businessDescription || businessDescription.length < 10) {
-    return { error: "Business description is required (at least a short description)." };
-  }
 
   const websiteUrlRaw = optionalUrl(field(formData, "websiteUrl", 400));
   if (websiteUrlRaw && typeof websiteUrlRaw === "object" && "error" in websiteUrlRaw) {
@@ -261,14 +244,8 @@ export function parseBusinessApplicationForm(
     expectedFirstOrderAmount = Math.round(n * 100) / 100;
   }
 
-  if (wholesaleRequested) {
-    if (!productsInterested.length) {
-      return { error: "Select at least one product category you plan to purchase." };
-    }
-    if (!intendedUse || !(INTENDED_USES as readonly string[]).includes(intendedUse)) {
-      return { error: "Intended use is required for wholesale applications." };
-    }
-  } else {
+  // Form gọn không còn hỏi chi tiết wholesale (products / intended use…) — không bắt buộc.
+  if (!wholesaleRequested) {
     intendedUse = null;
   }
 
@@ -302,11 +279,6 @@ export function parseBusinessApplicationForm(
     if (needsPermit && !permitNumber) {
       return { error: "Permit or certificate number is required." };
     }
-    if (!needsPermit && !permitNumber && !noPermitReason) {
-      return {
-        error: "Explain why no seller’s permit number is required, or provide a certificate number."
-      };
-    }
     if (!certificateBusinessName) {
       return { error: "Name shown on certificate is required." };
     }
@@ -323,9 +295,6 @@ export function parseBusinessApplicationForm(
       const parsed = parseAddress(formData, "certificate", true);
       if (parsed && "error" in parsed) return parsed;
       certificateAddress = parsed;
-    }
-    if (!resaleProductDescription) {
-      return { error: "Please describe the products being purchased for resale." };
     }
     if (certificateEffectiveDate && !/^\d{4}-\d{2}-\d{2}$/.test(certificateEffectiveDate)) {
       return { error: "Certificate effective date is invalid." };
@@ -370,11 +339,11 @@ export function parseBusinessApplicationForm(
   }
 
   const signerName = field(formData, "signerName", 120);
+  // Signer title: form gọn không hỏi — cột NOT NULL nên để "".
   const signerTitle = field(formData, "signerTitle", 80);
   const electronicSignature = field(formData, "electronicSignature", 120);
   let signedAt = field(formData, "signedAt", 20);
   if (!signerName) return { error: "Authorized signer full name is required." };
-  if (!signerTitle) return { error: "Authorized signer title is required." };
   if (!electronicSignature) return { error: "Electronic signature is required." };
   if (electronicSignature.toLowerCase() !== signerName.toLowerCase()) {
     return {

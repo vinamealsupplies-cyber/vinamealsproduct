@@ -12,7 +12,6 @@ import {
   getOwnCustomerForBusinessApp,
   listOwnBusinessApplications
 } from "@/lib/data/business-applications";
-import { getStorefrontCategories } from "@/lib/data/categories";
 import { formatDate } from "@/lib/format";
 
 export const metadata: Metadata = {
@@ -25,10 +24,9 @@ export default async function BusinessApplicationPage() {
     redirect("/login?next=/account/business-application&message=Sign%20in%20to%20apply.");
   }
 
-  const [customer, applications, categories] = await Promise.all([
+  const [customer, applications] = await Promise.all([
     getOwnCustomerForBusinessApp(viewer.id),
-    listOwnBusinessApplications(viewer.id),
-    getStorefrontCategories().catch(() => [])
+    listOwnBusinessApplications(viewer.id)
   ]);
 
   const openApp = applications.find(
@@ -39,8 +37,6 @@ export default async function BusinessApplicationPage() {
       a.taxExemptionStatus === "under_review" ||
       a.taxExemptionStatus === "more_info_required"
   );
-
-  const productCategories = categories.map((c) => ({ id: c.id, name: c.name }));
 
   return (
     <div className="page-shell shell narrow-page">
@@ -123,7 +119,6 @@ export default async function BusinessApplicationPage() {
             phone: customer?.phone ?? "",
             companyName: customer?.company_name ?? ""
           }}
-          productCategories={productCategories}
         />
       )}
     </div>

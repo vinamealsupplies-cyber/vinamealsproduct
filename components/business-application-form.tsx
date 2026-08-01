@@ -1,22 +1,15 @@
 "use client";
 
-import { useMemo, useState, type FormEvent } from "react";
+import { useState, type FormEvent } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Building2, FileUp, Loader2, Send, ShieldCheck, Trash2 } from "lucide-react";
+import { FileUp, Loader2, Send, ShieldCheck, Trash2 } from "lucide-react";
 import {
-  BUSINESS_CATEGORIES,
   BUSINESS_DOC_ACCEPTED_LABEL,
-  CONTACT_METHODS,
   DOCUMENT_TYPES,
-  ENTITY_TYPES,
   EXEMPTION_TYPES,
-  INTENDED_USES,
-  JOB_TITLES,
   MAX_BUSINESS_DOC_BYTES,
   MAX_BUSINESS_DOCS,
-  MONTHLY_VOLUMES,
-  SALES_CHANNELS,
   TAX_STATUS_LABELS,
   WHOLESALE_STATUS_LABELS
 } from "@/lib/business-application/constants";
@@ -34,8 +27,6 @@ type Defaults = {
   companyName: string;
 };
 
-type ProductCategoryOption = { id: string; name: string };
-
 type PendingFile = {
   id: string;
   file: File;
@@ -52,22 +43,12 @@ function formatBytes(n: number) {
   return `${(n / (1024 * 1024)).toFixed(1)} MB`;
 }
 
-export function BusinessApplicationForm({
-  defaults,
-  productCategories
-}: {
-  defaults: Defaults;
-  productCategories: ProductCategoryOption[];
-}) {
+export function BusinessApplicationForm({ defaults }: { defaults: Defaults }) {
   const router = useRouter();
   const [applicationType, setApplicationType] = useState<ApplicationTypeChoice>("both");
   const wholesaleOn = applicationType === "wholesale" || applicationType === "both";
   const taxOn = applicationType === "tax" || applicationType === "both";
 
-  const [jobTitle, setJobTitle] = useState("Owner");
-  const [mailingSame, setMailingSame] = useState(true);
-  const [shippingSame, setShippingSame] = useState(true);
-  const [certSame, setCertSame] = useState(true);
   const [exemptionType, setExemptionType] = useState<string>(EXEMPTION_TYPES[0]);
   const [files, setFiles] = useState<PendingFile[]>([]);
   const [pending, setPending] = useState(false);
@@ -76,19 +57,6 @@ export function BusinessApplicationForm({
   );
   const [clientError, setClientError] = useState("");
   const [signerName, setSignerName] = useState(defaults.fullName);
-  const [productsSelected, setProductsSelected] = useState<string[]>([]);
-
-  const categoryOptions = useMemo(() => {
-    if (productCategories.length) return productCategories.map((c) => c.name);
-    return [
-      "Pantry staples",
-      "Frozen foods",
-      "Snacks",
-      "Sauces & condiments",
-      "Beverages",
-      "Other"
-    ];
-  }, [productCategories]);
 
   const needsPermitNumber = !["Nonprofit exemption", "Government exemption", "Other"].includes(
     exemptionType
@@ -125,12 +93,6 @@ export function BusinessApplicationForm({
     setFiles((prev) => prev.filter((f) => f.id !== id));
   }
 
-  function toggleProduct(name: string) {
-    setProductsSelected((prev) =>
-      prev.includes(name) ? prev.filter((p) => p !== name) : [...prev, name]
-    );
-  }
-
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (pending) return;
@@ -141,17 +103,14 @@ export function BusinessApplicationForm({
       setClientError("Please upload at least one supporting document.");
       return;
     }
-    if (wholesaleOn && productsSelected.length === 0) {
-      setClientError("Select at least one product category for wholesale.");
-      return;
-    }
 
     const form = event.currentTarget;
     const formData = new FormData(form);
     formData.set("applicationType", applicationType);
-    formData.set("mailingSameAsBusiness", mailingSame ? "true" : "false");
-    formData.set("shippingSameAsBusiness", shippingSame ? "true" : "false");
-    formData.set("certificateSameAsBusiness", certSame ? "true" : "false");
+    // Địa chỉ liên hệ = địa chỉ doanh nghiệp (đã gọn form, không hỏi riêng).
+    formData.set("mailingSameAsBusiness", "true");
+    formData.set("shippingSameAsBusiness", "true");
+    formData.set("certificateSameAsBusiness", "true");
 
     // Files + types
     formData.delete("documents");
@@ -159,10 +118,6 @@ export function BusinessApplicationForm({
       formData.append("documents", item.file);
       formData.set(`documentType_${index}`, item.documentType);
     });
-
-    // Multi products
-    formData.delete("productsInterested");
-    for (const p of productsSelected) formData.append("productsInterested", p);
 
     setPending(true);
     try {
@@ -248,20 +203,26 @@ export function BusinessApplicationForm({
         </div>
       </section>
 
-      {/* 2. Applicant */}
+      {/* 2. Business name + contact */}
       <section className="form-card">
         <div className="form-card-heading">
           <div>
-            <h2>Applicant information</h2>
-            <p>
-              Enter the information of the person authorized to submit this application on behalf of
-              the business.
-            </p>
+            <h2>Business &amp; contact</h2>
+            <p>Business name and the person we can reach about this application.</p>
           </div>
         </div>
         <div className="form-grid two-columns">
+          <label className="full-width">
+            Legal business name *
+            <input
+              name="legalBusinessName"
+              required
+              defaultValue={defaults.companyName}
+              maxLength={160}
+            />
+          </label>
           <label>
-            Full legal name *
+            Contact name *
             <input
               name="applicantFullName"
               required
@@ -270,27 +231,6 @@ export function BusinessApplicationForm({
               maxLength={120}
             />
           </label>
-          <label>
-            Job title *
-            <select
-              name="applicantJobTitle"
-              required
-              value={jobTitle}
-              onChange={(e) => setJobTitle(e.target.value)}
-            >
-              {JOB_TITLES.map((t) => (
-                <option key={t} value={t}>
-                  {t}
-                </option>
-              ))}
-            </select>
-          </label>
-          {jobTitle === "Other" ? (
-            <label className="full-width">
-              Job title (other) *
-              <input name="applicantJobTitleOther" required maxLength={80} placeholder="Your title" />
-            </label>
-          ) : null}
           <label>
             Email address *
             <input
@@ -315,107 +255,10 @@ export function BusinessApplicationForm({
               autoComplete="tel"
             />
           </label>
-          <label>
-            Preferred contact method
-            <select name="preferredContactMethod" defaultValue="Email">
-              <option value="">Select…</option>
-              {CONTACT_METHODS.map((m) => (
-                <option key={m} value={m}>
-                  {m}
-                </option>
-              ))}
-            </select>
-          </label>
         </div>
       </section>
 
-      {/* 3. Business */}
-      <section className="form-card">
-        <div className="form-card-heading">
-          <div>
-            <h2>
-              <Building2 size={18} aria-hidden="true" /> Business information
-            </h2>
-            <p>Provide the legal and operating details of your business.</p>
-          </div>
-        </div>
-        <div className="form-grid two-columns">
-          <label>
-            Legal business name *
-            <input
-              name="legalBusinessName"
-              required
-              defaultValue={defaults.companyName}
-              maxLength={160}
-            />
-          </label>
-          <label>
-            DBA or store name
-            <input name="dbaName" maxLength={160} placeholder="Doing Business As, if different" />
-            <span className="field-hint">Doing Business As, if different from the legal business name.</span>
-          </label>
-          <label>
-            Business entity type *
-            <select name="entityType" required defaultValue={ENTITY_TYPES[1]}>
-              {ENTITY_TYPES.map((t) => (
-                <option key={t} value={t}>
-                  {t}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label>
-            Business category *
-            <select name="businessCategory" required defaultValue={BUSINESS_CATEGORIES[0]}>
-              {BUSINESS_CATEGORIES.map((c) => (
-                <option key={c} value={c}>
-                  {c}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label className="full-width">
-            Business description *
-            <textarea
-              name="businessDescription"
-              required
-              rows={3}
-              maxLength={2000}
-              placeholder="Describe what your business sells or the services it provides."
-            />
-          </label>
-          <label>
-            Business website
-            <input name="websiteUrl" type="url" placeholder="https://" maxLength={400} />
-          </label>
-          <label>
-            Social media URL
-            <input
-              name="socialMediaUrl"
-              type="url"
-              placeholder="Instagram, Facebook, TikTok…"
-              maxLength={400}
-            />
-          </label>
-          <label>
-            Years in business
-            <input name="yearsInBusiness" type="number" min={0} max={200} inputMode="numeric" />
-          </label>
-          <label>
-            Estimated monthly purchasing volume
-            <select name="estimatedMonthlyVolume" defaultValue="">
-              <option value="">Select…</option>
-              {MONTHLY_VOLUMES.map((v) => (
-                <option key={v} value={v}>
-                  {v}
-                </option>
-              ))}
-            </select>
-          </label>
-        </div>
-      </section>
-
-      {/* 4. Address */}
+      {/* 3. Address */}
       <section className="form-card">
         <div className="form-card-heading">
           <div>
@@ -464,182 +307,17 @@ export function BusinessApplicationForm({
             </select>
           </label>
         </div>
-
-        <div className="checkbox-row" style={{ marginTop: 14 }}>
-          <label className="checkbox-label">
-            <input
-              type="checkbox"
-              checked={mailingSame}
-              onChange={(e) => setMailingSame(e.target.checked)}
-            />
-            Mailing address is the same as business address
-          </label>
-        </div>
-        {!mailingSame ? (
-          <div className="form-grid two-columns" style={{ marginTop: 12 }}>
-            <p className="full-width field-hint">
-              <strong>Mailing address</strong>
-            </p>
-            <label className="full-width">
-              Street address *
-              <input name="mailingStreet" required={!mailingSame} maxLength={160} />
-            </label>
-            <label className="full-width">
-              Address line 2
-              <input name="mailingLine2" maxLength={160} />
-            </label>
-            <label>
-              City *
-              <input name="mailingCity" required={!mailingSame} maxLength={80} />
-            </label>
-            <label>
-              State *
-              <select name="mailingState" required={!mailingSame} defaultValue="CA">
-                {US_STATES.map((s) => (
-                  <option key={s.code} value={s.code}>
-                    {s.code}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label>
-              ZIP *
-              <input name="mailingZip" required={!mailingSame} maxLength={10} />
-            </label>
-            <label>
-              Country *
-              <select name="mailingCountry" defaultValue="US">
-                <option value="US">United States</option>
-              </select>
-            </label>
-          </div>
-        ) : null}
-
-        <div className="checkbox-row" style={{ marginTop: 14 }}>
-          <label className="checkbox-label">
-            <input
-              type="checkbox"
-              checked={shippingSame}
-              onChange={(e) => setShippingSame(e.target.checked)}
-            />
-            Shipping address is the same as business address
-          </label>
-        </div>
-        {!shippingSame ? (
-          <div className="form-grid two-columns" style={{ marginTop: 12 }}>
-            <p className="full-width field-hint">
-              <strong>Shipping address</strong>
-            </p>
-            <label className="full-width">
-              Street address *
-              <input name="shippingStreet" required={!shippingSame} maxLength={160} />
-            </label>
-            <label className="full-width">
-              Address line 2
-              <input name="shippingLine2" maxLength={160} />
-            </label>
-            <label>
-              City *
-              <input name="shippingCity" required={!shippingSame} maxLength={80} />
-            </label>
-            <label>
-              State *
-              <select name="shippingState" required={!shippingSame} defaultValue="CA">
-                {US_STATES.map((s) => (
-                  <option key={s.code} value={s.code}>
-                    {s.code}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label>
-              ZIP *
-              <input name="shippingZip" required={!shippingSame} maxLength={10} />
-            </label>
-            <label>
-              Country *
-              <select name="shippingCountry" defaultValue="US">
-                <option value="US">United States</option>
-              </select>
-            </label>
-          </div>
-        ) : null}
       </section>
 
-      {/* 5. Wholesale */}
-      {wholesaleOn ? (
-        <section className="form-card">
-          <div className="form-card-heading">
-            <div>
-              <h2>Wholesale account information</h2>
-              <p>Tell us what products you plan to purchase and resell.</p>
-            </div>
-          </div>
-          <fieldset className="checkbox-fieldset">
-            <legend>Products interested in purchasing *</legend>
-            <div className="chip-check-grid">
-              {categoryOptions.map((name) => (
-                <label key={name} className="chip-check">
-                  <input
-                    type="checkbox"
-                    checked={productsSelected.includes(name)}
-                    onChange={() => toggleProduct(name)}
-                  />
-                  <span>{name}</span>
-                </label>
-              ))}
-            </div>
-          </fieldset>
-          <div className="form-grid two-columns" style={{ marginTop: 16 }}>
-            <label>
-              Intended use *
-              <select name="intendedUse" required={wholesaleOn} defaultValue={INTENDED_USES[0]}>
-                {INTENDED_USES.map((u) => (
-                  <option key={u} value={u}>
-                    {u}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label>
-              Expected first order amount (USD)
-              <input
-                name="expectedFirstOrderAmount"
-                type="number"
-                min={0}
-                step="0.01"
-                inputMode="decimal"
-                placeholder="0.00"
-              />
-            </label>
-            <fieldset className="full-width checkbox-fieldset">
-              <legend>Sales channels</legend>
-              <div className="chip-check-grid">
-                {SALES_CHANNELS.map((ch) => (
-                  <label key={ch} className="chip-check">
-                    <input type="checkbox" name="salesChannels" value={ch} />
-                    <span>{ch}</span>
-                  </label>
-                ))}
-              </div>
-            </fieldset>
-            <label className="full-width">
-              Notes for wholesale review
-              <textarea name="wholesaleNotes" rows={3} maxLength={2000} />
-            </label>
-          </div>
-        </section>
-      ) : null}
-
-      {/* 6. Tax / resale */}
+      {/* 4. Tax / resale license */}
       {taxOn ? (
         <section className="form-card">
           <div className="form-card-heading">
             <div>
               <h2>
-                <ShieldCheck size={18} aria-hidden="true" /> Resale and tax-exempt information
+                <ShieldCheck size={18} aria-hidden="true" /> Resale / tax-exempt license
               </h2>
-              <p>Provide the permit or exemption information used for qualifying purchases.</p>
+              <p>The permit or exemption used for qualifying purchases.</p>
             </div>
           </div>
           <div className="form-grid two-columns">
@@ -673,14 +351,6 @@ export function BusinessApplicationForm({
               <input name="permitNumber" required={taxOn && needsPermitNumber} maxLength={80} />
             </label>
             <label>
-              Certificate effective date
-              <input name="certificateEffectiveDate" type="date" />
-            </label>
-            <label>
-              Certificate expiration date
-              <input name="certificateExpirationDate" type="date" />
-            </label>
-            <label>
               Name shown on certificate *
               <input
                 name="certificateBusinessName"
@@ -689,84 +359,18 @@ export function BusinessApplicationForm({
                 maxLength={160}
               />
             </label>
-            <div className="full-width checkbox-row">
-              <label className="checkbox-label">
-                <input
-                  type="checkbox"
-                  checked={certSame}
-                  onChange={(e) => setCertSame(e.target.checked)}
-                />
-                Address shown on certificate is the same as business address
-              </label>
-            </div>
-            {!certSame ? (
-              <>
-                <label className="full-width">
-                  Certificate street address *
-                  <input name="certificateStreet" required={!certSame} maxLength={160} />
-                </label>
-                <label className="full-width">
-                  Address line 2
-                  <input name="certificateLine2" maxLength={160} />
-                </label>
-                <label>
-                  City *
-                  <input name="certificateCity" required={!certSame} maxLength={80} />
-                </label>
-                <label>
-                  State *
-                  <select name="certificateState" required={!certSame} defaultValue="CA">
-                    {US_STATES.map((s) => (
-                      <option key={s.code} value={s.code}>
-                        {s.code}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <label>
-                  ZIP *
-                  <input name="certificateZip" required={!certSame} maxLength={10} />
-                </label>
-                <label>
-                  Country *
-                  <select name="certificateCountry" defaultValue="US">
-                    <option value="US">United States</option>
-                  </select>
-                </label>
-              </>
-            ) : null}
-            <label className="full-width">
-              Description of products being purchased for resale *
-              <textarea
-                name="resaleProductDescription"
-                required={taxOn}
-                rows={3}
-                maxLength={2000}
-                placeholder="Describe the products you are purchasing for resale."
-              />
-            </label>
-            {!needsPermitNumber ? (
-              <label className="full-width">
-                Reason no seller’s permit number is required *
-                <textarea name="noPermitReason" required={taxOn && !needsPermitNumber} rows={2} />
-              </label>
-            ) : null}
-            <label className="full-width">
-              State verification URL or verification reference
-              <input name="verificationReference" maxLength={400} />
-            </label>
           </div>
         </section>
       ) : null}
 
-      {/* 7. Documents */}
+      {/* 5. Documents */}
       <section className="form-card">
         <div className="form-card-heading">
           <div>
             <h2>
-              <FileUp size={18} aria-hidden="true" /> Supporting documents
+              <FileUp size={18} aria-hidden="true" /> License / supporting documents
             </h2>
-            <p>Upload the documents required to verify your wholesale or tax-exempt application.</p>
+            <p>Upload your seller’s permit, resale certificate, or other verifying documents.</p>
           </div>
         </div>
         <label className="upload-drop">
@@ -824,7 +428,7 @@ export function BusinessApplicationForm({
         </p>
       </section>
 
-      {/* 8. Signature */}
+      {/* 6. Signature */}
       <section className="form-card">
         <div className="form-card-heading">
           <div>
@@ -873,8 +477,8 @@ export function BusinessApplicationForm({
             />
           </label>
           <label>
-            Authorized signer title *
-            <input name="signerTitle" required defaultValue={jobTitle === "Other" ? "" : jobTitle} maxLength={80} />
+            Date signed *
+            <input name="signedAt" type="date" required defaultValue={todayIso()} max={todayIso()} />
           </label>
           <label className="full-width">
             Electronic signature *
@@ -889,10 +493,6 @@ export function BusinessApplicationForm({
               By typing your full name, you agree that this electronic signature has the same effect
               as a handwritten signature.
             </span>
-          </label>
-          <label>
-            Date signed *
-            <input name="signedAt" type="date" required defaultValue={todayIso()} max={todayIso()} />
           </label>
         </div>
       </section>
