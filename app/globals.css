@@ -1319,6 +1319,9 @@ a.oauth-button { text-decoration: none; color: inherit; box-sizing: border-box; 
 .admin-sidebar a:hover { background: rgba(255,255,255,.08); color: white; }
 .admin-sidebar a.active { background: var(--lime); color: var(--ink); }
 .admin-nav-label-text { flex: 1; min-width: 0; }
+/* Desktop: nút hamburger ẩn, các nhóm nav luôn hiện dọc trong sidebar. */
+.admin-nav-toggle { display: none; }
+.admin-nav-groups { display: grid; gap: 22px; }
 /* Badge đỏ: đơn confirmed chưa xử lý (chờ pickup / ship). */
 .admin-nav-order-badge {
   display: inline-flex;
@@ -1597,7 +1600,9 @@ a.oauth-button { text-decoration: none; color: inherit; box-sizing: border-box; 
 .ledger-explainer p, .report-definition-note p { margin: 0; color: #42645a; font-size: 13px; }
 
 .admin-form { display: grid; gap: 18px; }
-.form-card { padding: 23px; }
+/* min-width:0 để form-card (grid/flex item) co được về bề rộng cột — không thì
+   bảng bên trong .table-scroll làm phình card ra, kéo lệch cả trang trên mobile. */
+.form-card { padding: 23px; min-width: 0; }
 .form-success { padding: 13px 15px; border-radius: 13px; background: var(--mint); color: var(--green-dark); font-weight: 750; }
 .form-error { padding: 13px 15px; border-radius: 13px; border: 1px solid #f2b8ae; background: #fff2ef; color: #7d2d1d; font-weight: 750; }
 .required-note { color: var(--muted); font-size: 11px; }
@@ -1791,10 +1796,30 @@ a.oauth-button { text-decoration: none; color: inherit; box-sizing: border-box; 
   .catalog-filter-panel .filter-clear { grid-column: 1 / -1; justify-self: start; }
   .product-detail-grid { grid-template-columns: 1fr; }
   .admin-shell { grid-template-columns: 1fr; }
-  .admin-sidebar { position: static; max-height: none; display: flex; overflow-x: auto; }
+  /* Mobile: menu gập thành 1 nút icon; bấm mới xổ danh sách DỌC. */
+  .admin-sidebar {
+    position: static; max-height: none; overflow: visible;
+    display: block; padding: 0; border: none; background: transparent;
+  }
   .admin-sidebar-title { display: none; }
-  .admin-sidebar nav { display: flex; align-items: center; }
-  .admin-nav-label { display: none; }
+  .admin-nav-toggle {
+    display: flex; align-items: center; gap: 10px; width: 100%;
+    padding: 12px 15px; border: 1px solid var(--line); border-radius: 14px;
+    background: var(--ink); color: #fff; font-weight: 800; font-size: 14px;
+    cursor: pointer;
+  }
+  .admin-nav-toggle-label { flex: 1; text-align: left; }
+  .admin-nav-toggle-hint {
+    font-size: 10px; font-weight: 800; letter-spacing: .1em; text-transform: uppercase;
+    color: rgba(255,255,255,.5);
+  }
+  .admin-nav-groups { display: none; }
+  .admin-sidebar.is-open .admin-nav-groups {
+    display: grid; gap: 16px; margin-top: 8px;
+    padding: 14px 12px; border: 1px solid var(--line); border-radius: 16px;
+    background: var(--ink);
+  }
+  .admin-sidebar nav { display: grid; gap: 4px; }
   .admin-sidebar a { white-space: nowrap; }
   .admin-two-column { grid-template-columns: 1fr; }
   .category-admin-layout { grid-template-columns: 1fr; }

@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
@@ -11,13 +12,15 @@ import {
   FolderTree,
   LayoutDashboard,
   type LucideIcon,
+  Menu,
   PackagePlus,
   ReceiptText,
   Settings,
   ShieldCheck,
   ShoppingBasket,
   UserCog,
-  UsersRound
+  UsersRound,
+  X
 } from "lucide-react";
 
 type NavItem = {
@@ -76,6 +79,8 @@ export function AdminNav({
 }) {
   const pathname = usePathname();
   const openCount = Math.max(0, Math.floor(openOrdersCount));
+  // Mobile: menu gập lại thành icon, bấm mới mở (dọc). Desktop: luôn hiện.
+  const [open, setOpen] = useState(false);
 
   // Seller chỉ thấy các mục fulfillment; Accounts chỉ admin; nhóm rỗng thì ẩn.
   const visibleGroups = groups
@@ -89,47 +94,71 @@ export function AdminNav({
     }))
     .filter((group) => group.items.length > 0);
 
+  // Nhãn trang hiện tại để hiện trên nút hamburger (mobile).
+  const activeItem = visibleGroups
+    .flatMap((group) => group.items)
+    .find((item) =>
+      item.href === "/admin" ? pathname === item.href : pathname.startsWith(item.href)
+    );
+  const activeLabel = activeItem?.label ?? "Menu";
+
   return (
-    <aside className="admin-sidebar">
+    <aside className={open ? "admin-sidebar is-open" : "admin-sidebar"}>
+      <button
+        type="button"
+        className="admin-nav-toggle"
+        aria-expanded={open}
+        aria-controls="admin-nav-groups"
+        onClick={() => setOpen((value) => !value)}
+      >
+        {open ? <X size={18} aria-hidden="true" /> : <Menu size={18} aria-hidden="true" />}
+        <span className="admin-nav-toggle-label">{activeLabel}</span>
+        <span className="admin-nav-toggle-hint">{open ? "Close" : "Menu"}</span>
+      </button>
+
       <div className="admin-sidebar-title">
         {isSeller ? "Seller — giao dịch hằng ngày" : "Store administration"}
       </div>
-      {visibleGroups.map((group) => (
-        <nav key={group.label} aria-label={`${group.label} administration`}>
-          <span className="admin-nav-label">
-            {isSeller && group.label === "Operate"
-              ? "Hôm nay"
-              : isSeller && group.label === "Sell"
-                ? "Bán hàng"
-                : group.label}
-          </span>
-          {group.items.map((item) => {
-            const Icon = item.icon;
-            const active = item.href === "/admin" ? pathname === item.href : pathname.startsWith(item.href);
-            const showOrdersBadge = item.href === "/admin/orders" && openCount > 0;
-            return (
-              <Link
-                className={active ? "active" : ""}
-                href={item.href}
-                key={item.href}
-                aria-label={
-                  showOrdersBadge
-                    ? `Orders, ${openCount} đơn chưa xử lý`
-                    : undefined
-                }
-              >
-                <Icon size={18} aria-hidden="true" />
-                <span className="admin-nav-label-text">{item.label}</span>
-                {showOrdersBadge ? (
-                  <span className="admin-nav-order-badge" aria-hidden="true">
-                    {openCount > 99 ? "99+" : openCount}
-                  </span>
-                ) : null}
-              </Link>
-            );
-          })}
-        </nav>
-      ))}
+
+      <div className="admin-nav-groups" id="admin-nav-groups">
+        {visibleGroups.map((group) => (
+          <nav key={group.label} aria-label={`${group.label} administration`}>
+            <span className="admin-nav-label">
+              {isSeller && group.label === "Operate"
+                ? "Hôm nay"
+                : isSeller && group.label === "Sell"
+                  ? "Bán hàng"
+                  : group.label}
+            </span>
+            {group.items.map((item) => {
+              const Icon = item.icon;
+              const active = item.href === "/admin" ? pathname === item.href : pathname.startsWith(item.href);
+              const showOrdersBadge = item.href === "/admin/orders" && openCount > 0;
+              return (
+                <Link
+                  className={active ? "active" : ""}
+                  href={item.href}
+                  key={item.href}
+                  onClick={() => setOpen(false)}
+                  aria-label={
+                    showOrdersBadge
+                      ? `Orders, ${openCount} đơn chưa xử lý`
+                      : undefined
+                  }
+                >
+                  <Icon size={18} aria-hidden="true" />
+                  <span className="admin-nav-label-text">{item.label}</span>
+                  {showOrdersBadge ? (
+                    <span className="admin-nav-order-badge" aria-hidden="true">
+                      {openCount > 99 ? "99+" : openCount}
+                    </span>
+                  ) : null}
+                </Link>
+              );
+            })}
+          </nav>
+        ))}
+      </div>
     </aside>
   );
 }
