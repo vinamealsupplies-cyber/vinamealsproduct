@@ -3,10 +3,10 @@ import {
   StandardFonts,
   rgb,
   type PDFFont,
+  type PDFImage,
   type RGB
 } from "pdf-lib";
 
-// Type cục bộ (subset các field cần) — worker này độc lập với app.
 export interface InvoiceLine {
   description: string;
   sku: string | null;
@@ -19,6 +19,9 @@ export interface InvoiceView {
   invoiceNumber: string;
   issueDate: string;
   orderNumber: string;
+  status: string;
+  fulfillmentMethod: string;
+  paymentMethod: string | null;
   paymentStatus: string;
   billTo: {
     name: string;
@@ -26,6 +29,7 @@ export interface InvoiceView {
     lines: string[];
     email: string | null;
     phone: string | null;
+    customerNumber: string | null;
   };
   lines: InvoiceLine[];
   subtotal: number;
@@ -46,15 +50,27 @@ export interface StoreProfile {
   postalCode: string;
   phone: string;
   email: string;
+  website: string;
   checkPayableTo: string;
   zelleName: string;
   zelleEmailOrPhone: string;
   bankName: string;
   bankAccountName: string;
+  bankRoutingNumber: string;
+  bankAccountNumber: string;
+  bankAccountType: string;
 }
 
-// pdf-lib font chuẩn chỉ encode WinAnsi (Latin1). Tên/địa chỉ khách có dấu tiếng
-// Việt → hạ về ASCII để drawText không vỡ (invoice khách vốn tiếng Anh).
+const METHOD_LABELS: Record<string, string> = {
+  card: "Card",
+  check: "Check",
+  zelle: "Zelle",
+  bank_transfer: "Bank transfer",
+  test_checkout: "Card (test checkout)",
+  cash: "Cash"
+};
+
+// pdf-lib font chuẩn chỉ encode WinAnsi (Latin1). Dấu tiếng Việt → hạ về ASCII.
 function ascii(input: string | null | undefined): string {
   return (input ?? "")
     .replace(/[‒-―]/g, "-")
@@ -79,37 +95,55 @@ function money(n: number): string {
 const PAGE_W = 612;
 const PAGE_H = 792;
 const MARGIN = 50;
-const INK = rgb(0.1, 0.1, 0.11);
-const MUTED = rgb(0.42, 0.45, 0.5);
-const LINE = rgb(0.85, 0.87, 0.9);
-const GREEN = rgb(0.04, 0.42, 0.3);
-const RED = rgb(0.7, 0.2, 0.1);
+const INK = rgb(0.11, 0.12, 0.13);
+const MUTED = rgb(0.44, 0.47, 0.52);
+const LINE = rgb(0.86, 0.88, 0.9);
+const GREEN = rgb(0.043, 0.42, 0.3);
+const GREEN_SOFT = rgb(0.9, 0.95, 0.93);
+const RED = rgb(0.7, 0.2, 0.12);
 
-const QTY_R = 400;
-const UNIT_R = 480;
-const AMT_R = PAGE_W - MARGIN - 4;
-const DESC_X = MARGIN + 4;
+const QTY_R = 392;
+const UNIT_R = 476;
+const AMT_R = PAGE_W - MARGIN;
+const DESC_X = MARGIN;
 
 export async function renderInvoicePdf(
   view: InvoiceView,
-  store: StoreProfile
+  store: StoreProfile,
+  logoUrl?: string | null
 ): Promise<Uint8Array> {
   const doc = await PDFDocument.create();
   const font = await doc.embedFont(StandardFonts.Helvetica);
   const bold = await doc.embedFont(StandardFonts.HelveticaBold);
 
+  // Logo (nếu tải được) — không có/logo lỗi thì bỏ qua, không vỡ PDF.
+  let logo: PDFImage | null = null;
+  if (logoUrl) {
+    try {
+      const res = await fetch(logoUrl);
+      if (res.ok) {
+        const bytes = new Uint8Array(await res.arrayBuffer());
+        const ct = (res.headers.get("content-type") || "").toLowerCase();
+        logo = ct.includes("png")
+          ? await doc.embedPng(bytes)
+          : await doc.embedJpg(bytes);
+      }
+    } catch {
+      logo = null;
+    }
+  }
+
   const isReceipt = view.paymentStatus === "paid" || view.balanceDue <= 0;
   const title = isReceipt ? "RECEIPT" : "INVOICE";
 
   let page = doc.addPage([PAGE_W, PAGE_H]);
-  let y = PAGE_H - MARGIN;
 
   const draw = (
     s: string,
     x: number,
     yy: number,
     opts?: { size?: number; font?: PDFFont; color?: RGB }
-  ) => {
+  ) =>
     page.drawText(ascii(s), {
       x,
       y: yy,
@@ -117,7 +151,6 @@ export async function renderInvoicePdf(
       font: opts?.font ?? font,
       color: opts?.color ?? INK
     });
-  };
 
   const drawRight = (
     s: string,
@@ -140,41 +173,78 @@ export async function renderInvoicePdf(
     return out + "...";
   };
 
-  const storeName = store.displayName || store.legalName || "Vinameals";
-  draw(storeName, MARGIN, y - 4, { size: 18, font: bold });
-  drawRight(title, PAGE_W - MARGIN, y - 2, { size: 22, font: bold, color: GREEN });
+  // Thanh accent trên đầu.
+  page.drawRectangle({ x: 0, y: PAGE_H - 6, width: PAGE_W, height: 6, color: GREEN });
 
-  let leftY = y - 22;
-  const storeMeta = [
+  // ---- Header: seller (trái) + INVOICE/meta (phải) ----
+  let leftY = PAGE_H - MARGIN;
+  if (logo) {
+    const w = 150;
+    const h = (logo.height / logo.width) * w;
+    page.drawImage(logo, { x: MARGIN, y: leftY - h, width: w, height: h });
+    leftY -= h + 12;
+  } else {
+    draw(store.displayName || store.legalName || "Vinameals", MARGIN, leftY - 16, {
+      size: 20,
+      font: bold
+    });
+    leftY -= 30;
+  }
+
+  draw(store.legalName || "Vinameals", MARGIN, leftY, { size: 11, font: bold });
+  leftY -= 14;
+  const sellerMeta = [
     store.addressLine1,
     store.addressLine2,
     [store.city, store.state, store.postalCode].filter(Boolean).join(", "),
-    store.phone,
-    store.email
+    store.phone ? `Phone: ${store.phone}` : "",
+    store.email,
+    store.website ? store.website.replace(/^https?:\/\//, "") : ""
   ].filter((l) => l && l.trim());
-  for (const l of storeMeta) {
+  for (const l of sellerMeta) {
     draw(l, MARGIN, leftY, { size: 9, color: MUTED });
     leftY -= 12;
   }
 
-  let rightY = y - 24;
-  drawRight(`No. ${view.invoiceNumber}`, PAGE_W - MARGIN, rightY, { size: 11, font: bold });
-  rightY -= 14;
-  drawRight(`Issued ${view.issueDate}`, PAGE_W - MARGIN, rightY, { size: 9, color: MUTED });
-  rightY -= 13;
-  drawRight(`Order ${view.orderNumber}`, PAGE_W - MARGIN, rightY, { size: 9, color: MUTED });
-  rightY -= 16;
-  drawRight(
-    isReceipt ? "PAID IN FULL" : `BALANCE DUE ${money(view.balanceDue)}`,
-    PAGE_W - MARGIN,
-    rightY,
-    { size: 12, font: bold, color: isReceipt ? GREEN : RED }
-  );
+  // Phải: tiêu đề + meta list.
+  let rightY = PAGE_H - MARGIN - 6;
+  drawRight(title, PAGE_W - MARGIN, rightY, { size: 26, font: bold, color: GREEN });
+  rightY -= 26;
 
-  y = Math.min(leftY, rightY) - 12;
+  const meta: [string, string][] = [
+    ["DATE", view.issueDate],
+    ["INVOICE #", view.invoiceNumber],
+    ["ORDER #", view.orderNumber]
+  ];
+  if (view.billTo.customerNumber) meta.push(["CUSTOMER ID", view.billTo.customerNumber]);
+  meta.push(["FULFILLMENT", view.fulfillmentMethod === "pickup" ? "Pickup" : "Shipping"]);
+  for (const [label, value] of meta) {
+    draw(label, 372, rightY, { size: 8, font: bold, color: MUTED });
+    drawRight(value, PAGE_W - MARGIN, rightY, { size: 9 });
+    rightY -= 13;
+  }
+  rightY -= 4;
+  // Badge trạng thái thanh toán.
+  const badge = isReceipt ? "PAID IN FULL" : `BALANCE DUE ${money(view.balanceDue)}`;
+  const badgeW = bold.widthOfTextAtSize(ascii(badge), 10) + 16;
+  page.drawRectangle({
+    x: PAGE_W - MARGIN - badgeW,
+    y: rightY - 4,
+    width: badgeW,
+    height: 18,
+    color: isReceipt ? GREEN_SOFT : rgb(0.98, 0.92, 0.9)
+  });
+  drawRight(badge, PAGE_W - MARGIN - 8, rightY, {
+    size: 10,
+    font: bold,
+    color: isReceipt ? GREEN : RED
+  });
+
+  let y = Math.min(leftY, rightY) - 16;
   page.drawLine({ start: { x: MARGIN, y }, end: { x: PAGE_W - MARGIN, y }, thickness: 1, color: LINE });
   y -= 20;
 
+  // ---- Bill to ----
   draw("BILL TO", MARGIN, y, { size: 8, font: bold, color: MUTED });
   y -= 15;
   const billLines = [
@@ -188,45 +258,59 @@ export async function renderInvoicePdf(
     draw(l, MARGIN, y, { size: 10 });
     y -= 13;
   }
-  y -= 10;
+  y -= 12;
 
+  // ---- Bảng line items ----
   const tableHeader = () => {
     page.drawRectangle({
       x: MARGIN,
-      y: y - 5,
+      y: y - 6,
       width: PAGE_W - 2 * MARGIN,
-      height: 18,
-      color: rgb(0.95, 0.97, 0.96)
+      height: 20,
+      color: GREEN_SOFT
     });
-    draw("Description", DESC_X, y, { size: 9, font: bold, color: MUTED });
-    drawRight("Qty", QTY_R, y, { size: 9, font: bold, color: MUTED });
-    drawRight("Unit", UNIT_R, y, { size: 9, font: bold, color: MUTED });
-    drawRight("Amount", AMT_R, y, { size: 9, font: bold, color: MUTED });
-    y -= 22;
+    draw("DESCRIPTION", DESC_X + 8, y, { size: 8, font: bold, color: GREEN });
+    drawRight("QTY", QTY_R, y, { size: 8, font: bold, color: GREEN });
+    drawRight("UNIT", UNIT_R, y, { size: 8, font: bold, color: GREEN });
+    drawRight("AMOUNT", AMT_R, y, { size: 8, font: bold, color: GREEN });
+    y -= 24;
   };
   tableHeader();
 
+  let stripe = false;
   for (const li of view.lines) {
-    if (y < 120) {
+    if (y < 150) {
       page = doc.addPage([PAGE_W, PAGE_H]);
       y = PAGE_H - MARGIN;
       tableHeader();
     }
+    if (stripe) {
+      page.drawRectangle({
+        x: MARGIN,
+        y: y - 5,
+        width: PAGE_W - 2 * MARGIN,
+        height: 18,
+        color: rgb(0.975, 0.98, 0.985)
+      });
+    }
+    stripe = !stripe;
     const label = li.sku ? `${li.description} (${li.sku})` : li.description;
-    draw(clip(label, QTY_R - DESC_X - 30, 10), DESC_X, y, { size: 10 });
+    draw(clip(label, QTY_R - DESC_X - 40, 10), DESC_X + 8, y, { size: 10 });
     drawRight(String(li.quantity), QTY_R, y, { size: 10 });
     drawRight(money(li.unitPrice), UNIT_R, y, { size: 10 });
     drawRight(money(li.amount), AMT_R, y, { size: 10 });
     if (li.note && li.note.trim()) {
       y -= 12;
-      draw(clip(`Note: ${li.note}`, AMT_R - DESC_X, 8), DESC_X, y, { size: 8, color: MUTED });
+      draw(clip(`Note: ${li.note}`, AMT_R - DESC_X - 8, 8), DESC_X + 8, y, { size: 8, color: MUTED });
     }
-    y -= 16;
+    y -= 17;
   }
 
-  page.drawLine({ start: { x: 330, y: y + 4 }, end: { x: PAGE_W - MARGIN, y: y + 4 }, thickness: 1, color: LINE });
-  y -= 8;
+  y -= 4;
+  page.drawLine({ start: { x: 340, y: y + 6 }, end: { x: PAGE_W - MARGIN, y: y + 6 }, thickness: 1, color: LINE });
+  y -= 6;
 
+  // ---- Tổng ----
   const totalRow = (label: string, value: string, opts?: { bold?: boolean; color?: RGB }) => {
     const f = opts?.bold ? bold : font;
     drawRight(label, UNIT_R, y, { size: opts?.bold ? 11 : 10, font: f, color: opts?.color ?? MUTED });
@@ -244,37 +328,68 @@ export async function renderInvoicePdf(
     isReceipt ? money(view.amountPaid || view.total) : money(view.balanceDue),
     { bold: true, color: isReceipt ? GREEN : RED }
   );
-  y -= 10;
+  y -= 14;
 
-  if (!isReceipt) {
-    const pay: string[] = [];
-    if (store.checkPayableTo) pay.push(`Check payable to: ${store.checkPayableTo}`);
-    if (store.zelleEmailOrPhone)
-      pay.push(`Zelle: ${store.zelleEmailOrPhone}${store.zelleName ? ` (${store.zelleName})` : ""}`);
-    if (store.bankName)
-      pay.push(`Bank transfer: ${store.bankName}${store.bankAccountName ? ` — ${store.bankAccountName}` : ""}`);
-    if (pay.length) {
-      if (y < 90) {
-        page = doc.addPage([PAGE_W, PAGE_H]);
-        y = PAGE_H - MARGIN;
-      }
-      draw("HOW TO PAY", MARGIN, y, { size: 8, font: bold, color: MUTED });
+  // ---- Chi tiết thanh toán: phương thức + số tài khoản ----
+  const method = view.paymentMethod;
+  const methodLabel = method ? METHOD_LABELS[method] ?? method : null;
+  const showBank =
+    (method === "bank_transfer" || (!method && !isReceipt)) &&
+    (store.bankName || store.bankAccountNumber || store.bankRoutingNumber);
+  const showZelle =
+    (method === "zelle" || (!method && !isReceipt)) &&
+    (store.zelleEmailOrPhone || store.zelleName);
+  const showCheck =
+    (method === "check" || (!method && !isReceipt)) && store.checkPayableTo;
+
+  if (methodLabel || showBank || showZelle || showCheck) {
+    if (y < 130) {
+      page = doc.addPage([PAGE_W, PAGE_H]);
+      y = PAGE_H - MARGIN;
+    }
+    draw("PAYMENT", MARGIN, y, { size: 8, font: bold, color: MUTED });
+    y -= 15;
+    if (methodLabel) {
+      draw(isReceipt ? "Paid via" : "Payment method", MARGIN, y, { size: 9, color: MUTED });
+      draw(methodLabel, MARGIN + 92, y, { size: 10, font: bold });
+      y -= 15;
+    }
+    const payLine = (label: string, value: string) => {
+      draw(label, MARGIN, y, { size: 9, color: MUTED });
+      draw(value, MARGIN + 92, y, { size: 10 });
       y -= 14;
-      for (const l of pay) {
-        draw(clip(l, PAGE_W - 2 * MARGIN, 9), MARGIN, y, { size: 9, color: INK });
-        y -= 12;
+    };
+    if (showCheck) payLine("Check to", store.checkPayableTo);
+    if (showZelle) {
+      payLine("Zelle", `${store.zelleEmailOrPhone}${store.zelleName ? ` (${store.zelleName})` : ""}`);
+    }
+    if (showBank) {
+      if (store.bankName) payLine("Bank", store.bankName);
+      if (store.bankAccountName) payLine("Account name", store.bankAccountName);
+      if (store.bankRoutingNumber) payLine("Routing #", store.bankRoutingNumber);
+      if (store.bankAccountNumber) {
+        payLine(
+          "Account #",
+          `${store.bankAccountNumber}${store.bankAccountType ? ` (${store.bankAccountType})` : ""}`
+        );
       }
-      draw(`Reference: invoice ${view.invoiceNumber} / order ${view.orderNumber}`, MARGIN, y - 2, {
+    }
+    if (!isReceipt && (showBank || showZelle || showCheck)) {
+      y -= 2;
+      draw(`Reference: invoice ${view.invoiceNumber} / order ${view.orderNumber}`, MARGIN, y, {
         size: 8,
         color: MUTED
       });
     }
   }
 
-  draw(isReceipt ? "Thank you for your payment." : "Thank you for your business.", MARGIN, MARGIN, {
-    size: 9,
-    color: MUTED
-  });
+  // ---- Footer ----
+  draw(
+    isReceipt ? "Thank you for your payment." : "Thank you for your business.",
+    MARGIN,
+    MARGIN,
+    { size: 9, color: MUTED }
+  );
   drawRight(`Questions? ${store.email || "support@vinamealsupplies.com"}`, PAGE_W - MARGIN, MARGIN, {
     size: 9,
     color: MUTED

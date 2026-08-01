@@ -14,6 +14,15 @@ export async function renderInvoicePdfRemote(
   const secret = process.env.INVOICE_PDF_SECRET?.trim();
   if (!url || !secret) return null;
 
+  // Logo cho PDF: đưa về URL tuyệt đối để worker fetch được.
+  const origin = process.env.NEXT_PUBLIC_SITE_ORIGIN?.trim() || "https://vinamealsupplies.com";
+  const logoPath = store.logoPath?.trim();
+  const logoUrl = logoPath
+    ? logoPath.startsWith("http")
+      ? logoPath
+      : `${origin}${logoPath.startsWith("/") ? "" : "/"}${logoPath}`
+    : undefined;
+
   try {
     const res = await fetch(url, {
       method: "POST",
@@ -21,7 +30,7 @@ export async function renderInvoicePdfRemote(
         "content-type": "application/json",
         authorization: `Bearer ${secret}`
       },
-      body: JSON.stringify({ view, store })
+      body: JSON.stringify({ view, store, logoUrl })
     });
     if (!res.ok) {
       console.error("[invoice pdf] worker", res.status);

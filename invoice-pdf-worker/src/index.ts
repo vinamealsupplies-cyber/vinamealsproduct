@@ -17,7 +17,7 @@ export default {
       return new Response("Unauthorized", { status: 401 });
     }
 
-    let body: { view?: InvoiceView; store?: StoreProfile };
+    let body: { view?: InvoiceView; store?: StoreProfile; logoUrl?: string };
     try {
       body = (await req.json()) as typeof body;
     } catch {
@@ -28,7 +28,7 @@ export default {
     }
 
     try {
-      const pdf = await renderInvoicePdf(body.view, body.store);
+      const pdf = await renderInvoicePdf(body.view, body.store, body.logoUrl);
       return new Response(pdf, {
         headers: {
           "content-type": "application/pdf",
