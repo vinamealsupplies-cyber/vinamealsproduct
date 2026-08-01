@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { FileText, Package, PackageOpen, ShoppingBag } from "lucide-react";
+import { ChevronDown, FileText, Package, PackageOpen, ShoppingBag } from "lucide-react";
 import type { CustomerOrder } from "@/lib/data/customer-orders";
 import { formatDate, formatDateTime, usd } from "@/lib/format";
 
@@ -36,13 +36,14 @@ function paymentLine(order: CustomerOrder) {
 
 function OrderCard({ order }: { order: CustomerOrder }) {
   return (
-    <article
+    <details
       className={`purchase-order-card ${order.isOpen ? "is-open" : ""}${
         order.pickupReadyAt && order.status === "confirmed" ? " is-pickup-ready" : ""
       }`}
     >
-      <header className="purchase-order-head">
-        <div>
+      {/* Thu gọn: mỗi đơn 1 hàng — bấm mới xổ chi tiết. */}
+      <summary className="purchase-order-summary">
+        <div className="purchase-order-summary-main">
           <p className="purchase-order-number">
             Order {order.number}
             {order.isOpen ? (
@@ -50,28 +51,32 @@ function OrderCard({ order }: { order: CustomerOrder }) {
             ) : null}
           </p>
           <p className="purchase-order-meta">
-            Placed {formatDateTime(order.placedAt)}
+            {formatDate(order.placedAt)}
             {" · "}
-            {order.fulfillmentMethod === "pickup" ? "Store pickup" : "Shipping"}
+            {order.fulfillmentMethod === "pickup" ? "Pickup" : "Shipping"}
             {" · "}
             {order.itemCount} item{order.itemCount === 1 ? "" : "s"}
           </p>
-          <p className={`purchase-payment-line ${order.paidAt ? "is-paid" : "is-pending"}`}>
-            {paymentLine(order)}
+        </div>
+        <div className="purchase-order-summary-side">
+          <span className={`status-badge ${statusClass(order)}`}>{order.statusLabel}</span>
+          <strong className="purchase-order-summary-total">{usd.format(order.total)}</strong>
+        </div>
+        <ChevronDown className="purchase-order-chevron" size={18} aria-hidden="true" />
+      </summary>
+
+      <div className="purchase-order-detail">
+        <p className={`purchase-payment-line ${order.paidAt ? "is-paid" : "is-pending"}`}>
+          {paymentLine(order)}
+        </p>
+        {order.statusDetail ? (
+          <p className="purchase-status-detail field-hint">{order.statusDetail}</p>
+        ) : null}
+        {order.pickupReadyAt && order.status === "confirmed" ? (
+          <p className="purchase-ready-banner" role="status">
+            Ready for pickup — bring order number <strong>{order.number}</strong> and photo ID.
           </p>
-          {order.pickupReadyAt && order.status === "confirmed" ? (
-            <p className="purchase-ready-banner" role="status">
-              Ready for pickup — bring order number <strong>{order.number}</strong> and photo ID.
-            </p>
-          ) : null}
-        </div>
-        <div className="purchase-order-status">
-          <span className={`status-badge ${statusClass(order)}`}>
-            {order.statusLabel}
-          </span>
-          <p>{order.statusDetail}</p>
-        </div>
-      </header>
+        ) : null}
 
       <div className="table-scroll">
         <table className="data-table purchase-items-table">
@@ -128,9 +133,9 @@ function OrderCard({ order }: { order: CustomerOrder }) {
             <FileText size={14} aria-hidden="true" /> View invoice
           </Link>
         </div>
-        <strong>{usd.format(order.total)}</strong>
       </footer>
-    </article>
+      </div>
+    </details>
   );
 }
 

@@ -648,6 +648,26 @@ a.oauth-button { text-decoration: none; color: inherit; box-sizing: border-box; 
   border-color: #c5d9ef;
   box-shadow: 0 0 0 1px #e3f0ff inset;
 }
+/* Accordion: đơn thu gọn 1 hàng, bấm mới xổ chi tiết. */
+.purchase-order-card { padding: 0; overflow: hidden; }
+.purchase-order-summary {
+  list-style: none;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 15px 18px;
+}
+.purchase-order-summary::-webkit-details-marker { display: none; }
+.purchase-order-summary:hover { background: #fafbfb; }
+.purchase-order-summary-main { flex: 1; min-width: 0; }
+.purchase-order-summary-main .purchase-order-meta { margin: 3px 0 0; }
+.purchase-order-summary-side { display: grid; gap: 3px; justify-items: end; text-align: right; flex: none; }
+.purchase-order-summary-total { font-size: 15px; letter-spacing: -.02em; white-space: nowrap; color: var(--ink); }
+.purchase-order-chevron { flex: none; color: var(--muted); transition: transform 180ms ease; }
+.purchase-order-card[open] .purchase-order-chevron { transform: rotate(180deg); }
+.purchase-order-detail { padding: 14px 18px 16px; border-top: 1px solid var(--line); }
+.purchase-status-detail { margin: 6px 0 0; }
 .purchase-order-head {
   display: flex;
   justify-content: space-between;
