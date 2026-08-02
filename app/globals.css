@@ -1462,6 +1462,31 @@ a.oauth-button { text-decoration: none; color: inherit; box-sizing: border-box; 
 .status-out-of-stock { background: #fde8e6; color: var(--red); border: 1px solid #f0b4ae; }
 .data-table tbody tr.row-out-of-stock { background: #fff8f7; }
 .data-table tbody tr.row-out-of-stock:hover { background: #fff0ef; }
+
+/* ---- California Sales Tax (CDTFA) report ---- */
+.sales-tax-report { display: grid; gap: 16px; }
+.tax-filter-grid { grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 12px; }
+.tax-filter .button-row { margin-top: 14px; }
+.tax-totals h2 { margin: 0 0 6px; font-size: 16px; }
+.tax-metric-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); gap: 10px; }
+.tax-metric { display: flex; flex-direction: column; gap: 2px; padding: 10px 12px; background: #f4f8f6; border-radius: 12px; }
+.tax-metric span { font-size: 10px; color: #52655f; text-transform: uppercase; letter-spacing: .05em; font-weight: 800; }
+.tax-metric strong { font-size: 17px; font-variant-numeric: tabular-nums; }
+.tax-group-list { display: grid; gap: 10px; }
+.tax-group { padding: 0; overflow: hidden; }
+.tax-group > .table-scroll { border-top: 1px solid var(--line); }
+.tax-group-summary { list-style: none; cursor: pointer; display: flex; flex-wrap: wrap; align-items: center; gap: 12px; padding: 14px 18px; }
+.tax-group-summary::-webkit-details-marker { display: none; }
+.tax-group-head { display: flex; flex-direction: column; gap: 2px; min-width: 170px; flex: 1; }
+.tax-group-head strong { font-size: 15px; }
+.tax-group-metrics { display: flex; flex-wrap: wrap; align-items: center; gap: 14px; }
+.tax-group-metrics > span { display: flex; flex-direction: column; font-size: 10px; color: #52655f; text-transform: uppercase; letter-spacing: .04em; font-weight: 700; }
+.tax-group-metrics > span strong { font-size: 14px; color: var(--ink); font-variant-numeric: tabular-nums; letter-spacing: 0; text-transform: none; }
+.tax-group-metrics .tax-group-tax strong { color: var(--green-dark); }
+.tax-group-chevron { transition: transform 150ms ease; color: #52655f; }
+.tax-group[open] .tax-group-chevron { transform: rotate(180deg); }
+.tax-order-table { font-size: 11px; }
+.tax-order-table .field-hint { white-space: normal; max-width: 220px; display: inline-block; }
 .status-wholesale, .status-invoiced { background: var(--blue); color: #19526a; }
 .status-retail { background: var(--lavender); color: #5e3d8a; }
 .status-guest, .status-not-requested { background: #edf1ef; color: #5b6c66; }

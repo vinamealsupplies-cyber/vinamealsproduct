@@ -30,6 +30,8 @@ export type AdminProduct = {
   wholesalePrice: number | null;
   costPrice: number;
   taxable: boolean;
+  /** Sales-tax category: grocery | prepared_food | general. */
+  taxCategory: string;
   trackInventory: boolean;
   onHand: number;
   /** Còn lịch sử movement — delete forever sẽ xoá luôn ledger (RPC). */
@@ -46,6 +48,7 @@ type DbVariant = {
   wholesale_price: number | string | null;
   cost_price: number | string;
   taxable: boolean;
+  tax_category: string | null;
   track_inventory: boolean;
   is_default: boolean;
   is_active: boolean;
@@ -70,7 +73,7 @@ function num(value: number | string | null | undefined) {
 }
 
 const SELECT = `id, slug, product_handle, name, short_description, description, status, featured,
-   product_variants ( id, variant_name, sku, barcode, retail_price, sale_price, wholesale_price, cost_price, taxable, track_inventory, is_default, is_active ),
+   product_variants ( id, variant_name, sku, barcode, retail_price, sale_price, wholesale_price, cost_price, taxable, tax_category, track_inventory, is_default, is_active ),
    product_categories ( is_primary, categories ( id, name ) )`;
 
 function pickVariant(row: DbRow) {
@@ -108,6 +111,7 @@ function mapRow(
     wholesalePrice: variant?.wholesale_price == null ? null : num(variant.wholesale_price),
     costPrice: num(variant?.cost_price),
     taxable: variant?.taxable ?? true,
+    taxCategory: variant?.tax_category ?? "grocery",
     trackInventory: variant?.track_inventory ?? true,
     onHand: onHand ?? 0,
     hasMovements: variant ? movementVariantIds.has(variant.id) : false

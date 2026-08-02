@@ -2,6 +2,7 @@ import "server-only";
 
 import ExcelJS from "exceljs";
 import type { MonthlyPerformance } from "@/lib/data/reporting";
+import type { SalesTaxOrderRow, SalesTaxReport } from "@/lib/data/sales-tax-report";
 
 export type ReportExportRow = MonthlyPerformance & {
   grossProfit: number;
@@ -108,6 +109,145 @@ export async function buildPerformanceWorkbook(input: {
     for (const col of moneyCols) {
       row.getCell(col).numFmt = '$#,##0.00';
     }
+  });
+
+  const buffer = await workbook.xlsx.writeBuffer();
+  return Buffer.from(buffer);
+}
+
+// ---- California Sales Tax (CDTFA) export ------------------------------------
+
+const SALES_TAX_HEADERS = [
+  "Order #",
+  "Order date",
+  "Payment status",
+  "Refund",
+  "Fulfillment",
+  "Country",
+  "State",
+  "County",
+  "City",
+  "ZIP",
+  "Ship-to address",
+  "Gross sales",
+  "Taxable subtotal",
+  "Shipping",
+  "Shipping taxable",
+  "Exempt amount",
+  "Total taxable",
+  "Net taxable sales",
+  "Tax rate %",
+  "State tax",
+  "District tax",
+  "Sales tax collected",
+  "Jurisdiction",
+  "Jurisdiction code"
+];
+
+// 1-based column indexes that hold currency amounts (for number formatting).
+const SALES_TAX_MONEY_COLS = [4, 12, 13, 14, 15, 16, 17, 18, 20, 21, 22];
+
+function salesTaxRow(o: SalesTaxOrderRow): (string | number)[] {
+  return [
+    o.orderNumber,
+    o.orderDate ?? "",
+    o.paymentStatus.replace(/_/g, " "),
+    o.refundAmount,
+    o.fulfillmentMethod ?? "",
+    o.country ?? "",
+    o.state ?? "",
+    o.county ?? "",
+    o.city ?? "",
+    o.zip ?? "",
+    o.shippingAddress ?? "",
+    o.grossSales,
+    o.taxableSubtotal,
+    o.shipping,
+    o.shippingTaxable,
+    o.exemptAmount,
+    o.totalTaxable,
+    o.netTaxableSales,
+    Number((o.taxRate * 100).toFixed(4)),
+    o.stateTax,
+    o.districtTax,
+    o.taxCollected,
+    o.jurisdictionLabel ?? "",
+    o.jurisdictionCode ?? ""
+  ];
+}
+
+function csvEscape(value: unknown): string {
+  const s = String(value ?? "");
+  return /[",\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+}
+
+/** Per-order CSV with all fields needed for CDTFA filing. */
+export function buildSalesTaxCsv(report: SalesTaxReport): string {
+  const lines = [SALES_TAX_HEADERS.map(csvEscape).join(",")];
+  for (const order of report.orders) {
+    lines.push(salesTaxRow(order).map(csvEscape).join(","));
+  }
+  return lines.join("\r\n");
+}
+
+/** Two-sheet workbook: per-order detail + by-jurisdiction summary. */
+export async function buildSalesTaxWorkbook(report: SalesTaxReport): Promise<Buffer> {
+  const workbook = new ExcelJS.Workbook();
+  workbook.creator = "Vinameals";
+  workbook.created = new Date();
+
+  const orders = workbook.addWorksheet("Orders");
+  orders.addRow(SALES_TAX_HEADERS);
+  orders.getRow(1).font = { bold: true };
+  for (const order of report.orders) orders.addRow(salesTaxRow(order));
+  orders.columns.forEach((col, index) => {
+    col.width = index === 10 ? 34 : 14;
+  });
+  orders.eachRow((row, rowNumber) => {
+    if (rowNumber === 1) return;
+    for (const col of SALES_TAX_MONEY_COLS) row.getCell(col).numFmt = '$#,##0.00';
+  });
+
+  const summary = workbook.addWorksheet("By jurisdiction");
+  summary.addRow([
+    "State",
+    "County",
+    "City",
+    "ZIP",
+    "Tax rate %",
+    "Orders",
+    "Gross sales",
+    "Taxable sales",
+    "Exempt sales",
+    "Shipping",
+    "State tax",
+    "District tax",
+    "Tax collected"
+  ]);
+  summary.getRow(1).font = { bold: true };
+  for (const group of report.groups) {
+    summary.addRow([
+      group.state,
+      group.county,
+      group.city,
+      group.zip,
+      Number((group.taxRate * 100).toFixed(4)),
+      group.orderCount,
+      group.grossSales,
+      group.taxableSales,
+      group.exemptSales,
+      group.shipping,
+      group.stateTax,
+      group.districtTax,
+      group.taxCollected
+    ]);
+  }
+  summary.columns.forEach((col) => {
+    col.width = 14;
+  });
+  summary.eachRow((row, rowNumber) => {
+    if (rowNumber === 1) return;
+    for (const col of [7, 8, 9, 10, 11, 12, 13]) row.getCell(col).numFmt = '$#,##0.00';
   });
 
   const buffer = await workbook.xlsx.writeBuffer();

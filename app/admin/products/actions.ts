@@ -74,7 +74,11 @@ function readForm(formData: FormData) {
     openingQuantity: number("openingQuantity") ?? 0,
     locationCode: text("locationCode", 30) || "MAIN",
     trackInventory: formData.get("trackInventory") !== null,
-    taxable: formData.get("taxable") !== null
+    taxable: formData.get("taxable") !== null,
+    taxCategory: (() => {
+      const raw = String(formData.get("taxCategory") ?? "grocery").trim();
+      return raw === "general" || raw === "prepared_food" ? raw : "grocery";
+    })()
   };
 }
 
@@ -163,6 +167,7 @@ export async function createProductAction(_prev: AdminFormState, formData: FormD
         wholesale_price: input.wholesalePrice,
         cost_price: input.costPrice,
         taxable: input.taxable,
+        tax_category: input.taxCategory,
         track_inventory: input.trackInventory,
         is_default: true,
         is_active: true
@@ -284,6 +289,7 @@ export async function updateProductAction(_prev: AdminFormState, formData: FormD
         wholesale_price: input.wholesalePrice,
         cost_price: input.costPrice,
         taxable: input.taxable,
+        tax_category: input.taxCategory,
         track_inventory: input.trackInventory
       })
       .eq("id", variantId);

@@ -10,6 +10,7 @@ import {
   FileSpreadsheet,
   FileText,
   FolderTree,
+  Landmark,
   LayoutDashboard,
   type LucideIcon,
   Menu,
@@ -61,6 +62,7 @@ const groups: { label: string; items: NavItem[] }[] = [
     items: [
       { href: "/admin/expenses", label: "Expenses", icon: ReceiptText },
       { href: "/admin/reports", label: "Reports", icon: BarChart3 },
+      { href: "/admin/reports/california-sales-tax", label: "CA Sales Tax", icon: Landmark },
       { href: "/admin/accounts", label: "Accounts", icon: UserCog, adminOnly: true },
       { href: "/admin/settings", label: "Settings", icon: Settings }
     ]

@@ -20,6 +20,7 @@ import { getOwnSpecialRequests } from "@/lib/data/special-requests";
 import { recordSpecialRequestsBatch } from "@/lib/data/special-requests";
 import { getStoreBusinessProfile } from "@/lib/data/store-settings";
 import { normalizeUsPhone } from "@/lib/data/us-states";
+import { computeOrderTax, type TaxCategory, type TaxInputLine } from "@/lib/tax/compute-order-tax";
 import { isSupabaseAdminConfigured } from "@/lib/env";
 import { callerKey, checkRateLimit, RATE_LIMITS } from "@/lib/rate-limit";
 import type { Product } from "@/lib/sample-data";
@@ -162,6 +163,8 @@ type VariantRow = {
   cost_price: number | string | null;
   is_default: boolean;
   is_active: boolean;
+  taxable: boolean | null;
+  tax_category: string | null;
 };
 
 type ProductRow = {
@@ -265,7 +268,7 @@ async function placeOrderInner(
   const { data: productRows, error: prodErr } = await supabase
     .from("products")
     .select(
-      "id, name, status, product_variants ( id, sku, retail_price, sale_price, cost_price, is_default, is_active )"
+      "id, name, status, product_variants ( id, sku, retail_price, sale_price, cost_price, is_default, is_active, taxable, tax_category )"
     )
     .in("id", [...wanted.keys()]);
   if (prodErr) return { ok: false, error: "Could not load products. Try again." };
@@ -280,7 +283,11 @@ async function placeOrderInner(
     unit_cost_snapshot: number;
     line_note: string | null;
     discount_amount: number;
+    tax_amount: number;
+    tax_rate_snapshot: number;
   }[] = [];
+  // Aligned 1:1 with orderItems — the taxability inputs per line for sales tax.
+  const taxLines: TaxInputLine[] = [];
 
   for (const row of (productRows ?? []) as unknown as ProductRow[]) {
     if (row.status !== "active") continue;
@@ -307,7 +314,18 @@ async function placeOrderInner(
       line_note: wantedLine.notes.length
         ? wantedLine.notes.join("; ").slice(0, LINE_NOTE_MAX)
         : null,
-      discount_amount: 0
+      discount_amount: 0,
+      tax_amount: 0,
+      tax_rate_snapshot: 0
+    });
+    const category: TaxCategory =
+      variant.tax_category === "general" || variant.tax_category === "prepared_food"
+        ? variant.tax_category
+        : "grocery";
+    taxLines.push({
+      amount: unitPrice * wantedLine.quantity,
+      taxable: variant.taxable !== false,
+      category
     });
   }
 
@@ -358,10 +376,20 @@ async function placeOrderInner(
   let customerId: string | null = null;
   const { data: existingCustomer } = await supabase
     .from("customers")
-    .select("id, first_name, last_name, phone")
+    .select(
+      "id, first_name, last_name, phone, tax_exempt_status, tax_exempt_effective_at, tax_exempt_expires_at"
+    )
     .eq("auth_user_id", viewer.id)
     .maybeSingle();
   customerId = existingCustomer?.id ?? null;
+
+  // Approved & currently-effective resale/tax exemption → collect no sales tax.
+  const todayStr = new Date().toISOString().slice(0, 10);
+  const taxExempt =
+    existingCustomer?.tax_exempt_status === "approved" &&
+    (!existingCustomer.tax_exempt_effective_at ||
+      existingCustomer.tax_exempt_effective_at <= todayStr) &&
+    (!existingCustomer.tax_exempt_expires_at || existingCustomer.tax_exempt_expires_at >= todayStr);
   if (!customerId) {
     const { data: createdCustomer } = await supabase
       .from("customers")
@@ -434,7 +462,66 @@ async function placeOrderInner(
     };
   }
 
-  const taxAmount = 0;
+  // ---- Sales tax (CDTFA) ----------------------------------------------------
+  // Tax situs: ship-to address for delivery; store location for pickup.
+  let taxCountry = "US";
+  let taxState = "";
+  let taxCity: string | null = null;
+  let taxZip = "";
+  let taxAddressText: string | null = null;
+  if (fulfillmentMethod === "ship" && shippingSnapshot) {
+    taxCountry = String(shippingSnapshot.country_code ?? "US") || "US";
+    taxState = String(shippingSnapshot.state_region ?? "").toUpperCase();
+    taxCity = String(shippingSnapshot.city ?? "") || null;
+    taxZip = String(shippingSnapshot.postal_code ?? "");
+    taxAddressText =
+      [
+        shippingSnapshot.line1,
+        shippingSnapshot.line2,
+        shippingSnapshot.city,
+        shippingSnapshot.state_region,
+        shippingSnapshot.postal_code
+      ]
+        .filter(Boolean)
+        .join(", ") || null;
+  } else {
+    const store = (await getStoreBusinessProfile().catch(() => null)) ?? defaultStoreBusinessProfile();
+    taxCountry = "US";
+    taxState = (store.state ?? "").toUpperCase();
+    taxCity = store.city ?? null;
+    taxZip = store.postalCode ?? "";
+    taxAddressText =
+      [store.addressLine1, store.city, store.state, store.postalCode].filter(Boolean).join(", ") ||
+      null;
+  }
+
+  let jurisdictionRows: Parameters<typeof computeOrderTax>[0]["stateRows"] = [];
+  if (taxState) {
+    const { data: jRows } = await supabase
+      .from("tax_jurisdictions")
+      .select("id, state_code, city, county, zip, general_rate, grocery_rate, prepared_food_rate")
+      .eq("state_code", taxState)
+      .eq("is_active", true);
+    jurisdictionRows = (jRows ?? []) as typeof jurisdictionRows;
+  }
+
+  const taxResult = computeOrderTax({
+    stateRows: jurisdictionRows,
+    city: taxCity,
+    lines: taxLines,
+    exempt: taxExempt
+  });
+  // Push the per-line tax onto the order items so the invoice/order totals
+  // (recalculated by DB triggers from the item rows) include it.
+  taxResult.lines.forEach((line, index) => {
+    if (orderItems[index]) {
+      orderItems[index].tax_amount = line.tax;
+      orderItems[index].tax_rate_snapshot = line.rate;
+    }
+  });
+  const taxSummary = taxResult.summary;
+  const taxAmount = taxSummary.salesTaxCollected;
+
   const subtotal = merchandiseSubtotal;
   const total = Math.max(0, subtotal - discountAmount + shippingAmount + taxAmount);
   const now = new Date().toISOString();
@@ -533,7 +620,7 @@ async function placeOrderInner(
       total_amount: total,
       amount_paid: 0,
       fulfillment_method: fulfillmentMethod,
-      tax_exempt_snapshot: false,
+      tax_exempt_snapshot: taxExempt,
       billing_address_snapshot: shippingSnapshot,
       notes: forcePaidTest
         ? `Invoice for ${order.order_number} (test paid checkout).`
@@ -565,8 +652,8 @@ async function placeOrderInner(
       unit_price: item.unit_price,
       unit_cost_snapshot: item.unit_cost_snapshot,
       discount_amount: 0,
-      tax_rate_snapshot: 0,
-      tax_amount: 0
+      tax_rate_snapshot: item.tax_rate_snapshot,
+      tax_amount: item.tax_amount
     }))
   );
   if (invItemsErr) {
@@ -582,6 +669,40 @@ async function placeOrderInner(
     .eq("id", invoice.id)
     .maybeSingle();
   const payAmount = Math.max(num(invFresh?.total_amount ?? total), 0.01);
+
+  // CDTFA per-order tax snapshot. Best-effort: reporting only, never blocks the
+  // order (tax already landed on the invoice/order via the item rows).
+  const { error: taxRecErr } = await supabase.from("order_tax_records").insert({
+    order_id: orderId,
+    invoice_id: invoice.id,
+    customer_id: customerId,
+    order_number: order.order_number,
+    order_date: issueDate,
+    placed_at: now,
+    fulfillment_method: fulfillmentMethod,
+    country_code: taxCountry,
+    state_code: taxState || null,
+    county: taxSummary.county,
+    city: taxCity,
+    zip: taxZip || null,
+    shipping_address: taxAddressText,
+    gross_sales: taxSummary.grossSales,
+    taxable_subtotal: taxSummary.taxableSubtotal,
+    shipping_amount: shippingAmount,
+    shipping_taxable_amount: 0,
+    tax_exempt_amount: taxSummary.taxExemptAmount,
+    total_taxable_amount: taxSummary.totalTaxableAmount,
+    sales_tax_collected: taxSummary.salesTaxCollected,
+    tax_rate: taxSummary.taxRate,
+    state_tax: taxSummary.stateTax,
+    district_tax: taxSummary.districtTax,
+    tax_jurisdiction_code: taxSummary.jurisdictionCode,
+    jurisdiction_id: taxSummary.jurisdictionId,
+    jurisdiction_label: taxSummary.jurisdictionLabel
+  });
+  if (taxRecErr) {
+    console.error("[checkout] order_tax_records insert failed:", taxRecErr.message);
+  }
 
   if (forcePaidTest || !awaitingPayment) {
     // Card (business or retail) / test paid: invoice paid until real Stripe.
