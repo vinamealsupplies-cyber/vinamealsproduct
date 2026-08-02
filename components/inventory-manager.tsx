@@ -30,6 +30,7 @@ const STATUS_COPY: Record<string, string> = {
 type SortKey =
   | "productName"
   | "sku"
+  | "barcode"
   | "onHand"
   | "available"
   | "costPrice"
@@ -40,6 +41,7 @@ type SortKey =
 const ALL_SORT_COLUMNS: { key: SortKey; label: string; align?: "right"; staffOnly?: boolean }[] = [
   { key: "productName", label: "Product" },
   { key: "sku", label: "SKU" },
+  { key: "barcode", label: "Barcode" },
   { key: "onHand", label: "On hand", align: "right" },
   { key: "available", label: "Available", align: "right" },
   { key: "costPrice", label: "Cost", staffOnly: true, align: "right" },
@@ -54,6 +56,8 @@ function sortValue(row: InventoryRow, key: SortKey): string | number {
       return `${row.productName} ${row.variantName}`.toLowerCase();
     case "sku":
       return row.sku.toLowerCase();
+    case "barcode":
+      return (row.barcode ?? "").toLowerCase();
     case "stockStatus":
       return row.stockStatus;
     default:
@@ -135,7 +139,7 @@ export function InventoryManager({
     const needle = query.trim().toLowerCase();
     const filtered = needle
       ? rows.filter((row) =>
-          [row.productName, row.variantName, row.sku, row.categoryName, row.stockStatus]
+          [row.productName, row.variantName, row.sku, row.barcode, row.categoryName, row.stockStatus]
             .filter(Boolean)
             .some((value) => String(value).toLowerCase().includes(needle))
         )
@@ -183,8 +187,8 @@ export function InventoryManager({
               type="search"
               placeholder={
                 isSeller
-                  ? "Search product, SKU, category…"
-                  : "Search product, SKU, category…"
+                  ? "Search product, SKU, barcode…"
+                  : "Search product, SKU, barcode, category…"
               }
             />
           </label>
@@ -232,6 +236,7 @@ export function InventoryManager({
                     </span>
                   </td>
                   <td>{row.sku}</td>
+                  <td>{row.barcode ? row.barcode : <span className="muted">—</span>}</td>
                   <td className="numeric">{integer.format(row.onHand)}</td>
                   <td className="numeric">{integer.format(row.available)}</td>
                   {!isSeller ? <td className="numeric">{usd.format(row.costPrice)}</td> : null}

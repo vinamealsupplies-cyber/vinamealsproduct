@@ -11,6 +11,7 @@ export type InventoryRow = {
   productName: string;
   variantName: string;
   sku: string;
+  barcode: string | null;
   locationCode: string;
   categoryName: string | null;
   onHand: number;
@@ -32,6 +33,7 @@ type DbRow = {
   product_name: string;
   variant_name: string;
   sku: string;
+  barcode: string | null;
   location_code: string;
   primary_category_name: string | null;
   quantity_on_hand: number | string;
@@ -54,7 +56,7 @@ export async function getInventoryForStaff(): Promise<InventoryRow[]> {
   const { data, error } = await supabase
     .from("v_inventory_detail")
     .select(
-      "variant_id, location_id, product_name, variant_name, sku, location_code, primary_category_name, quantity_on_hand, quantity_reserved, available_quantity, cost_price, retail_price, inventory_value, stock_status, product_status"
+      "variant_id, location_id, product_name, variant_name, sku, barcode, location_code, primary_category_name, quantity_on_hand, quantity_reserved, available_quantity, cost_price, retail_price, inventory_value, stock_status, product_status"
     )
     .order("product_name");
 
@@ -72,6 +74,7 @@ export async function getInventoryForStaff(): Promise<InventoryRow[]> {
       productName: row.product_name,
       variantName: row.variant_name,
       sku: row.sku,
+      barcode: row.barcode,
       locationCode: row.location_code,
       categoryName: row.primary_category_name,
       onHand: num(row.quantity_on_hand),
