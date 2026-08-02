@@ -232,7 +232,7 @@ export function InventoryManager({
                     {row.productName}
                     <span className="field-hint">
                       {row.variantName}
-                      {row.productStatus === "archived" ? " · Archived" : ""}
+                      {row.productStatus === "archived" ? " · In Trash" : ""}
                     </span>
                   </td>
                   <td>{row.sku}</td>
@@ -247,7 +247,7 @@ export function InventoryManager({
                       {STATUS_COPY[row.stockStatus] ?? row.stockStatus}
                     </span>
                     {row.productStatus === "archived" ? (
-                      <span className="field-hint">Product archived</span>
+                      <span className="field-hint">In Trash</span>
                     ) : null}
                   </td>
                   <td className="row-actions">

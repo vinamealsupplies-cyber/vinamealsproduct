@@ -8,7 +8,8 @@ import { getAdminProductList } from "@/lib/data/admin-products";
 export const metadata = { title: "Products" };
 
 export default async function AdminProductsPage() {
-  // Seller + staff: list / add / edit. Delete forever = manager only.
+  // Seller + staff: list / add / edit → delete = move to Trash.
+  // Permanent delete from the Trash = top-level admin only.
   const viewer = await requireAdminAccessPage();
   const products = await getAdminProductList();
 
@@ -20,7 +21,7 @@ export default async function AdminProductsPage() {
         description={
           viewer.isSeller
             ? "Thêm và chỉnh sản phẩm cho bán hằng ngày. Mọi thay đổi được ghi log cho admin."
-            : "Add, search, price, and maintain products. Archived items stay under the Archived tab — edit or restore anytime."
+            : "Add, search, price, and maintain products. Deleted items move to the Trash tab — restore anytime; only a top-level admin can delete forever."
         }
         action={
           <div className="button-row">
@@ -37,7 +38,7 @@ export default async function AdminProductsPage() {
       />
       <ProductManager
         products={products}
-        canDeleteForever={Boolean(viewer.isManager)}
+        canDeleteForever={Boolean(viewer.isAdmin)}
       />
     </>
   );

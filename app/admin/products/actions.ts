@@ -11,7 +11,7 @@ import type { AdminFormState } from "@/lib/data/admin-form";
 // CRUD sản phẩm. Ghi bằng service role nên quyền phải kiểm tra tường minh ở
 // đây — không có RLS đỡ phía sau.
 //
-// Seller + staff: add/edit/archive/restore. Xoá vĩnh viễn: manager only.
+// Seller + staff: add/edit/delete (→ Trash)/restore. Xoá vĩnh viễn: admin cao nhất only.
 // Mọi thao tác ghi audit_log kèm tên nhân viên.
 
 const STATUSES = new Set(["draft", "active", "archived"]);
@@ -20,10 +20,16 @@ function fail(message: string): AdminFormState {
   return { status: "error", message };
 }
 
-async function guard(scope: string, needManager = false) {
+async function guard(scope: string, needManager = false, needAdmin = false) {
   const viewer = await getViewer();
   // Seller cũng được add/sửa sản phẩm (giao dịch hằng ngày).
   if (!viewer?.canAccessAdmin) return { viewer: null, error: fail("Staff access is required.") };
+  if (needAdmin && !viewer.isAdmin) {
+    return {
+      viewer: null,
+      error: fail("Only a top-level admin can permanently delete items from the Trash.")
+    };
+  }
   if (needManager && !viewer.isManager) {
     return { viewer: null, error: fail("Manager access is required for this action.") };
   }
@@ -326,7 +332,7 @@ export async function updateProductAction(_prev: AdminFormState, formData: FormD
   return { status: "success", message: `Saved ${input.name}.` };
 }
 
-/** "Delete" = chuyển sang archived: ẩn khỏi storefront, giữ toàn bộ lịch sử. */
+/** "Delete" = đưa vào Trash (status archived): ẩn khỏi storefront, giữ toàn bộ lịch sử. */
 export async function archiveProductAction(_prev: AdminFormState, formData: FormData): Promise<AdminFormState> {
   const { viewer, error: denied } = await guard("admin-product");
   if (denied) return denied;
@@ -357,7 +363,7 @@ export async function archiveProductAction(_prev: AdminFormState, formData: Form
   revalidate();
   return {
     status: "success",
-    message: `Archived ${product.name}. Open the Archived tab to edit or restore it.`
+    message: `Moved ${product.name} to the Trash. Open the Trash tab to restore it.`
   };
 }
 
@@ -393,7 +399,7 @@ export async function restoreProductAction(_prev: AdminFormState, formData: Form
 }
 
 /**
- * Xoá vĩnh viễn — chỉ manager, chỉ khi đã archived.
+ * Xoá vĩnh viễn — CHỈ admin cao nhất, chỉ khi đã ở Trash (archived).
  * Gọi RPC `admin_delete_product_forever`: xoá inventory movements + balances
  * của mọi variant, rồi xoá product (cascade variant/media/category).
  * Đơn hàng/invoice cũ giữ snapshot (product_id/variant_id set null).
@@ -402,7 +408,7 @@ export async function deleteProductForeverAction(
   _prev: AdminFormState,
   formData: FormData
 ): Promise<AdminFormState> {
-  const { viewer, error: denied } = await guard("admin-product", true);
+  const { viewer, error: denied } = await guard("admin-product", false, true);
   if (denied) return denied;
 
   const id = String(formData.get("id") ?? "").trim();
@@ -412,7 +418,7 @@ export async function deleteProductForeverAction(
   const { data: product } = await supabase.from("products").select("name, status").eq("id", id).maybeSingle();
   if (!product) return fail("Product not found.");
   if (product.status !== "archived") {
-    return fail("Archive the product first, then delete it forever.");
+    return fail("Move the product to the Trash first, then delete it forever.");
   }
 
   const { error } = await supabase.rpc("admin_delete_product_forever", {
@@ -422,7 +428,7 @@ export async function deleteProductForeverAction(
   if (error) {
     const msg = error.message ?? "";
     if (msg.includes("Archive the product first")) {
-      return fail("Archive the product first, then delete it forever.");
+      return fail("Move the product to the Trash first, then delete it forever.");
     }
     if (msg.includes("Product not found")) return fail("Product not found.");
     if (msg.includes("Could not find the function") || error.code === "PGRST202") {

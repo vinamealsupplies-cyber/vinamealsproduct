@@ -2,7 +2,7 @@
 
 import { useActionState, useState } from "react";
 import Link from "next/link";
-import { Archive, Pencil, RotateCcw, Search, Trash2, X } from "lucide-react";
+import { Pencil, RotateCcw, Search, Trash2, X } from "lucide-react";
 import {
   archiveProductAction,
   deleteProductForeverAction,
@@ -15,10 +15,10 @@ import { integer, usd } from "@/lib/format";
 const STATUS_COPY: Record<string, string> = {
   draft: "Draft",
   active: "Active",
-  archived: "Archived"
+  archived: "Trash"
 };
 
-/** Bộ lọc danh sách — "live" = active + draft (mặc định, ẩn archived). */
+/** Bộ lọc danh sách — "live" = active + draft (mặc định, ẩn Trash). */
 type StatusFilter = "live" | ProductStatus | "all";
 
 export function ProductManager({
@@ -48,7 +48,7 @@ export function ProductManager({
     };
   }
 
-  // Archive xong tự chuyển sang tab Archived để không "mất" sản phẩm.
+  // Đưa vào Trash xong tự chuyển sang tab Trash để không "mất" sản phẩm.
   const [, archiveAction, archiving] = useActionState(
     wrap(archiveProductAction, { afterSuccess: () => setStatusFilter("archived") }),
     initialAdminFormState
@@ -86,7 +86,7 @@ export function ProductManager({
     { id: "live", label: "Catalog", count: counts.live },
     { id: "active", label: "Active", count: counts.active },
     { id: "draft", label: "Draft", count: counts.draft },
-    { id: "archived", label: "Archived", count: counts.archived },
+    { id: "archived", label: "Trash", count: counts.archived },
     { id: "all", label: "All", count: counts.all }
   ];
 
@@ -104,16 +104,16 @@ export function ProductManager({
             <form action={archiveAction}>
               <input type="hidden" name="id" value={confirming.product.id} />
               <div className="legal-callout compact">
-                <h2>Archive {confirming.product.name}?</h2>
+                <h2>Move {confirming.product.name} to Trash?</h2>
                 <p>
-                  It leaves the storefront but is <strong>not deleted</strong>. Find it again under the{" "}
-                  <strong>Archived</strong> tab on this page — open Edit to fix it, or Restore to put it back on
-                  sale.
+                  It leaves the storefront but is <strong>not deleted</strong> — it goes to the{" "}
+                  <strong>Trash</strong> tab on this page. Open Edit to fix it, or Restore to put it back on
+                  sale. Only a top-level admin can delete it forever.
                 </p>
               </div>
               <div className="button-row">
                 <button className="button primary" type="submit" disabled={archiving}>
-                  <Archive size={16} aria-hidden="true" /> {archiving ? "Archiving…" : "Archive product"}
+                  <Trash2 size={16} aria-hidden="true" /> {archiving ? "Moving…" : "Move to Trash"}
                 </button>
                 <button className="button secondary" type="button" onClick={() => setConfirming(null)}>
                   <X size={16} aria-hidden="true" /> Cancel
@@ -173,8 +173,8 @@ export function ProductManager({
 
         {statusFilter === "archived" ? (
           <p className="archived-banner">
-            Archived products stay here with full history. Use <strong>Edit</strong> to change details, or{" "}
-            <strong>Restore</strong> to put them back on the storefront as Active.
+            Items in the <strong>Trash</strong> keep their full history. Use <strong>Restore</strong> to put
+            them back on the storefront as Active. Only a top-level admin can permanently delete from here.
           </p>
         ) : null}
 
@@ -253,7 +253,7 @@ export function ProductManager({
                           setConfirming({ product, mode: "archive" });
                         }}
                       >
-                        <Archive size={14} aria-hidden="true" /> Archive
+                        <Trash2 size={14} aria-hidden="true" /> Delete
                       </button>
                     )}
                   </td>
@@ -264,7 +264,7 @@ export function ProductManager({
                   <td className="empty-table" colSpan={9}>
                     {products.length
                       ? statusFilter === "archived"
-                        ? "No archived products."
+                        ? "The Trash is empty."
                         : "No products match that filter or search."
                       : "No products yet."}
                   </td>
