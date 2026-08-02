@@ -2,11 +2,10 @@ import Image from "next/image";
 import Link from "next/link";
 import { ArrowRight, Building2, PackageCheck, Search, Sparkles } from "lucide-react";
 import { ProductCard } from "@/components/product-card";
-import { getStorefrontCategories } from "@/lib/data/categories";
 import { getProducts } from "@/lib/data/products";
 
 export default async function HomePage() {
-  const [products, categories] = await Promise.all([getProducts(), getStorefrontCategories()]);
+  const products = await getProducts();
   const featured = products.filter((product) => product.featured).slice(0, 3);
   return (
     <>
@@ -40,26 +39,6 @@ export default async function HomePage() {
             </div>
             <div className="hero-sticker"><strong>Fresh</strong><span>new finds</span></div>
           </div>
-        </div>
-      </section>
-
-      <section className="section shell">
-        <div className="section-heading split-heading">
-          <div><span className="kicker">Browse your way</span><h2>Shop by category</h2></div>
-          <Link className="text-link" href="/products">View all products <ArrowRight size={16} /></Link>
-        </div>
-        <div className="category-card-grid">
-          {categories.map((category, index) => (
-            // Chỉ có 5 tone màu nên xoay vòng khi danh mục nhiều hơn 5.
-            <Link className={`category-card category-tone-${(index % 5) + 1}`} href={`/products?category=${category.slug}`} key={category.id}>
-              <span className="category-card-number">{String(index + 1).padStart(2, "0")}</span>
-              <div>
-                <h3>{category.name}</h3>
-                <p>{category.children.length ? category.children.map((child) => child.name).join(" · ") : "Browse products"}</p>
-              </div>
-              <ArrowRight size={20} />
-            </Link>
-          ))}
         </div>
       </section>
 
