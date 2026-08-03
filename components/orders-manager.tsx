@@ -86,33 +86,16 @@ function fulfillmentLabel(order: StaffOrder) {
 
 function OrderDetail({ order }: { order: StaffOrder }) {
   const notesCount = order.items.filter((i) => i.lineNote).length;
-  const [showNote, setShowNote] = useState(false);
   return (
     <div className="order-detail-panel">
       <div className="order-detail-meta">
         <div>
           <strong>Khách</strong>
-          <p>
-            <button
-              type="button"
-              className="order-customer-name-btn"
-              onClick={() => setShowNote((v) => !v)}
-              title="Bấm để xem ghi chú về khách"
-            >
-              {order.customer}
-              {order.customerNotes ? (
-                <MessageSquareText size={13} aria-hidden="true" />
-              ) : null}
-            </button>
-          </p>
-          {showNote ? (
-            <div className="order-customer-note" role="note">
-              {order.customerNotes ? (
-                order.customerNotes
-              ) : (
-                <span className="field-hint">Chưa có ghi chú về khách này.</span>
-              )}
-            </div>
+          <p>{order.customer}</p>
+          {order.customerNotes ? (
+            <p className="order-customer-note-red" role="note">
+              <MessageSquareText size={13} aria-hidden="true" /> {order.customerNotes}
+            </p>
           ) : null}
           {order.customerCompany ? <p className="field-hint">{order.customerCompany}</p> : null}
           {order.customerPhone ? (

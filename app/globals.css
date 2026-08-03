@@ -1597,6 +1597,14 @@ a.oauth-button { text-decoration: none; color: inherit; box-sizing: border-box; 
   margin: 5px 0 2px; padding: 8px 11px; border-radius: 9px;
   background: #fff8e6; border: 1px solid #f0e2b8; font-size: 13px; white-space: pre-wrap;
 }
+/* Note khách hiện luôn (khỏi bấm), màu đỏ nổi bật. */
+.order-customer-note-red {
+  display: flex; align-items: flex-start; gap: 6px;
+  margin: 4px 0 2px; padding: 7px 10px; border-radius: 8px;
+  background: #fdecec; border: 1px solid #f3bcbc; color: #c0261c;
+  font-size: 13.5px; font-weight: 700; white-space: pre-wrap;
+}
+.order-customer-note-red svg { margin-top: 2px; flex-shrink: 0; }
 .order-delivery-note {
   display: flex; align-items: flex-start; gap: 6px;
   margin: 5px 0 2px; padding: 7px 10px; border-radius: 8px;
