@@ -1452,6 +1452,10 @@ a.oauth-button { text-decoration: none; color: inherit; box-sizing: border-box; 
 .table-scroll::-webkit-scrollbar-track { background: rgba(15,42,32,.06); border-radius: 8px; }
 .table-scroll::-webkit-scrollbar-thumb { background: rgba(15,42,32,.32); border-radius: 8px; border: 2px solid transparent; background-clip: padding-box; }
 .table-scroll::-webkit-scrollbar-thumb:hover { background: rgba(15,42,32,.5); background-clip: padding-box; }
+/* Inventory: bảng dài → khung cao giới hạn để thanh cuộn ngang luôn trong tầm
+   nhìn (không nằm tít dưới đáy), header dính lại khi cuộn dọc. */
+.inventory-scroll { max-height: 72vh; overflow-y: auto; }
+.inventory-scroll .data-table thead th { position: sticky; top: 0; z-index: 2; background: #f4f8f6; }
 .data-table { width: 100%; border-collapse: collapse; font-size: 12px; white-space: nowrap; }
 .data-table th { padding: 0; text-align: left; background: #f4f8f6; color: #52655f; font-size: 10px; text-transform: uppercase; letter-spacing: .06em; }
 .data-table th button { width: 100%; display: flex; align-items: center; gap: 5px; border: 0; background: transparent; padding: 11px 13px; font-weight: 850; text-transform: inherit; letter-spacing: inherit; }

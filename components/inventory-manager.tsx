@@ -198,7 +198,7 @@ export function InventoryManager({
           </span>
         </div>
 
-        <div className="table-scroll">
+        <div className="table-scroll inventory-scroll">
           <table className="data-table">
             <thead>
               <tr>
