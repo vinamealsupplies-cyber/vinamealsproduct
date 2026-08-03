@@ -1445,7 +1445,13 @@ a.oauth-button { text-decoration: none; color: inherit; box-sizing: border-box; 
 .stacked-form { display: grid; gap: 10px; margin-top: 22px; padding-top: 18px; border-top: 1px solid var(--line); }
 .panel-subheading { display: flex; align-items: center; gap: 6px; margin: 0; font-size: 13px; letter-spacing: -0.01em; }
 .table-search input { border: 0; box-shadow: none; padding: 7px 0; background: transparent; }
-.table-scroll { overflow-x: auto; }
+.table-scroll { overflow-x: auto; scrollbar-width: thin; scrollbar-color: rgba(15,42,32,.35) transparent; }
+/* Thanh cuộn ngang luôn hiện + kéo được (macOS ẩn overlay scrollbar mặc định,
+   chuột thường không cuộn ngang được → styled scrollbar buộc hiện khi tràn). */
+.table-scroll::-webkit-scrollbar { height: 11px; }
+.table-scroll::-webkit-scrollbar-track { background: rgba(15,42,32,.06); border-radius: 8px; }
+.table-scroll::-webkit-scrollbar-thumb { background: rgba(15,42,32,.32); border-radius: 8px; border: 2px solid transparent; background-clip: padding-box; }
+.table-scroll::-webkit-scrollbar-thumb:hover { background: rgba(15,42,32,.5); background-clip: padding-box; }
 .data-table { width: 100%; border-collapse: collapse; font-size: 12px; white-space: nowrap; }
 .data-table th { padding: 0; text-align: left; background: #f4f8f6; color: #52655f; font-size: 10px; text-transform: uppercase; letter-spacing: .06em; }
 .data-table th button { width: 100%; display: flex; align-items: center; gap: 5px; border: 0; background: transparent; padding: 11px 13px; font-weight: 850; text-transform: inherit; letter-spacing: inherit; }
