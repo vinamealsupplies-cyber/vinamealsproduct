@@ -1456,6 +1456,19 @@ a.oauth-button { text-decoration: none; color: inherit; box-sizing: border-box; 
    nhìn (không nằm tít dưới đáy), header dính lại khi cuộn dọc. */
 .inventory-scroll { max-height: 72vh; overflow-y: auto; }
 .inventory-scroll .data-table thead th { position: sticky; top: 0; z-index: 2; background: #f4f8f6; }
+
+/* Thanh cuộn ngang thứ 2 ở TRÊN bảng (đồng bộ với thanh dưới) + làm TO cho dễ kéo. */
+.table-hscroll-top { overflow-x: auto; overflow-y: hidden; margin-bottom: 5px; scrollbar-width: auto; scrollbar-color: rgba(15,42,32,.42) transparent; }
+.table-hscroll-spacer { height: 1px; }
+.table-hscroll-top::-webkit-scrollbar { height: 16px; }
+.inventory-scroll { scrollbar-width: auto; }
+.inventory-scroll::-webkit-scrollbar { height: 16px; width: 13px; }
+.table-hscroll-top::-webkit-scrollbar-track,
+.inventory-scroll::-webkit-scrollbar-track { background: rgba(15,42,32,.07); border-radius: 9px; }
+.table-hscroll-top::-webkit-scrollbar-thumb,
+.inventory-scroll::-webkit-scrollbar-thumb { background: rgba(15,42,32,.42); border-radius: 9px; border: 3px solid transparent; background-clip: padding-box; }
+.table-hscroll-top::-webkit-scrollbar-thumb:hover,
+.inventory-scroll::-webkit-scrollbar-thumb:hover { background: rgba(15,42,32,.62); background-clip: padding-box; }
 .data-table { width: 100%; border-collapse: collapse; font-size: 12px; white-space: nowrap; }
 .data-table th { padding: 0; text-align: left; background: #f4f8f6; color: #52655f; font-size: 10px; text-transform: uppercase; letter-spacing: .06em; }
 .data-table th button { width: 100%; display: flex; align-items: center; gap: 5px; border: 0; background: transparent; padding: 11px 13px; font-weight: 850; text-transform: inherit; letter-spacing: inherit; }

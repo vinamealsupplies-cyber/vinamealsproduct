@@ -1,6 +1,6 @@
 "use client";
 
-import { useActionState, useMemo, useState } from "react";
+import { useActionState, useEffect, useMemo, useRef, useState } from "react";
 import {
   ArrowDownAZ,
   ArrowUpDown,
@@ -164,6 +164,51 @@ export function InventoryManager({
     }
   }
 
+  // Thanh cuộn ngang thứ 2 ở TRÊN bảng, đồng bộ với thanh cuộn dưới.
+  const topScrollRef = useRef<HTMLDivElement>(null);
+  const bottomScrollRef = useRef<HTMLDivElement>(null);
+  const spacerRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const top = topScrollRef.current;
+    const bottom = bottomScrollRef.current;
+    const spacer = spacerRef.current;
+    if (!top || !bottom || !spacer) return;
+    const table = bottom.querySelector("table");
+
+    const syncWidth = () => {
+      spacer.style.width = `${table ? table.scrollWidth : bottom.scrollWidth}px`;
+    };
+    syncWidth();
+
+    let lock = false;
+    const onTop = () => {
+      if (lock) return;
+      lock = true;
+      bottom.scrollLeft = top.scrollLeft;
+      lock = false;
+    };
+    const onBottom = () => {
+      if (lock) return;
+      lock = true;
+      top.scrollLeft = bottom.scrollLeft;
+      lock = false;
+    };
+    top.addEventListener("scroll", onTop, { passive: true });
+    bottom.addEventListener("scroll", onBottom, { passive: true });
+
+    const ro = typeof ResizeObserver !== "undefined" ? new ResizeObserver(syncWidth) : null;
+    if (ro && table) ro.observe(table);
+    window.addEventListener("resize", syncWidth);
+
+    return () => {
+      top.removeEventListener("scroll", onTop);
+      bottom.removeEventListener("scroll", onBottom);
+      ro?.disconnect();
+      window.removeEventListener("resize", syncWidth);
+    };
+  }, [visibleRows.length, isSeller]);
+
   return (
     <div className="category-admin-layout">
       <section className="form-card">
@@ -198,7 +243,10 @@ export function InventoryManager({
           </span>
         </div>
 
-        <div className="table-scroll inventory-scroll">
+        <div className="table-hscroll-top" ref={topScrollRef} aria-hidden="true">
+          <div className="table-hscroll-spacer" ref={spacerRef} />
+        </div>
+        <div className="table-scroll inventory-scroll" ref={bottomScrollRef}>
           <table className="data-table">
             <thead>
               <tr>
