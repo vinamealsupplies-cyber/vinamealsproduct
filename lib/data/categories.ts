@@ -16,6 +16,7 @@ type DbRow = {
   slug: string;
   sort_order: number;
   is_active: boolean;
+  tax_category: string | null;
 };
 
 function mapRow(row: DbRow): CategoryRow {
@@ -25,7 +26,8 @@ function mapRow(row: DbRow): CategoryRow {
     name: row.name,
     slug: row.slug,
     sortOrder: row.sort_order,
-    isActive: row.is_active
+    isActive: row.is_active,
+    taxCategory: row.tax_category ?? "grocery"
   };
 }
 
@@ -43,7 +45,7 @@ function buildTree(data: DbRow[] | null): CategoryNode[] {
   return parents.map((parent) => ({ ...parent, children: childrenByParent.get(parent.id) ?? [] }));
 }
 
-const SELECT_COLUMNS = "id, parent_id, name, slug, sort_order, is_active";
+const SELECT_COLUMNS = "id, parent_id, name, slug, sort_order, is_active, tax_category";
 
 /** Cây category cho khu admin — staff thấy cả category đang ẩn. */
 export async function getCategoryTree(): Promise<CategoryNode[]> {
@@ -85,6 +87,7 @@ export function toParentOptions(tree: CategoryNode[]): CategoryRow[] {
     name: node.name,
     slug: node.slug,
     sortOrder: node.sortOrder,
-    isActive: node.isActive
+    isActive: node.isActive,
+    taxCategory: node.taxCategory
   }));
 }

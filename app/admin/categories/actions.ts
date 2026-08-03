@@ -28,12 +28,17 @@ function readForm(formData: FormData) {
   const sortOrderRaw = String(formData.get("sortOrder") ?? "").trim();
   const sortOrder = Number.parseInt(sortOrderRaw, 10);
 
+  const taxRaw = String(formData.get("taxCategory") ?? "grocery").trim();
+  const taxCategory =
+    taxRaw === "general" || taxRaw === "prepared_food" ? taxRaw : "grocery";
+
   return {
     name,
     slug: slugify(rawSlug || name),
     parentId: parentId || null,
     sortOrder: Number.isFinite(sortOrder) ? sortOrder : 0,
-    isActive: formData.get("isActive") !== null
+    isActive: formData.get("isActive") !== null,
+    taxCategory
   };
 }
 
@@ -91,7 +96,8 @@ export async function createCategoryAction(
     slug: input.slug,
     parent_id: input.parentId,
     sort_order: input.sortOrder,
-    is_active: input.isActive
+    is_active: input.isActive,
+    tax_category: input.taxCategory
   });
 
   if (error) return { status: "error", message: friendlyError(error.message) };
@@ -125,7 +131,8 @@ export async function updateCategoryAction(
       slug: input.slug,
       parent_id: input.parentId,
       sort_order: input.sortOrder,
-      is_active: input.isActive
+      is_active: input.isActive,
+      tax_category: input.taxCategory
     })
     .eq("id", id);
 

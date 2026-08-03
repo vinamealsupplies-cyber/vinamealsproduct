@@ -172,6 +172,9 @@ type ProductRow = {
   name: string;
   status: string;
   product_variants: VariantRow[];
+  product_categories:
+    | { is_primary: boolean; categories: { tax_category: string | null } | null }[]
+    | null;
 };
 
 function num(value: number | string | null | undefined): number {
@@ -268,7 +271,7 @@ async function placeOrderInner(
   const { data: productRows, error: prodErr } = await supabase
     .from("products")
     .select(
-      "id, name, status, product_variants ( id, sku, retail_price, sale_price, cost_price, is_default, is_active, taxable, tax_category )"
+      "id, name, status, product_variants ( id, sku, retail_price, sale_price, cost_price, is_default, is_active, taxable, tax_category ), product_categories ( is_primary, categories ( tax_category ) )"
     )
     .in("id", [...wanted.keys()]);
   if (prodErr) return { ok: false, error: "Could not load products. Try again." };
@@ -318,10 +321,13 @@ async function placeOrderInner(
       tax_amount: 0,
       tax_rate_snapshot: 0
     });
+    // Tax class comes from the product's primary category (Costco-style:
+    // food/drinks tax-free, household taxable); fall back to the variant.
+    const cats = row.product_categories ?? [];
+    const primaryCat = cats.find((c) => c.is_primary) ?? cats[0];
+    const resolvedTax = primaryCat?.categories?.tax_category ?? variant.tax_category ?? "grocery";
     const category: TaxCategory =
-      variant.tax_category === "general" || variant.tax_category === "prepared_food"
-        ? variant.tax_category
-        : "grocery";
+      resolvedTax === "general" || resolvedTax === "prepared_food" ? resolvedTax : "grocery";
     taxLines.push({
       amount: unitPrice * wantedLine.quantity,
       taxable: variant.taxable !== false,

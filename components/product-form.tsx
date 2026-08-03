@@ -279,18 +279,11 @@ export function ProductForm({
             <input type="checkbox" name="featured" defaultChecked={product?.featured ?? false} /> Featured product
           </label>
         </div>
-        <label className="full-width">
-          Tax category
-          <select name="taxCategory" defaultValue={product?.taxCategory ?? "grocery"}>
-            <option value="grocery">Grocery — food, usually tax-exempt (CA)</option>
-            <option value="prepared_food">Prepared food</option>
-            <option value="general">General — taxable goods</option>
-          </select>
-          <span className="field-hint">
-            Grocery food is exempt from CA sales tax. Choose General or Prepared food for items that
-            should be taxed. Applies only when “Taxable item” is checked.
-          </span>
-        </label>
+        <p className="field-hint">
+          Sales tax follows the product’s <strong>category</strong> (set it under Categories — e.g.
+          packaged food &amp; drinks = Tax-free, household goods = Taxable). Uncheck “Taxable item”
+          to force a single product tax-exempt regardless of its category.
+        </p>
       </section>
 
       <section className="form-card">

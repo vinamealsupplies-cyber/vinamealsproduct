@@ -35,6 +35,18 @@ function CategoryFields({ category, parents }: { category?: CategoryRow; parents
         Sort order
         <input name="sortOrder" type="number" defaultValue={category?.sortOrder ?? 0} />
       </label>
+      <label>
+        Sales tax
+        <select name="taxCategory" defaultValue={category?.taxCategory ?? "grocery"}>
+          <option value="grocery">Tax-free — food / grocery (CA exempt)</option>
+          <option value="prepared_food">Prepared food</option>
+          <option value="general">Taxable — general goods</option>
+        </select>
+        <span className="field-hint">
+          Products in this category use this tax class. E.g. packaged food & drinks = Tax-free;
+          household goods = Taxable.
+        </span>
+      </label>
       <label className="checkbox-label">
         <input name="isActive" type="checkbox" defaultChecked={category?.isActive ?? true} /> Visible in storefront
       </label>
