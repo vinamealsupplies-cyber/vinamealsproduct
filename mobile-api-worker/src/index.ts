@@ -55,24 +55,70 @@ function admin(env: Env) {
 }
 
 async function getViewer(req: Request, env: Env): Promise<Viewer | null> {
-  const h = req.headers.get("authorization") ?? "";
+  const h = req.headers.get("authorization") ?? req.headers.get("Authorization") ?? "";
   if (!h.toLowerCase().startsWith("bearer ")) return null;
   const token = h.slice(7).trim();
-  if (!token) return null;
+  if (!token || token.split(".").length < 3) return null;
 
-  const auth = createClient(env.SUPABASE_URL, env.SUPABASE_PUBLISHABLE_KEY, {
+  // Prefer service-role client for getUser — more reliable with JWT verification
+  // than publishable key alone on Workers.
+  const authAdmin = createClient(env.SUPABASE_URL, env.SUPABASE_SERVICE_ROLE_KEY, {
     auth: { autoRefreshToken: false, persistSession: false }
   });
-  const { data, error } = await auth.auth.getUser(token);
-  if (error || !data.user) return null;
+  let userId: string | null = null;
+  let userEmail: string | null = null;
+
+  const { data: byService, error: svcErr } = await authAdmin.auth.getUser(token);
+  if (!svcErr && byService.user) {
+    userId = byService.user.id;
+    userEmail = byService.user.email ?? null;
+  } else {
+    // Fallback: publishable client
+    const authPub = createClient(env.SUPABASE_URL, env.SUPABASE_PUBLISHABLE_KEY, {
+      auth: { autoRefreshToken: false, persistSession: false }
+    });
+    const { data: byPub, error: pubErr } = await authPub.auth.getUser(token);
+    if (pubErr || !byPub.user) return null;
+    userId = byPub.user.id;
+    userEmail = byPub.user.email ?? null;
+  }
+  if (!userId) return null;
 
   const sb = admin(env);
   const { data: profile } = await sb
     .from("profiles")
     .select("id, email, full_name, role, status")
-    .eq("id", data.user.id)
+    .eq("id", userId)
     .maybeSingle();
-  if (!profile || profile.status !== "active") return null;
+
+  // Profile may lag trigger for brand-new OAuth users — create a customer profile
+  if (!profile) {
+    await sb.from("profiles").upsert({
+      id: userId,
+      email: userEmail,
+      role: "customer",
+      status: "active"
+    });
+    const { data: created } = await sb
+      .from("profiles")
+      .select("id, email, full_name, role, status")
+      .eq("id", userId)
+      .maybeSingle();
+    if (!created || created.status !== "active") return null;
+    return {
+      id: created.id,
+      email: created.email ?? userEmail ?? "",
+      fullName: created.full_name ?? "",
+      role: created.role,
+      isStaff: false,
+      isManager: false,
+      isAdmin: false,
+      isSeller: false,
+      canAccessAdmin: false
+    };
+  }
+
+  if (profile.status !== "active") return null;
 
   const role = profile.role as string;
   const isStaff = ["staff", "manager", "admin"].includes(role);
@@ -80,7 +126,7 @@ async function getViewer(req: Request, env: Env): Promise<Viewer | null> {
   const isSeller = role === "seller";
   return {
     id: profile.id,
-    email: profile.email ?? data.user.email ?? "",
+    email: profile.email ?? userEmail ?? "",
     fullName: profile.full_name ?? "",
     role,
     isStaff,
@@ -570,6 +616,111 @@ async function handleCheckout(req: Request, env: Env) {
   );
 }
 
+/** Customer-facing status copy — mirrors lib/data/customer-orders.ts statusCopy() */
+function customerStatusCopy(o: {
+  status: string;
+  fulfillmentMethod: string;
+  pickupReadyAt: string | null;
+  pickedUpAt: string | null;
+}) {
+  if (o.status === "cancelled") {
+    return { label: "Cancelled", detail: "This order was cancelled.", isOpen: false };
+  }
+  if (o.status === "fulfilled") {
+    return {
+      label: "Completed",
+      detail: o.fulfillmentMethod === "pickup" ? "Picked up / completed." : "Delivered / completed.",
+      isOpen: false
+    };
+  }
+  if (o.status === "confirmed") {
+    if (o.fulfillmentMethod === "pickup") {
+      if (o.pickupReadyAt) {
+        return {
+          label: "Ready for pickup",
+          detail:
+            "Your order is ready at the store. Bring your order number and a photo ID to collect it.",
+          isOpen: true
+        };
+      }
+      return {
+        label: "Preparing",
+        detail: "We are preparing your order. We’ll mark it ready for pickup when it’s done.",
+        isOpen: true
+      };
+    }
+    return {
+      label: "In progress",
+      detail: "Your order is being prepared or shipped.",
+      isOpen: true
+    };
+  }
+  return { label: "Draft", detail: "Not submitted yet.", isOpen: false };
+}
+
+function mapCustomerPayment(row: {
+  status: string;
+  total_amount: unknown;
+  invoices?:
+    | {
+        amount_paid?: unknown;
+        total_amount?: unknown;
+        status?: string;
+        payments?:
+          | { received_at?: string | null; status?: string; amount?: unknown; payment_method?: string | null; created_at?: string }[]
+          | { received_at?: string | null; status?: string; amount?: unknown; payment_method?: string | null; created_at?: string }
+          | null;
+      }[]
+    | {
+        amount_paid?: unknown;
+        total_amount?: unknown;
+        status?: string;
+        payments?: unknown;
+      }
+    | null;
+}) {
+  const invoices = Array.isArray(row.invoices) ? row.invoices : row.invoices ? [row.invoices] : [];
+  const payments = invoices.flatMap((inv) => {
+    const p = inv.payments;
+    if (!p) return [];
+    return Array.isArray(p) ? p : [p];
+  }) as {
+    received_at?: string | null;
+    status?: string;
+    amount?: unknown;
+    payment_method?: string | null;
+    created_at?: string;
+  }[];
+
+  const succeeded = payments
+    .filter((p) => p.status === "succeeded")
+    .sort((a, b) => {
+      const ta = new Date(a.received_at ?? a.created_at ?? 0).getTime();
+      const tb = new Date(b.received_at ?? b.created_at ?? 0).getTime();
+      return tb - ta;
+    });
+
+  if (succeeded.length) {
+    const latest = succeeded[0];
+    return {
+      paidAt: latest.received_at ?? latest.created_at ?? null,
+      paymentMethod: latest.payment_method ?? null,
+      paymentStatus: "paid" as const
+    };
+  }
+  const amountPaid = invoices.reduce((sum, inv) => sum + num(inv.amount_paid), 0);
+  if (amountPaid > 0 && amountPaid < num(row.total_amount)) {
+    return { paidAt: null, paymentMethod: null, paymentStatus: "partial" as const };
+  }
+  if (payments.some((p) => p.status === "pending")) {
+    return { paidAt: null, paymentMethod: null, paymentStatus: "pending" as const };
+  }
+  if (row.status === "confirmed" || row.status === "fulfilled") {
+    return { paidAt: null, paymentMethod: null, paymentStatus: "pending" as const };
+  }
+  return { paidAt: null, paymentMethod: null, paymentStatus: "none" as const };
+}
+
 async function handleCustomerOrders(req: Request, env: Env) {
   const v = await getViewer(req, env);
   if (!v) return jsonErr("UNAUTHORIZED", "Sign in required.", 401);
@@ -577,35 +728,89 @@ async function handleCustomerOrders(req: Request, env: Env) {
   const { data: cust } = await sb.from("customers").select("id").eq("auth_user_id", v.id).maybeSingle();
   if (!cust) return json({ orders: [] });
 
-  const { data: orders } = await sb
+  const { data: orders, error } = await sb
     .from("sales_orders")
     .select(
-      "id, order_number, status, fulfillment_method, total_amount, currency, placed_at, created_at, notes, pickup_ready_at, picked_up_at, fulfilled_at"
+      `id, order_number, status, fulfillment_method, total_amount, subtotal, tax_amount, shipping_amount, discount_amount, currency, placed_at, created_at, notes, pickup_ready_at, picked_up_at, fulfilled_at, tracking_number, shipping_carrier, tracking_url,
+       items:sales_order_items ( id, product_name_snapshot, variant_name_snapshot, sku_snapshot, quantity, unit_price, line_total, line_note ),
+       invoices ( id, amount_paid, total_amount, status, invoice_number, payments ( received_at, status, amount, payment_method, created_at ) )`
     )
     .eq("customer_id", cust.id)
+    .neq("status", "draft")
     .order("created_at", { ascending: false })
     .limit(50);
 
-  return json({
-    orders: (orders ?? []).map((o) => ({
+  if (error) return jsonErr("LOAD_FAILED", error.message);
+
+  type Item = {
+    id: string;
+    product_name_snapshot: string;
+    variant_name_snapshot: string | null;
+    sku_snapshot: string;
+    quantity: unknown;
+    unit_price: unknown;
+    line_total?: unknown;
+    line_note: string | null;
+  };
+
+  const mapped = (orders ?? []).map((o) => {
+    const items = ((o.items as Item[] | null) ?? []).map((item) => {
+      const quantity = num(item.quantity);
+      const unitPrice = num(item.unit_price);
+      return {
+        id: item.id,
+        productName: item.product_name_snapshot,
+        variantName: item.variant_name_snapshot,
+        sku: item.sku_snapshot,
+        quantity,
+        unitPrice,
+        lineTotal: item.line_total != null ? num(item.line_total) : quantity * unitPrice,
+        lineNote: item.line_note?.trim() || null
+      };
+    });
+    const fulfillmentMethod = o.fulfillment_method ?? "pickup";
+    const copy = customerStatusCopy({
+      status: o.status,
+      fulfillmentMethod,
+      pickupReadyAt: o.pickup_ready_at ?? null,
+      pickedUpAt: o.picked_up_at ?? null
+    });
+    const payment = mapCustomerPayment(o as Parameters<typeof mapCustomerPayment>[0]);
+    const inv = Array.isArray(o.invoices) ? o.invoices[0] : o.invoices;
+
+    return {
       id: o.id,
       number: o.order_number ?? o.id.slice(0, 8),
       status: o.status,
-      fulfillmentMethod: o.fulfillment_method,
+      fulfillmentMethod,
       total: num(o.total_amount),
+      subtotal: num(o.subtotal),
+      tax: num(o.tax_amount),
+      shipping: num(o.shipping_amount),
+      discount: num(o.discount_amount),
       currency: o.currency ?? "USD",
-      placedAt: o.placed_at,
+      placedAt: o.placed_at ?? o.created_at,
       createdAt: o.created_at,
-      statusLabel: o.status,
-      statusDetail: o.fulfillment_method,
-      isOpen: o.status === "confirmed",
-      paymentStatus: "none",
+      notes: o.notes,
       pickupReadyAt: o.pickup_ready_at,
       pickedUpAt: o.picked_up_at,
       fulfilledAt: o.fulfilled_at,
-      notes: o.notes
-    }))
+      trackingNumber: o.tracking_number,
+      shippingCarrier: o.shipping_carrier,
+      trackingUrl: o.tracking_url,
+      paidAt: payment.paidAt,
+      paymentMethod: payment.paymentMethod,
+      paymentStatus: payment.paymentStatus,
+      invoiceNumber: inv && typeof inv === "object" && "invoice_number" in inv ? (inv as { invoice_number?: string }).invoice_number ?? null : null,
+      itemCount: items.length,
+      items,
+      isOpen: copy.isOpen,
+      statusLabel: copy.label,
+      statusDetail: copy.detail
+    };
   });
+
+  return json({ orders: mapped });
 }
 
 async function requireAdmin(req: Request, env: Env) {
@@ -703,6 +908,22 @@ async function handleStaffOrders(req: Request, env: Env, url: URL) {
       o.status === "confirmed" && o.fulfillment_method === "pickup" && !o.pickup_ready_at;
     const awaitingDelivery =
       o.status === "confirmed" && o.fulfillment_method === "ship" && !o.fulfilled_at;
+    const statusLabel =
+      o.status === "cancelled"
+        ? "Cancelled"
+        : o.status === "fulfilled"
+          ? o.fulfillment_method === "pickup"
+            ? "Picked up"
+            : "Shipped / delivered"
+          : awaitingPickup
+            ? "Ready for pickup"
+            : awaitingPickupPrep
+              ? "Preparing"
+              : awaitingDelivery
+                ? "Awaiting ship"
+                : o.status === "confirmed"
+                  ? "Confirmed"
+                  : o.status;
     return {
       id: o.id,
       number: o.order_number ?? o.id.slice(0, 8),
@@ -710,6 +931,7 @@ async function handleStaffOrders(req: Request, env: Env, url: URL) {
       customerCompany: c?.company_name ?? null,
       customerPhone: c?.phone ?? null,
       status: o.status,
+      statusLabel,
       fulfillmentMethod: o.fulfillment_method,
       total: num(o.total_amount),
       currency: o.currency ?? "USD",
@@ -725,6 +947,7 @@ async function handleStaffOrders(req: Request, env: Env, url: URL) {
       canEditTracking: o.fulfillment_method === "ship" && o.status === "confirmed",
       paymentStatus: "none",
       trackingNumber: o.tracking_number,
+      shippingCarrier: o.shipping_carrier,
       itemCount: 0
     };
   });
@@ -1302,32 +1525,69 @@ async function handleCustomerOrderDetail(req: Request, env: Env, orderId: string
   const sb = admin(env);
   const { data: cust } = await sb.from("customers").select("id").eq("auth_user_id", v.id).maybeSingle();
   if (!cust) return jsonErr("NOT_FOUND", "Order not found.", 404);
-  const { data: order } = await sb
+
+  const { data: order, error } = await sb
     .from("sales_orders")
     .select(
-      "id, order_number, status, fulfillment_method, total_amount, subtotal, tax_amount, shipping_amount, discount_amount, currency, placed_at, created_at, notes, pickup_ready_at, picked_up_at, fulfilled_at, tracking_number, shipping_carrier, tracking_url"
+      `id, order_number, status, fulfillment_method, total_amount, subtotal, tax_amount, shipping_amount, discount_amount, currency, placed_at, created_at, notes, pickup_ready_at, picked_up_at, fulfilled_at, tracking_number, shipping_carrier, tracking_url, shipping_address_snapshot,
+       items:sales_order_items ( id, product_name_snapshot, variant_name_snapshot, sku_snapshot, quantity, unit_price, line_total, line_note ),
+       invoices ( id, amount_paid, total_amount, status, invoice_number, payments ( received_at, status, amount, payment_method, created_at ) )`
     )
     .eq("id", orderId)
     .eq("customer_id", cust.id)
     .maybeSingle();
+  if (error) return jsonErr("LOAD_FAILED", error.message);
   if (!order) return jsonErr("NOT_FOUND", "Order not found.", 404);
-  const { data: items } = await sb
-    .from("sales_order_items")
-    .select("id, product_name_snapshot, sku_snapshot, quantity, unit_price, line_note, tax_amount")
-    .eq("order_id", orderId);
+
+  type Item = {
+    id: string;
+    product_name_snapshot: string;
+    variant_name_snapshot: string | null;
+    sku_snapshot: string;
+    quantity: unknown;
+    unit_price: unknown;
+    line_total?: unknown;
+    line_note: string | null;
+  };
+  const items = ((order.items as Item[] | null) ?? []).map((item) => {
+    const quantity = num(item.quantity);
+    const unitPrice = num(item.unit_price);
+    return {
+      id: item.id,
+      name: item.product_name_snapshot,
+      productName: item.product_name_snapshot,
+      variantName: item.variant_name_snapshot,
+      sku: item.sku_snapshot,
+      quantity,
+      unitPrice,
+      lineTotal: item.line_total != null ? num(item.line_total) : quantity * unitPrice,
+      note: item.line_note?.trim() || null,
+      lineNote: item.line_note?.trim() || null
+    };
+  });
+  const fulfillmentMethod = order.fulfillment_method ?? "pickup";
+  const copy = customerStatusCopy({
+    status: order.status,
+    fulfillmentMethod,
+    pickupReadyAt: order.pickup_ready_at ?? null,
+    pickedUpAt: order.picked_up_at ?? null
+  });
+  const payment = mapCustomerPayment(order as Parameters<typeof mapCustomerPayment>[0]);
+  const inv = Array.isArray(order.invoices) ? order.invoices[0] : order.invoices;
+
   return json({
     order: {
       id: order.id,
-      number: order.order_number,
+      number: order.order_number ?? order.id.slice(0, 8),
       status: order.status,
-      fulfillmentMethod: order.fulfillment_method,
+      fulfillmentMethod,
       total: num(order.total_amount),
       subtotal: num(order.subtotal),
       tax: num(order.tax_amount),
       shipping: num(order.shipping_amount),
       discount: num(order.discount_amount),
-      currency: order.currency,
-      placedAt: order.placed_at,
+      currency: order.currency ?? "USD",
+      placedAt: order.placed_at ?? order.created_at,
       createdAt: order.created_at,
       notes: order.notes,
       pickupReadyAt: order.pickup_ready_at,
@@ -1336,15 +1596,25 @@ async function handleCustomerOrderDetail(req: Request, env: Env, orderId: string
       trackingNumber: order.tracking_number,
       shippingCarrier: order.shipping_carrier,
       trackingUrl: order.tracking_url,
-      items: (items ?? []).map((i) => ({
-        id: i.id,
-        name: i.product_name_snapshot,
-        sku: i.sku_snapshot,
-        quantity: num(i.quantity),
-        unitPrice: num(i.unit_price),
-        note: i.line_note,
-        tax: num(i.tax_amount)
-      }))
+      shippingAddress: order.shipping_address_snapshot,
+      paidAt: payment.paidAt,
+      paymentMethod: payment.paymentMethod,
+      paymentStatus: payment.paymentStatus,
+      invoiceNumber:
+        inv && typeof inv === "object" && "invoice_number" in inv
+          ? ((inv as { invoice_number?: string }).invoice_number ?? null)
+          : null,
+      statusLabel: copy.label,
+      statusDetail: copy.detail,
+      isOpen: copy.isOpen,
+      itemCount: items.length,
+      items,
+      // staff action flags unused for customer
+      canMarkPickupReady: false,
+      canConfirmPickedUp: false,
+      canCancel: false,
+      canEditTracking: false,
+      canConfirmPayment: false
     }
   });
 }
@@ -1353,31 +1623,77 @@ async function handleStaffOrderDetail(req: Request, env: Env, orderId: string) {
   const gate = await requireAdmin(req, env);
   if ("error" in gate && gate.error) return gate.error;
   const sb = admin(env);
-  const { data: order } = await sb
+  const { data: order, error } = await sb
     .from("sales_orders")
     .select(
       `id, order_number, status, fulfillment_method, total_amount, subtotal, tax_amount, shipping_amount, discount_amount, currency, created_at, notes,
-       pickup_ready_at, picked_up_at, fulfilled_at, tracking_number, shipping_carrier, tracking_url, payment_method,
-       customers ( first_name, last_name, company_name, phone, email )`
+       pickup_ready_at, picked_up_at, fulfilled_at, tracking_number, shipping_carrier, tracking_url, payment_method, payment_reference, shipping_address_snapshot, cancelled_at, cancel_note, cancelled_by_name, picked_up_by_name, shipped_at,
+       customers ( first_name, last_name, company_name, phone, email, notes ),
+       items:sales_order_items ( id, product_name_snapshot, variant_name_snapshot, sku_snapshot, quantity, unit_price, line_total, line_note ),
+       invoices ( id, invoice_number, amount_paid, total_amount, balance_due, status )`
     )
     .eq("id", orderId)
     .maybeSingle();
+  if (error) return jsonErr("LOAD_FAILED", error.message);
   if (!order) return jsonErr("NOT_FOUND", "Order not found.", 404);
-  const { data: items } = await sb
-    .from("sales_order_items")
-    .select("id, product_name_snapshot, sku_snapshot, quantity, unit_price, line_note")
-    .eq("order_id", orderId);
+
   const c = order.customers as {
     first_name: string | null;
     last_name: string | null;
     company_name: string | null;
     phone: string | null;
     email: string | null;
+    notes: string | null;
   } | null;
+
+  type Item = {
+    id: string;
+    product_name_snapshot: string;
+    variant_name_snapshot: string | null;
+    sku_snapshot: string;
+    quantity: unknown;
+    unit_price: unknown;
+    line_total?: unknown;
+    line_note: string | null;
+  };
+  const items = ((order.items as Item[] | null) ?? []).map((item) => {
+    const quantity = num(item.quantity);
+    const unitPrice = num(item.unit_price);
+    return {
+      id: item.id,
+      name: item.product_name_snapshot,
+      productName: item.product_name_snapshot,
+      variantName: item.variant_name_snapshot,
+      sku: item.sku_snapshot,
+      quantity,
+      unitPrice,
+      lineTotal: item.line_total != null ? num(item.line_total) : quantity * unitPrice,
+      note: item.line_note?.trim() || null,
+      lineNote: item.line_note?.trim() || null
+    };
+  });
+
+  const awaitingPickupPrep =
+    order.status === "confirmed" && order.fulfillment_method === "pickup" && !order.pickup_ready_at;
+  const awaitingPickup =
+    order.status === "confirmed" &&
+    order.fulfillment_method === "pickup" &&
+    Boolean(order.pickup_ready_at) &&
+    !order.picked_up_at;
+  const awaitingDelivery =
+    order.status === "confirmed" && order.fulfillment_method === "ship" && !order.fulfilled_at;
+
+  const invList = Array.isArray(order.invoices) ? order.invoices : order.invoices ? [order.invoices] : [];
+  const inv = invList[0] as
+    | { id?: string; invoice_number?: string; amount_paid?: unknown; total_amount?: unknown; balance_due?: unknown; status?: string }
+    | undefined;
+  const balanceDue = inv ? num(inv.balance_due) : 0;
+  const amountPaid = inv ? num(inv.amount_paid) : 0;
+
   return json({
     order: {
       id: order.id,
-      number: order.order_number,
+      number: order.order_number ?? order.id.slice(0, 8),
       status: order.status,
       fulfillmentMethod: order.fulfillment_method,
       total: num(order.total_amount),
@@ -1385,8 +1701,9 @@ async function handleStaffOrderDetail(req: Request, env: Env, orderId: string) {
       tax: num(order.tax_amount),
       shipping: num(order.shipping_amount),
       discount: num(order.discount_amount),
-      currency: order.currency,
+      currency: order.currency ?? "USD",
       createdAt: order.created_at,
+      placedAt: order.created_at,
       notes: order.notes,
       pickupReadyAt: order.pickup_ready_at,
       pickedUpAt: order.picked_up_at,
@@ -1394,21 +1711,53 @@ async function handleStaffOrderDetail(req: Request, env: Env, orderId: string) {
       trackingNumber: order.tracking_number,
       shippingCarrier: order.shipping_carrier,
       trackingUrl: order.tracking_url,
+      shippingAddress: order.shipping_address_snapshot,
       paymentMethod: order.payment_method,
+      paymentReference: order.payment_reference,
+      paymentStatus: balanceDue <= 0 && amountPaid > 0 ? "paid" : balanceDue > 0 && amountPaid > 0 ? "partial" : amountPaid <= 0 && order.status !== "cancelled" ? "pending" : "none",
+      invoiceNumber: inv?.invoice_number ?? null,
+      amountPaid,
+      balanceDue,
+      cancelledAt: order.cancelled_at,
+      cancelNote: order.cancel_note,
+      cancelledByName: order.cancelled_by_name,
+      pickedUpByName: order.picked_up_by_name,
+      shippedAt: order.shipped_at,
+      statusLabel:
+        order.status === "cancelled"
+          ? "Cancelled"
+          : order.status === "fulfilled"
+            ? "Completed"
+            : awaitingPickup
+              ? "Ready for pickup"
+              : awaitingPickupPrep
+                ? "Preparing"
+                : awaitingDelivery
+                  ? "Awaiting ship"
+                  : order.status,
+      statusDetail: awaitingPickup
+        ? "Customer can collect at store"
+        : awaitingPickupPrep
+          ? "Staff preparing pickup order"
+          : awaitingDelivery
+            ? "Ship / deliver this order"
+            : null,
+      isOpen: order.status === "confirmed",
       customer: {
         name: [c?.first_name, c?.last_name].filter(Boolean).join(" ") || c?.company_name || "Customer",
         company: c?.company_name,
         phone: c?.phone,
-        email: c?.email
+        email: c?.email,
+        notes: c?.notes
       },
-      items: (items ?? []).map((i) => ({
-        id: i.id,
-        name: i.product_name_snapshot,
-        sku: i.sku_snapshot,
-        quantity: num(i.quantity),
-        unitPrice: num(i.unit_price),
-        note: i.line_note
-      }))
+      items,
+      itemCount: items.length,
+      canMarkPickupReady: awaitingPickupPrep,
+      canConfirmPickedUp: awaitingPickup,
+      canCancel: order.status === "confirmed",
+      canEditTracking: order.fulfillment_method === "ship" && order.status === "confirmed",
+      canConfirmPayment: balanceDue > 0,
+      canCancelPickup: Boolean(order.picked_up_at) && order.status === "fulfilled" && order.fulfillment_method === "pickup"
     }
   });
 }
