@@ -8,6 +8,10 @@ Hướng dẫn cho Claude Code khi làm việc trong repo này.
 - Cứ chủ động thực hiện. Chỉ dừng khi thiếu **credential mà chỉ người dùng có**: mật khẩu DB, key Supabase/Cloudflare, hoặc thao tác cần đăng nhập dashboard.
 - Giữ file bí mật/local trong máy, không đẩy lên repo: `.env.local`, `.dev.vars`, `.claude/settings.local.json`, `*.local.md`.
 
+## Quy trình khi làm xong task (theo yêu cầu người dùng)
+- **Làm xong là DEPLOY LUÔN — KHÔNG cần test.** Không mở trình duyệt để click/chụp màn hình verify; người dùng sẽ tự test rồi báo lại.
+- Vẫn **build trước khi deploy** (`npm run cf:build` tự bắt lỗi type/build): build lỗi thì sửa; build OK thì `cf:deploy` + `git commit` + `git push` ngay, không dừng để hỏi.
+
 ## Tổng quan
 - **Vinameals** — storefront Next.js (App Router) + Supabase (Postgres/Auth) + Cloudflare (Workers qua OpenNext, R2 cho ảnh, Stream cho video).
 - Production domain: `vinamealsupplies.com` (+ `www`) → Worker `vinamealsproduct` (routes trong `wrangler.jsonc`).
