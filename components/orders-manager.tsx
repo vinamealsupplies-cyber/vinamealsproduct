@@ -47,6 +47,16 @@ const STATUS_LABEL: Record<string, string> = {
 const STAFF_NOTE_HINT =
   "Ghi chú / lý do (bắt buộc, tối thiểu 3 ký tự). Tên bạn được gắn tự động từ tài khoản.";
 
+/** Lý do huỷ đơn có sẵn — chọn nhanh cho đỡ gõ. */
+const CANCEL_REASONS = [
+  "Khách yêu cầu huỷ",
+  "Hết hàng / thiếu hàng",
+  "Sai địa chỉ giao",
+  "Trùng đơn",
+  "Khách không phản hồi",
+  "Đơn thử / test"
+];
+
 /** Ngày local YYYY-MM-DD — filter đơn hoàn tất / huỷ. */
 function toDayKey(value: string | Date): string {
   const d = typeof value === "string" ? new Date(value) : value;
@@ -889,15 +899,29 @@ export function OrdersManager({ orders }: { orders: StaffOrder[] }) {
             </p>
             <label className="orders-staff-note-field">
               Lý do huỷ (bắt buộc)
+              <select
+                className="orders-cancel-reason-select"
+                value={CANCEL_REASONS.includes(cancelReason) ? cancelReason : ""}
+                onChange={(e) => {
+                  if (e.target.value) setCancelReason(e.target.value);
+                }}
+              >
+                <option value="">— Chọn lý do có sẵn —</option>
+                {CANCEL_REASONS.map((reason) => (
+                  <option key={reason} value={reason}>
+                    {reason}
+                  </option>
+                ))}
+              </select>
               <input
                 value={cancelReason}
                 onChange={(e) => setCancelReason(e.target.value)}
-                placeholder="Vd. khách yêu cầu huỷ, hết hàng…"
+                placeholder="Hoặc tự nhập lý do…"
                 maxLength={500}
                 required
               />
             </label>
-            <div className="button-row">
+            <div className="button-row orders-modal-actions">
               <button
                 className="button danger"
                 type="button"

@@ -1563,6 +1563,11 @@ a.oauth-button { text-decoration: none; color: inherit; box-sizing: border-box; 
   overflow-y: auto;
   box-shadow: 0 18px 48px rgba(9, 22, 19, 0.22);
 }
+/* Nút trong mọi modal order: đều nhau, full-width cân đối. */
+.orders-action-modal-panel .button-row { display: flex; gap: 10px; margin-top: 16px; }
+.orders-action-modal-panel .button-row .button { flex: 1; justify-content: center; }
+.orders-cancel-reason-select { margin-bottom: 8px; }
+
 /* Modal chi tiết đơn: panel rộng hơn cho bảng món + header có nút X. */
 .orders-detail-modal-panel { width: min(940px, 100%); }
 .orders-detail-modal-head {
