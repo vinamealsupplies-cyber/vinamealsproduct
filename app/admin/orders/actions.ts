@@ -11,9 +11,11 @@ import {
   recordOrderStaffEvent,
   requireStaffNote
 } from "@/lib/data/order-staff-events";
+import { sendOrderStatusEmail } from "@/lib/email/order-notify";
 import { callerKey, checkRateLimit, RATE_LIMITS } from "@/lib/rate-limit";
 import {
   buildTrackingUrl,
+  carrierLabel,
   isShippingCarrier,
   type ShippingCarrier
 } from "@/lib/shipping-tracking";
@@ -27,6 +29,7 @@ export type OrderActionResult = { ok: true } | { ok: false; error: string };
 type OrderSnapshot = {
   id: string;
   order_number: string | null;
+  customer_id?: string | null;
   status: string;
   fulfillment_method: string | null;
   notes: string | null;
@@ -45,7 +48,7 @@ type OrderSnapshot = {
 };
 
 const ORDER_SELECT =
-  "id, order_number, status, fulfillment_method, notes, pickup_ready_at, picked_up_at, fulfilled_at, total_amount, shipping_carrier, tracking_number, tracking_url, shipped_at, picked_up_by, picked_up_by_name, cancelled_by_name, cancel_note";
+  "id, order_number, customer_id, status, fulfillment_method, notes, pickup_ready_at, picked_up_at, fulfilled_at, total_amount, shipping_carrier, tracking_number, tracking_url, shipped_at, picked_up_by, picked_up_by_name, cancelled_by_name, cancel_note";
 
 async function requireOps(): Promise<{ viewer: Viewer } | { error: string }> {
   const viewer = await getViewer();
@@ -201,6 +204,18 @@ export async function saveShipmentTracking(
     }
   });
 
+  // Báo khách khi xác nhận đã ship — kèm mã tracking.
+  if (markShipped) {
+    await sendOrderStatusEmail({
+      customerId: after.customer_id,
+      orderNumber: after.order_number,
+      kind: "shipped",
+      carrierLabel: carrierLabel(after.shipping_carrier),
+      trackingNumber: after.tracking_number,
+      trackingUrl: after.tracking_url
+    });
+  }
+
   revalidateOrders();
   return { ok: true };
 }
@@ -278,6 +293,13 @@ export async function markPickupReady(
       staffNote: note,
       actorName
     }
+  });
+
+  // Báo khách đơn đã sẵn sàng để tới lấy.
+  await sendOrderStatusEmail({
+    customerId: data[0].customer_id,
+    orderNumber: data[0].order_number,
+    kind: "pickup_ready"
   });
 
   revalidateOrders();

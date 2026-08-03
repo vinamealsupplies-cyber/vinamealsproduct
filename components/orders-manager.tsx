@@ -9,6 +9,7 @@ import {
   ChevronLeft,
   ChevronRight,
   ExternalLink,
+  Mail,
   MessageSquareText,
   PackageCheck,
   PackageOpen,
@@ -27,6 +28,8 @@ import {
   saveShipmentTracking,
   updateOrderNotes
 } from "@/app/admin/orders/actions";
+import { sendInvoiceEmail } from "@/app/admin/invoices/actions";
+import { initialInboxActionState, type InboxActionState } from "@/lib/email/form-state";
 import { PAYMENT_METHOD_LABELS } from "@/lib/business-order";
 import { ORDER_STAFF_ACTION_LABEL } from "@/lib/data/order-staff-types";
 import type { StaffOrder } from "@/lib/data/orders";
@@ -685,6 +688,27 @@ export function OrdersManager({ orders }: { orders: StaffOrder[] }) {
   const [historyDay, setHistoryDay] = useState("");
   const [historyMonth, setHistoryMonth] = useState("");
   const [historyPage, setHistoryPage] = useState(1);
+  const [emailingId, setEmailingId] = useState<string | null>(null);
+  const [emailResult, setEmailResult] = useState<InboxActionState | null>(null);
+
+  async function emailInvoice(order: StaffOrder) {
+    if (!order.invoiceId) {
+      setEmailResult({ status: "error", message: "Đơn chưa có invoice để gửi." });
+      return;
+    }
+    setEmailResult(null);
+    setEmailingId(order.id);
+    try {
+      const fd = new FormData();
+      fd.set("invoiceId", order.invoiceId);
+      const res = await sendInvoiceEmail(initialInboxActionState, fd);
+      setEmailResult(res);
+    } catch {
+      setEmailResult({ status: "error", message: "Không gửi được. Thử lại." });
+    } finally {
+      setEmailingId(null);
+    }
+  }
 
   // Phần 1: chờ giao / ship / pickup (confirmed) — luôn hiện đủ.
   const openOrders = orders.filter((o) => o.status === "confirmed");
@@ -749,7 +773,10 @@ export function OrdersManager({ orders }: { orders: StaffOrder[] }) {
   const handlers: RowHandlers = {
     expandedId,
     pendingId,
-    toggleExpand: (order) => setExpandedId((current) => (current === order.id ? null : order.id)),
+    toggleExpand: (order) => {
+      setEmailResult(null);
+      setExpandedId((current) => (current === order.id ? null : order.id));
+    },
     run,
     onEditNotes: (order) => {
       setError(null);
@@ -826,7 +853,10 @@ export function OrdersManager({ orders }: { orders: StaffOrder[] }) {
             type="button"
             className="orders-action-modal-backdrop"
             aria-label="Đóng"
-            onClick={() => setExpandedId(null)}
+            onClick={() => {
+              setExpandedId(null);
+              setEmailResult(null);
+            }}
           />
           <div className="form-card orders-action-modal-panel orders-detail-modal-panel">
             <div className="orders-detail-modal-head">
@@ -835,12 +865,41 @@ export function OrdersManager({ orders }: { orders: StaffOrder[] }) {
                 type="button"
                 className="orders-detail-close"
                 aria-label="Đóng"
-                onClick={() => setExpandedId(null)}
+                onClick={() => {
+              setExpandedId(null);
+              setEmailResult(null);
+            }}
               >
                 <X size={18} aria-hidden="true" />
               </button>
             </div>
             <OrderDetail order={detailOrder} />
+            {emailResult ? (
+              <div
+                className={emailResult.status === "success" ? "form-success" : "form-error"}
+                role="status"
+                style={{ marginTop: 12 }}
+              >
+                {emailResult.message}
+              </div>
+            ) : null}
+            {detailOrder.invoiceId ? (
+              <div className="button-row" style={{ marginTop: 14 }}>
+                <button
+                  className="button primary"
+                  type="button"
+                  disabled={emailingId === detailOrder.id}
+                  onClick={() => emailInvoice(detailOrder)}
+                >
+                  <Mail size={16} aria-hidden="true" />
+                  {emailingId === detailOrder.id
+                    ? "Đang gửi…"
+                    : detailOrder.paymentStatus === "paid"
+                      ? "Gửi biên nhận cho khách"
+                      : "Gửi invoice + nhắc thanh toán"}
+                </button>
+              </div>
+            ) : null}
           </div>
         </div>
       ) : null}
