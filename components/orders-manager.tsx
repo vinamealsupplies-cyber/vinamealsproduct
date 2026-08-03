@@ -55,8 +55,7 @@ const CANCEL_REASONS = [
   "Hết hàng / thiếu hàng",
   "Sai địa chỉ giao",
   "Trùng đơn",
-  "Khách không phản hồi",
-  "Đơn thử / test"
+  "Khách không phản hồi"
 ];
 
 /** Ngày local YYYY-MM-DD — filter đơn hoàn tất / huỷ. */
