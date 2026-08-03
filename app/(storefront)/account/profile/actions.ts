@@ -6,9 +6,52 @@ import type { AdminFormState } from "@/lib/data/admin-form";
 import { normalizeUsPhone } from "@/lib/data/us-states";
 import { callerKey, checkRateLimit, RATE_LIMITS } from "@/lib/rate-limit";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { createPublicClient } from "@/lib/supabase/public";
 
 function fail(message: string): AdminFormState {
   return { status: "error", message };
+}
+
+/**
+ * Đổi mật khẩu: xác minh mật khẩu HIỆN TẠI (client anon, không đụng session),
+ * rồi đặt mật khẩu mới qua admin. Bắt buộc biết mật khẩu cũ.
+ */
+export async function changePasswordAction(
+  _prev: AdminFormState,
+  formData: FormData
+): Promise<AdminFormState> {
+  const viewer = await getViewer();
+  if (!viewer || viewer.demo) return fail("Đăng nhập bằng tài khoản thật để đổi mật khẩu.");
+  if (!viewer.email) return fail("Tài khoản không có email — không xác minh được mật khẩu.");
+  if (!(await checkRateLimit(await callerKey("password-change", viewer.id), RATE_LIMITS.mutation))) {
+    return fail("Thử quá nhiều lần. Đợi một phút rồi thử lại.");
+  }
+
+  const currentPassword = String(formData.get("currentPassword") ?? "");
+  const newPassword = String(formData.get("newPassword") ?? "");
+  const confirmPassword = String(formData.get("confirmPassword") ?? "");
+
+  if (!currentPassword) return fail("Nhập mật khẩu hiện tại.");
+  if (newPassword.length < 8) return fail("Mật khẩu mới phải ít nhất 8 ký tự.");
+  if (newPassword !== confirmPassword) return fail("Mật khẩu mới nhập lại không khớp.");
+  if (newPassword === currentPassword) return fail("Mật khẩu mới phải khác mật khẩu hiện tại.");
+
+  // Xác minh mật khẩu hiện tại (client publishable, persistSession=false → không
+  // tạo cookie/session mới cho người dùng).
+  const pub = createPublicClient();
+  const { error: verifyError } = await pub.auth.signInWithPassword({
+    email: viewer.email,
+    password: currentPassword
+  });
+  if (verifyError) return fail("Mật khẩu hiện tại không đúng.");
+
+  const admin = createAdminClient();
+  const { error: updateError } = await admin.auth.admin.updateUserById(viewer.id, {
+    password: newPassword
+  });
+  if (updateError) return fail(updateError.message);
+
+  return { status: "success", message: "Đã đổi mật khẩu." };
 }
 
 function readField(formData: FormData, name: string, max = 160) {

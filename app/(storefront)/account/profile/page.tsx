@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { ArrowLeft } from "lucide-react";
 import { redirect } from "next/navigation";
+import { PasswordEditor } from "@/components/password-editor";
 import { ProfileEditor } from "@/components/profile-editor";
 import { getViewer } from "@/lib/auth";
 import { getOwnCustomer } from "@/lib/data/tax-exemption";
@@ -58,6 +59,8 @@ export default async function ProfilePage() {
           role: viewer.role
         }}
       />
+
+      {!viewer.demo ? <PasswordEditor /> : null}
     </div>
   );
 }
