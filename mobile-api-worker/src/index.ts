@@ -129,6 +129,10 @@ export default {
       if (path === "/api/mobile/v1/orders" && req.method === "GET") {
         return handleCustomerOrders(req, env);
       }
+      if (path.match(/^\/api\/mobile\/v1\/orders\/[^/]+$/) && req.method === "GET") {
+        const id = path.split("/")[5];
+        return handleCustomerOrderDetail(req, env, id);
+      }
       if (path === "/api/mobile/v1/management/dashboard" && req.method === "GET") {
         return handleDashboard(req, env);
       }
@@ -138,6 +142,10 @@ export default {
       if (path.match(/^\/api\/mobile\/v1\/management\/orders\/[^/]+\/actions$/) && req.method === "POST") {
         const id = path.split("/")[6];
         return handleOrderAction(req, env, id);
+      }
+      if (path.match(/^\/api\/mobile\/v1\/management\/orders\/[^/]+$/) && req.method === "GET") {
+        const id = path.split("/")[6];
+        return handleStaffOrderDetail(req, env, id);
       }
       if (path === "/api/mobile/v1/management/inventory" && req.method === "GET") {
         return handleInventory(req, env);
@@ -154,9 +162,34 @@ export default {
       if (path === "/api/mobile/v1/management/products" && req.method === "GET") {
         return handleProducts(req, env, url);
       }
+      if (path === "/api/mobile/v1/management/products" && req.method === "POST") {
+        return handleProductCreate(req, env);
+      }
+      if (path.match(/^\/api\/mobile\/v1\/management\/products\/[^/]+$/) && req.method === "PATCH") {
+        const id = path.split("/")[6];
+        return handleProductUpdate(req, env, id);
+      }
       if (path.match(/^\/api\/mobile\/v1\/management\/products\/[^/]+\/status$/) && req.method === "POST") {
         const id = path.split("/")[6];
         return handleProductStatus(req, env, id);
+      }
+      if (path === "/api/mobile/v1/management/expenses" && req.method === "GET") {
+        return handleExpensesList(req, env);
+      }
+      if (path === "/api/mobile/v1/management/expenses" && req.method === "POST") {
+        return handleExpenseCreate(req, env);
+      }
+      if (path === "/api/mobile/v1/management/audit-log" && req.method === "GET") {
+        return handleAuditLog(req, env);
+      }
+      if (path === "/api/mobile/v1/management/settings" && req.method === "GET") {
+        return handleSettingsGet(req, env);
+      }
+      if (path === "/api/mobile/v1/management/settings" && req.method === "PATCH") {
+        return handleSettingsPatch(req, env);
+      }
+      if (path === "/api/mobile/v1/management/applications/decide" && req.method === "POST") {
+        return handleApplicationDecide(req, env);
       }
       if (path === "/api/mobile/v1/management/invoices" && req.method === "GET") {
         return handleInvoices(req, env);
@@ -269,13 +302,17 @@ async function handleCheckout(req: Request, env: Env) {
   const forcePaid = body.forcePaidTest !== false;
   const sb = admin(env);
 
-  // Aggregate cart
-  const wanted = new Map<string, number>();
+  // Aggregate cart (+ optional line notes / special requests)
+  const wanted = new Map<string, { quantity: number; notes: string[] }>();
   for (const it of items) {
     const id = String(it.productId ?? "").trim();
     const q = Math.floor(Number(it.quantity));
     if (!id || q <= 0) continue;
-    wanted.set(id, (wanted.get(id) ?? 0) + q);
+    const note = String(it.note ?? "").trim().slice(0, 300);
+    const cur = wanted.get(id) ?? { quantity: 0, notes: [] as string[] };
+    cur.quantity += q;
+    if (note && !cur.notes.includes(note)) cur.notes.push(note);
+    wanted.set(id, cur);
   }
   if (!wanted.size) return jsonErr("INVALID_CART", "Invalid cart.");
 
@@ -314,8 +351,8 @@ async function handleCheckout(req: Request, env: Env) {
 
   for (const row of (productRows ?? []) as P[]) {
     if (row.status !== "active") continue;
-    const qty = wanted.get(row.id);
-    if (!qty) continue;
+    const line = wanted.get(row.id);
+    if (!line) continue;
     const variants = row.product_variants ?? [];
     const variant = variants.find((x) => x.is_default) ?? variants.find((x) => x.is_active) ?? variants[0];
     if (!variant) continue;
@@ -327,10 +364,10 @@ async function handleCheckout(req: Request, env: Env) {
       variant_id: variant.id,
       product_name_snapshot: row.name,
       sku_snapshot: variant.sku ?? "",
-      quantity: qty,
+      quantity: line.quantity,
       unit_price: unit,
       unit_cost_snapshot: num(variant.cost_price),
-      line_note: null,
+      line_note: line.notes.length ? line.notes.join("; ").slice(0, 300) : null,
       discount_amount: 0,
       tax_amount: 0,
       tax_rate_snapshot: 0
@@ -1147,12 +1184,40 @@ async function handleApplications(req: Request, env: Env) {
   if (!v.isManager) return jsonErr("FORBIDDEN", "Manager required.", 403);
   const sb = admin(env);
   const [biz, tax] = await Promise.all([
-    sb.from("business_applications").select("id").limit(50),
-    sb.from("tax_exemption_applications").select("id").limit(50)
+    sb
+      .from("business_applications")
+      .select(
+        "id, application_number, legal_business_name, applicant_full_name, applicant_email, wholesale_status, tax_exemption_status, wholesale_requested, tax_exemption_requested, created_at"
+      )
+      .order("created_at", { ascending: false })
+      .limit(50),
+    sb
+      .from("tax_exemption_applications")
+      .select("id, status, business_name, contact_name, email, created_at")
+      .order("created_at", { ascending: false })
+      .limit(50)
   ]);
   return json({
-    businessApplications: biz.data ?? [],
-    taxExemptions: tax.data ?? []
+    businessApplications: (biz.data ?? []).map((b) => ({
+      id: b.id,
+      number: b.application_number,
+      company: b.legal_business_name,
+      contact: b.applicant_full_name,
+      email: b.applicant_email,
+      wholesaleStatus: b.wholesale_status,
+      taxStatus: b.tax_exemption_status,
+      wholesaleRequested: b.wholesale_requested,
+      taxRequested: b.tax_exemption_requested,
+      createdAt: b.created_at
+    })),
+    taxExemptions: (tax.data ?? []).map((t) => ({
+      id: t.id,
+      status: t.status,
+      legalName: t.business_name,
+      contact: t.contact_name,
+      email: t.email,
+      createdAt: t.created_at
+    }))
   });
 }
 
@@ -1227,4 +1292,466 @@ async function handleAddressesPost(req: Request, env: Env) {
     .single();
   if (error) return jsonErr("ADDRESS_FAILED", error.message);
   return json({ id: data?.id }, 201);
+}
+
+// ---- Extended handlers (order detail, products CRUD, expenses, audit, settings, decisions)
+
+async function handleCustomerOrderDetail(req: Request, env: Env, orderId: string) {
+  const v = await getViewer(req, env);
+  if (!v) return jsonErr("UNAUTHORIZED", "Sign in required.", 401);
+  const sb = admin(env);
+  const { data: cust } = await sb.from("customers").select("id").eq("auth_user_id", v.id).maybeSingle();
+  if (!cust) return jsonErr("NOT_FOUND", "Order not found.", 404);
+  const { data: order } = await sb
+    .from("sales_orders")
+    .select(
+      "id, order_number, status, fulfillment_method, total_amount, subtotal, tax_amount, shipping_amount, discount_amount, currency, placed_at, created_at, notes, pickup_ready_at, picked_up_at, fulfilled_at, tracking_number, shipping_carrier, tracking_url"
+    )
+    .eq("id", orderId)
+    .eq("customer_id", cust.id)
+    .maybeSingle();
+  if (!order) return jsonErr("NOT_FOUND", "Order not found.", 404);
+  const { data: items } = await sb
+    .from("sales_order_items")
+    .select("id, product_name_snapshot, sku_snapshot, quantity, unit_price, line_note, tax_amount")
+    .eq("order_id", orderId);
+  return json({
+    order: {
+      id: order.id,
+      number: order.order_number,
+      status: order.status,
+      fulfillmentMethod: order.fulfillment_method,
+      total: num(order.total_amount),
+      subtotal: num(order.subtotal),
+      tax: num(order.tax_amount),
+      shipping: num(order.shipping_amount),
+      discount: num(order.discount_amount),
+      currency: order.currency,
+      placedAt: order.placed_at,
+      createdAt: order.created_at,
+      notes: order.notes,
+      pickupReadyAt: order.pickup_ready_at,
+      pickedUpAt: order.picked_up_at,
+      fulfilledAt: order.fulfilled_at,
+      trackingNumber: order.tracking_number,
+      shippingCarrier: order.shipping_carrier,
+      trackingUrl: order.tracking_url,
+      items: (items ?? []).map((i) => ({
+        id: i.id,
+        name: i.product_name_snapshot,
+        sku: i.sku_snapshot,
+        quantity: num(i.quantity),
+        unitPrice: num(i.unit_price),
+        note: i.line_note,
+        tax: num(i.tax_amount)
+      }))
+    }
+  });
+}
+
+async function handleStaffOrderDetail(req: Request, env: Env, orderId: string) {
+  const gate = await requireAdmin(req, env);
+  if ("error" in gate && gate.error) return gate.error;
+  const sb = admin(env);
+  const { data: order } = await sb
+    .from("sales_orders")
+    .select(
+      `id, order_number, status, fulfillment_method, total_amount, subtotal, tax_amount, shipping_amount, discount_amount, currency, created_at, notes,
+       pickup_ready_at, picked_up_at, fulfilled_at, tracking_number, shipping_carrier, tracking_url, payment_method,
+       customers ( first_name, last_name, company_name, phone, email )`
+    )
+    .eq("id", orderId)
+    .maybeSingle();
+  if (!order) return jsonErr("NOT_FOUND", "Order not found.", 404);
+  const { data: items } = await sb
+    .from("sales_order_items")
+    .select("id, product_name_snapshot, sku_snapshot, quantity, unit_price, line_note")
+    .eq("order_id", orderId);
+  const c = order.customers as {
+    first_name: string | null;
+    last_name: string | null;
+    company_name: string | null;
+    phone: string | null;
+    email: string | null;
+  } | null;
+  return json({
+    order: {
+      id: order.id,
+      number: order.order_number,
+      status: order.status,
+      fulfillmentMethod: order.fulfillment_method,
+      total: num(order.total_amount),
+      subtotal: num(order.subtotal),
+      tax: num(order.tax_amount),
+      shipping: num(order.shipping_amount),
+      discount: num(order.discount_amount),
+      currency: order.currency,
+      createdAt: order.created_at,
+      notes: order.notes,
+      pickupReadyAt: order.pickup_ready_at,
+      pickedUpAt: order.picked_up_at,
+      fulfilledAt: order.fulfilled_at,
+      trackingNumber: order.tracking_number,
+      shippingCarrier: order.shipping_carrier,
+      trackingUrl: order.tracking_url,
+      paymentMethod: order.payment_method,
+      customer: {
+        name: [c?.first_name, c?.last_name].filter(Boolean).join(" ") || c?.company_name || "Customer",
+        company: c?.company_name,
+        phone: c?.phone,
+        email: c?.email
+      },
+      items: (items ?? []).map((i) => ({
+        id: i.id,
+        name: i.product_name_snapshot,
+        sku: i.sku_snapshot,
+        quantity: num(i.quantity),
+        unitPrice: num(i.unit_price),
+        note: i.line_note
+      }))
+    }
+  });
+}
+
+function slugify(name: string) {
+  return name
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-|-$/g, "")
+    .slice(0, 60) || `item-${Date.now()}`;
+}
+
+async function handleProductCreate(req: Request, env: Env) {
+  const gate = await requireAdmin(req, env);
+  if ("error" in gate && gate.error) return gate.error;
+  const viewer = gate.viewer!;
+  const body = (await req.json()) as Record<string, unknown>;
+  const name = String(body.name ?? "").trim();
+  if (!name) return jsonErr("BAD_REQUEST", "Name is required.");
+  const slug = String(body.slug ?? slugify(name)).trim();
+  const sku = String(body.sku ?? `SKU-${Date.now().toString(36).toUpperCase()}`).trim();
+  const retail = num(body.retailPrice);
+  let cost = num(body.costPrice);
+  if (viewer.isSeller) cost = 0;
+  const status = String(body.status ?? "active");
+  const shortDescription = String(body.shortDescription ?? "").slice(0, 300);
+  const description = String(body.description ?? "").slice(0, 5000);
+  const openingQty = Math.max(0, num(body.openingQuantity));
+  const categoryId = body.categoryId ? String(body.categoryId) : null;
+
+  const sb = admin(env);
+  const { data: product, error: pErr } = await sb
+    .from("products")
+    .insert({
+      product_handle: slug,
+      slug,
+      name,
+      short_description: shortDescription || null,
+      description: description || null,
+      status,
+      featured: Boolean(body.featured),
+      published_at: status === "active" ? new Date().toISOString() : null,
+      created_by: viewer.id,
+      updated_by: viewer.id
+    })
+    .select("id")
+    .single();
+  if (pErr || !product) return jsonErr("CREATE_FAILED", pErr?.message ?? "Create failed.");
+
+  const { data: variant, error: vErr } = await sb
+    .from("product_variants")
+    .insert({
+      product_id: product.id,
+      variant_name: String(body.variantName ?? "Default"),
+      sku,
+      retail_price: retail,
+      sale_price: body.salePrice != null ? num(body.salePrice) : null,
+      wholesale_price: body.wholesalePrice != null ? num(body.wholesalePrice) : null,
+      cost_price: cost,
+      taxable: body.taxable !== false,
+      tax_category: String(body.taxCategory ?? "grocery"),
+      track_inventory: body.trackInventory !== false,
+      is_default: true,
+      is_active: true
+    })
+    .select("id")
+    .single();
+
+  if (vErr || !variant) {
+    await sb.from("products").delete().eq("id", product.id);
+    return jsonErr("VARIANT_FAILED", vErr?.message ?? "Variant failed.");
+  }
+
+  if (categoryId) {
+    await sb.from("product_categories").insert({
+      product_id: product.id,
+      category_id: categoryId,
+      is_primary: true
+    });
+  }
+
+  if (openingQty > 0) {
+    const { data: loc } = await sb
+      .from("inventory_locations")
+      .select("id")
+      .eq("code", PICKUP_CODE)
+      .maybeSingle();
+    if (loc?.id) {
+      await sb.from("inventory_movements").insert({
+        variant_id: variant.id,
+        location_id: loc.id,
+        movement_type: "opening",
+        quantity_change: openingQty,
+        unit_cost: cost,
+        reason: "Opening balance (mobile)",
+        created_by: viewer.id
+      });
+    }
+  }
+
+  await sb.from("audit_log").insert({
+    actor_user_id: viewer.id,
+    action: "product.create",
+    entity_type: "product",
+    entity_id: product.id,
+    after_data: { name, slug, sku, retail, cost },
+    metadata: { source: "mobile" }
+  });
+
+  return json({ id: product.id, slug, sku }, 201);
+}
+
+async function handleProductUpdate(req: Request, env: Env, id: string) {
+  const gate = await requireAdmin(req, env);
+  if ("error" in gate && gate.error) return gate.error;
+  const viewer = gate.viewer!;
+  const body = (await req.json()) as Record<string, unknown>;
+  const sb = admin(env);
+
+  const productPatch: Record<string, unknown> = { updated_by: viewer.id, updated_at: new Date().toISOString() };
+  if (body.name != null) productPatch.name = String(body.name).trim();
+  if (body.shortDescription != null) productPatch.short_description = String(body.shortDescription);
+  if (body.description != null) productPatch.description = String(body.description);
+  if (body.status != null) productPatch.status = String(body.status);
+  if (body.featured != null) productPatch.featured = Boolean(body.featured);
+
+  const { error: pErr } = await sb.from("products").update(productPatch).eq("id", id);
+  if (pErr) return jsonErr("UPDATE_FAILED", pErr.message);
+
+  const { data: variants } = await sb
+    .from("product_variants")
+    .select("id")
+    .eq("product_id", id)
+    .eq("is_default", true)
+    .limit(1);
+  const variantId = variants?.[0]?.id;
+  if (variantId) {
+    const vp: Record<string, unknown> = {};
+    if (body.retailPrice != null) vp.retail_price = num(body.retailPrice);
+    if (body.salePrice !== undefined) vp.sale_price = body.salePrice == null ? null : num(body.salePrice);
+    if (body.sku != null) vp.sku = String(body.sku);
+    if (!viewer.isSeller && body.costPrice != null) vp.cost_price = num(body.costPrice);
+    if (Object.keys(vp).length) {
+      await sb.from("product_variants").update(vp).eq("id", variantId);
+    }
+  }
+
+  await sb.from("audit_log").insert({
+    actor_user_id: viewer.id,
+    action: "product.update",
+    entity_type: "product",
+    entity_id: id,
+    after_data: body,
+    metadata: { source: "mobile" }
+  });
+
+  return json({ ok: true, id });
+}
+
+async function handleExpensesList(req: Request, env: Env) {
+  const gate = await requireAdmin(req, env);
+  if ("error" in gate && gate.error) return gate.error;
+  if (!gate.viewer!.isStaff && !gate.viewer!.isManager) {
+    return jsonErr("FORBIDDEN", "Staff required.", 403);
+  }
+  const sb = admin(env);
+  const { data, error } = await sb
+    .from("expenses")
+    .select(
+      "id, expense_date, vendor_name, description, amount, tax_amount, currency, payment_method, notes, expense_categories ( name )"
+    )
+    .order("expense_date", { ascending: false })
+    .limit(100);
+  if (error) return jsonErr("LOAD_FAILED", error.message);
+  return json({
+    expenses: (data ?? []).map((e) => {
+      const cat = e.expense_categories as { name: string } | null;
+      return {
+        id: e.id,
+        date: e.expense_date,
+        vendor: e.vendor_name,
+        description: e.description,
+        amount: num(e.amount),
+        tax: num(e.tax_amount),
+        currency: e.currency,
+        paymentMethod: e.payment_method,
+        notes: e.notes,
+        category: cat?.name ?? null
+      };
+    })
+  });
+}
+
+async function handleExpenseCreate(req: Request, env: Env) {
+  const gate = await requireAdmin(req, env);
+  if ("error" in gate && gate.error) return gate.error;
+  if (!gate.viewer!.isManager) return jsonErr("FORBIDDEN", "Manager required.", 403);
+  const body = (await req.json()) as Record<string, unknown>;
+  const description = String(body.description ?? "").trim();
+  const amount = num(body.amount);
+  if (!description || amount <= 0) return jsonErr("BAD_REQUEST", "Description and amount required.");
+
+  const sb = admin(env);
+  let categoryId = body.categoryId ? String(body.categoryId) : null;
+  if (!categoryId) {
+    const { data: cats } = await sb.from("expense_categories").select("id").eq("is_active", true).limit(1);
+    categoryId = cats?.[0]?.id ?? null;
+    if (!categoryId) {
+      const { data: created } = await sb
+        .from("expense_categories")
+        .insert({ name: "General", description: "Default" })
+        .select("id")
+        .single();
+      categoryId = created?.id ?? null;
+    }
+  }
+  if (!categoryId) return jsonErr("CONFIG", "No expense category.");
+
+  const { data, error } = await sb
+    .from("expenses")
+    .insert({
+      expense_category_id: categoryId,
+      expense_date: String(body.date ?? new Date().toISOString().slice(0, 10)),
+      vendor_name: body.vendor ? String(body.vendor).slice(0, 120) : null,
+      description: description.slice(0, 500),
+      amount,
+      tax_amount: num(body.tax),
+      payment_method: body.paymentMethod ? String(body.paymentMethod) : null,
+      notes: body.notes ? String(body.notes).slice(0, 500) : null,
+      created_by: gate.viewer!.id
+    })
+    .select("id")
+    .single();
+  if (error) return jsonErr("CREATE_FAILED", error.message);
+  return json({ id: data?.id }, 201);
+}
+
+async function handleAuditLog(req: Request, env: Env) {
+  const v = await getViewer(req, env);
+  if (!v) return jsonErr("UNAUTHORIZED", "Sign in required.", 401);
+  if (!v.isAdmin && !v.isManager) return jsonErr("FORBIDDEN", "Manager/admin required.", 403);
+  const sb = admin(env);
+  const { data, error } = await sb
+    .from("audit_log")
+    .select("id, actor_user_id, action, entity_type, entity_id, created_at, metadata")
+    .order("created_at", { ascending: false })
+    .limit(80);
+  if (error) return jsonErr("LOAD_FAILED", error.message);
+  return json({
+    entries: (data ?? []).map((e) => ({
+      id: String(e.id),
+      actorUserId: e.actor_user_id,
+      action: e.action,
+      entityType: e.entity_type,
+      entityId: e.entity_id,
+      createdAt: e.created_at,
+      metadata: e.metadata
+    }))
+  });
+}
+
+async function handleSettingsGet(req: Request, env: Env) {
+  const gate = await requireAdmin(req, env);
+  if ("error" in gate && gate.error) return gate.error;
+  if (!gate.viewer!.isManager) return jsonErr("FORBIDDEN", "Manager required.", 403);
+  const sb = admin(env);
+  const { data } = await sb.from("app_settings").select("key, value, is_public, description, updated_at").limit(50);
+  return json({
+    settings: (data ?? []).map((s) => ({
+      key: s.key,
+      value: s.value,
+      isPublic: s.is_public,
+      description: s.description,
+      updatedAt: s.updated_at
+    }))
+  });
+}
+
+async function handleSettingsPatch(req: Request, env: Env) {
+  const gate = await requireAdmin(req, env);
+  if ("error" in gate && gate.error) return gate.error;
+  if (!gate.viewer!.isManager) return jsonErr("FORBIDDEN", "Manager required.", 403);
+  const body = (await req.json()) as { key?: string; value?: unknown };
+  const key = String(body.key ?? "").trim();
+  if (!key) return jsonErr("BAD_REQUEST", "key required.");
+  const sb = admin(env);
+  const { error } = await sb.from("app_settings").upsert({
+    key,
+    value: body.value ?? {},
+    updated_by: gate.viewer!.id,
+    updated_at: new Date().toISOString()
+  });
+  if (error) return jsonErr("UPDATE_FAILED", error.message);
+  return json({ ok: true, key });
+}
+
+async function handleApplicationDecide(req: Request, env: Env) {
+  const v = await getViewer(req, env);
+  if (!v) return jsonErr("UNAUTHORIZED", "Sign in required.", 401);
+  if (!v.isManager) return jsonErr("FORBIDDEN", "Manager required.", 403);
+  const body = (await req.json()) as {
+    type?: "business_wholesale" | "business_tax" | "tax_exemption";
+    id?: string;
+    decision?: "approved" | "rejected" | "under_review";
+    reason?: string;
+  };
+  const id = body.id ?? "";
+  const decision = body.decision ?? "";
+  if (!id || !decision) return jsonErr("BAD_REQUEST", "id and decision required.");
+  const sb = admin(env);
+  const now = new Date().toISOString();
+
+  if (body.type === "tax_exemption") {
+    if (decision !== "approved" && decision !== "rejected") {
+      return jsonErr("BAD_REQUEST", "Tax exemption decision must be approved or rejected.");
+    }
+    const { error } = await sb
+      .from("tax_exemption_applications")
+      .update({
+        status: decision,
+        reviewed_at: now,
+        reviewed_by: v.id,
+        review_note: (body.reason ?? "").slice(0, 500) || null
+      })
+      .eq("id", id);
+    if (error) return jsonErr("DECIDE_FAILED", error.message);
+    return json({ ok: true });
+  }
+
+  // business_applications tracks
+  const patch: Record<string, unknown> = {};
+  if (body.type === "business_tax") {
+    patch.tax_exemption_status = decision;
+    patch.tax_decided_by = v.id;
+    patch.tax_decided_at = now;
+    patch.tax_decision_reason = (body.reason ?? "").slice(0, 500) || null;
+  } else {
+    patch.wholesale_status = decision;
+    patch.wholesale_decided_by = v.id;
+    patch.wholesale_decided_at = now;
+    patch.wholesale_decision_reason = (body.reason ?? "").slice(0, 500) || null;
+  }
+  const { error } = await sb.from("business_applications").update(patch).eq("id", id);
+  if (error) return jsonErr("DECIDE_FAILED", error.message);
+  return json({ ok: true });
 }
