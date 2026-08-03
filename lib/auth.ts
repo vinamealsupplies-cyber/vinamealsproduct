@@ -53,6 +53,16 @@ function viewerFromRole(input: {
  * to mark routes dynamic; swallowing it breaks Server Components in production.
  */
 export async function getViewer(): Promise<Viewer | null> {
+  // Mobile API injects the Bearer-authenticated viewer for the request lifetime
+  // so existing server actions can be reused without cookie sessions.
+  try {
+    const { getRequestViewer } = await import("@/lib/mobile-api/request-viewer");
+    const injected = getRequestViewer();
+    if (injected) return injected;
+  } catch {
+    // ignore — module only available on Node server runtime
+  }
+
   if (isLocalDemoMode()) {
     return viewerFromRole({
       id: "local-demo-admin",
