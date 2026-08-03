@@ -23,6 +23,18 @@ export type StaffOrderItem = {
   lineNote: string | null;
 };
 
+export type OrderShippingAddress = {
+  recipientName: string | null;
+  companyName: string | null;
+  phone: string | null;
+  line1: string | null;
+  line2: string | null;
+  city: string | null;
+  state: string | null;
+  zip: string | null;
+  country: string | null;
+};
+
 export type StaffOrder = {
   id: string;
   number: string;
@@ -31,6 +43,8 @@ export type StaffOrder = {
   /** Tên công ty nếu wholesale — hiển thị phụ. */
   customerCompany: string | null;
   customerPhone: string | null;
+  /** Ghi chú nội bộ về khách (staff) — hiện khi bấm tên khách. */
+  customerNotes: string | null;
   status: SalesOrderStatus;
   channel: string;
   fulfillmentMethod: FulfillmentMethod;
@@ -50,6 +64,8 @@ export type StaffOrder = {
   trackingNumber: string | null;
   trackingUrl: string | null;
   shippedAt: string | null;
+  /** Địa chỉ giao (snapshot lúc đặt) — chỉ đơn ship. */
+  shippingAddress: OrderShippingAddress | null;
   /** Người huỷ đơn (snapshot). */
   cancelledByName: string | null;
   cancelNote: string | null;
@@ -104,6 +120,7 @@ type DbCustomer = {
   company_name: string | null;
   phone: string | null;
   auth_user_id: string | null;
+  notes: string | null;
 };
 
 type DbItem = {
@@ -146,6 +163,7 @@ type DbOrder = {
   payment_method?: string | null;
   payment_reference?: string | null;
   payment_confirmed_at?: string | null;
+  shipping_address_snapshot?: Record<string, unknown> | null;
   customer: DbCustomer | DbCustomer[] | null;
   location: { name: string | null } | { name: string | null }[] | null;
   items: DbItem[] | null;
@@ -158,6 +176,28 @@ type InvoicePayInfo = {
   balanceDue: number;
   status: string;
 };
+
+function parseShippingAddress(
+  snapshot: Record<string, unknown> | null | undefined
+): OrderShippingAddress | null {
+  if (!snapshot || typeof snapshot !== "object") return null;
+  const str = (key: string) => {
+    const v = snapshot[key];
+    return typeof v === "string" && v.trim() ? v.trim() : null;
+  };
+  const addr: OrderShippingAddress = {
+    recipientName: str("recipient_name"),
+    companyName: str("company_name"),
+    phone: str("phone"),
+    line1: str("line1"),
+    line2: str("line2"),
+    city: str("city"),
+    state: str("state_region"),
+    zip: str("postal_code"),
+    country: str("country_code")
+  };
+  return Object.values(addr).some(Boolean) ? addr : null;
+}
 
 function one<T>(value: T | T[] | null): T | null {
   if (Array.isArray(value)) return value[0] ?? null;
@@ -237,6 +277,7 @@ function mapOrder(
     customer: fullName,
     customerCompany: company && company !== fullName ? company : null,
     customerPhone: customer?.phone?.trim() || null,
+    customerNotes: customer?.notes?.trim() || null,
     status: row.status,
     channel: row.channel,
     fulfillmentMethod: row.fulfillment_method,
@@ -283,6 +324,7 @@ function mapOrder(
     paymentMethod: row.payment_method ?? null,
     paymentReference: row.payment_reference ?? null,
     paymentConfirmedAt: row.payment_confirmed_at ?? null,
+    shippingAddress: parseShippingAddress(row.shipping_address_snapshot),
     paymentStatus,
     invoiceId: pay?.invoiceId ?? null,
     invoiceNumber: pay?.invoiceNumber ?? null,
@@ -317,8 +359,8 @@ export async function getOrdersForStaff(): Promise<StaffOrder[]> {
        shipping_carrier, tracking_number, tracking_url, shipped_at, picked_up_by, picked_up_by_name,
        cancelled_by_name, cancel_note, cancelled_at,
        last_staff_actor_name, last_staff_note, last_staff_action, last_staff_at,
-       payment_method, payment_reference, payment_confirmed_at,
-       customer:customers ( first_name, last_name, company_name, phone, auth_user_id ),
+       payment_method, payment_reference, payment_confirmed_at, shipping_address_snapshot,
+       customer:customers ( first_name, last_name, company_name, phone, auth_user_id, notes ),
        location:inventory_locations ( name ),
        items:sales_order_items ( id, product_name_snapshot, variant_name_snapshot, sku_snapshot, quantity, unit_price, line_total, line_note )`
     )

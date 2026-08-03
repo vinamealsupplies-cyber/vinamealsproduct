@@ -86,12 +86,34 @@ function fulfillmentLabel(order: StaffOrder) {
 
 function OrderDetail({ order }: { order: StaffOrder }) {
   const notesCount = order.items.filter((i) => i.lineNote).length;
+  const [showNote, setShowNote] = useState(false);
   return (
     <div className="order-detail-panel">
       <div className="order-detail-meta">
         <div>
           <strong>Khách</strong>
-          <p>{order.customer}</p>
+          <p>
+            <button
+              type="button"
+              className="order-customer-name-btn"
+              onClick={() => setShowNote((v) => !v)}
+              title="Bấm để xem ghi chú về khách"
+            >
+              {order.customer}
+              {order.customerNotes ? (
+                <MessageSquareText size={13} aria-hidden="true" />
+              ) : null}
+            </button>
+          </p>
+          {showNote ? (
+            <div className="order-customer-note" role="note">
+              {order.customerNotes ? (
+                order.customerNotes
+              ) : (
+                <span className="field-hint">Chưa có ghi chú về khách này.</span>
+              )}
+            </div>
+          ) : null}
           {order.customerCompany ? <p className="field-hint">{order.customerCompany}</p> : null}
           {order.customerPhone ? (
             <p className="order-customer-phone">{order.customerPhone}</p>
@@ -106,6 +128,32 @@ function OrderDetail({ order }: { order: StaffOrder }) {
               ? `Pickup${order.pickupLocation ? ` · ${order.pickupLocation}` : ""}`
               : "Ship / giao hàng"}
           </p>
+          {order.fulfillmentMethod === "ship" && order.shippingAddress ? (
+            <div className="order-ship-address">
+              {order.shippingAddress.recipientName ? (
+                <p className="order-ship-name">{order.shippingAddress.recipientName}</p>
+              ) : null}
+              {order.shippingAddress.companyName ? (
+                <p className="field-hint">{order.shippingAddress.companyName}</p>
+              ) : null}
+              {[order.shippingAddress.line1, order.shippingAddress.line2].filter(Boolean).length ? (
+                <p className="field-hint">
+                  {[order.shippingAddress.line1, order.shippingAddress.line2]
+                    .filter(Boolean)
+                    .join(", ")}
+                </p>
+              ) : null}
+              <p className="field-hint">
+                {[order.shippingAddress.city, order.shippingAddress.state, order.shippingAddress.zip]
+                  .filter(Boolean)
+                  .join(", ")}
+                {order.shippingAddress.country ? ` · ${order.shippingAddress.country}` : ""}
+              </p>
+              {order.shippingAddress.phone ? (
+                <p className="field-hint">SĐT giao: {order.shippingAddress.phone}</p>
+              ) : null}
+            </div>
+          ) : null}
           <p className="field-hint">Đặt lúc {formatDateTime(order.createdAt)}</p>
           {order.shippedAt ? (
             <p className="field-hint">Ship lúc {formatDateTime(order.shippedAt)}</p>
@@ -175,6 +223,40 @@ function OrderDetail({ order }: { order: StaffOrder }) {
             </p>
           ) : null}
           {order.notes ? <p className="field-hint">Ghi chú đơn: {order.notes}</p> : null}
+        </div>
+        <div>
+          <strong>Thanh toán</strong>
+          <p>
+            {order.paymentMethod
+              ? PAYMENT_METHOD_LABELS[order.paymentMethod] ?? order.paymentMethod
+              : "Chưa chọn phương thức"}
+          </p>
+          <p className="field-hint">
+            {order.paymentStatus === "paid"
+              ? "Đã thanh toán"
+              : order.paymentStatus === "partial"
+                ? "Trả một phần"
+                : order.paymentStatus === "pending"
+                  ? "Chờ thanh toán"
+                  : "Chưa ghi nhận"}
+            {" · "}Đã trả {usd.format(order.amountPaid)}
+            {order.balanceDue > 0.009 ? ` · Còn ${usd.format(order.balanceDue)}` : ""}
+          </p>
+          {order.paymentReference ? (
+            <p className="field-hint">Tham chiếu: {order.paymentReference}</p>
+          ) : null}
+          {order.paymentConfirmedAt ? (
+            <p className="field-hint">Xác nhận {formatDateTime(order.paymentConfirmedAt)}</p>
+          ) : null}
+          {order.invoiceNumber ? (
+            <p className="field-hint">Hoá đơn: {order.invoiceNumber}</p>
+          ) : null}
+          {order.paymentMethod === "card" ? (
+            <p className="field-hint">
+              Thẻ: chưa nối Stripe nên <strong>không lưu số thẻ</strong> — chỉ ghi nhận phương thức
+              + số tiền.
+            </p>
+          ) : null}
         </div>
       </div>
 

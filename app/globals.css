@@ -1576,6 +1576,27 @@ a.oauth-button { text-decoration: none; color: inherit; box-sizing: border-box; 
   border: 1px solid var(--line); background: #fff; color: var(--ink); cursor: pointer;
 }
 .orders-detail-close:hover { background: #f4f8f6; }
+/* Order detail trong modal: font to hơn cho dễ đọc. */
+.orders-detail-modal-panel .order-detail-meta { gap: 18px 24px; }
+.orders-detail-modal-panel .order-detail-meta > div > strong { font-size: 13px; letter-spacing: .02em; }
+.orders-detail-modal-panel .order-detail-meta p { font-size: 15px; }
+.orders-detail-modal-panel .order-detail-meta .field-hint { font-size: 13px; }
+.orders-detail-modal-panel .order-detail-items-head h3 { font-size: 18px; }
+.orders-detail-modal-panel .order-items-detail-table { font-size: 14.5px; }
+.orders-detail-modal-panel .order-items-detail-table th { font-size: 12px; }
+.orders-detail-modal-panel .order-detail-total { font-size: 18px; }
+.order-ship-address { margin: 5px 0 2px; padding-left: 9px; border-left: 2px solid var(--line); }
+.order-ship-name { font-weight: 700; }
+.order-customer-name-btn {
+  display: inline-flex; align-items: center; gap: 5px;
+  border: 0; background: transparent; padding: 0; font: inherit; font-weight: 700;
+  color: var(--green-dark); cursor: pointer; text-decoration: underline dotted; text-underline-offset: 3px;
+}
+.order-customer-name-btn:hover { color: var(--ink); }
+.order-customer-note {
+  margin: 5px 0 2px; padding: 8px 11px; border-radius: 9px;
+  background: #fff8e6; border: 1px solid #f0e2b8; font-size: 13px; white-space: pre-wrap;
+}
 .orders-row-actions { display: flex; flex-wrap: wrap; gap: 6px; justify-content: flex-end; }
 .audit-action {
   font-size: 11px;
