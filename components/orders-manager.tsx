@@ -15,6 +15,7 @@ import {
   PackageOpen,
   Pencil,
   Truck,
+  X,
   XCircle
 } from "lucide-react";
 import {
@@ -505,13 +506,6 @@ function OrderRows({ orders, handlers }: { orders: StaffOrder[]; handlers: RowHa
                 ) : null}
               </td>
             </tr>
-            {expanded ? (
-              <tr className="order-detail-row">
-                <td colSpan={9}>
-                  <OrderDetail order={order} />
-                </td>
-              </tr>
-            ) : null}
           </Fragment>
         );
       })}
@@ -714,12 +708,44 @@ export function OrdersManager({ orders }: { orders: StaffOrder[] }) {
     );
   }
 
+  const detailOrder = expandedId ? orders.find((o) => o.id === expandedId) ?? null : null;
+
   return (
     <>
       {awaitingCount > 0 ? (
         <div className="pickup-alert-banner blink-red" role="status">
           <AlertTriangle size={18} aria-hidden="true" />
           {awaitingCount} đơn đang chờ giao / ship / pickup — bấm vào đơn để xem món + ghi chú khách.
+        </div>
+      ) : null}
+
+      {detailOrder ? (
+        <div
+          className="orders-action-modal orders-detail-modal"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="orders-detail-title"
+        >
+          <button
+            type="button"
+            className="orders-action-modal-backdrop"
+            aria-label="Đóng"
+            onClick={() => setExpandedId(null)}
+          />
+          <div className="form-card orders-action-modal-panel orders-detail-modal-panel">
+            <div className="orders-detail-modal-head">
+              <h2 id="orders-detail-title">Đơn {detailOrder.number}</h2>
+              <button
+                type="button"
+                className="orders-detail-close"
+                aria-label="Đóng"
+                onClick={() => setExpandedId(null)}
+              >
+                <X size={18} aria-hidden="true" />
+              </button>
+            </div>
+            <OrderDetail order={detailOrder} />
+          </div>
         </div>
       ) : null}
 

@@ -1563,6 +1563,19 @@ a.oauth-button { text-decoration: none; color: inherit; box-sizing: border-box; 
   overflow-y: auto;
   box-shadow: 0 18px 48px rgba(9, 22, 19, 0.22);
 }
+/* Modal chi tiết đơn: panel rộng hơn cho bảng món + header có nút X. */
+.orders-detail-modal-panel { width: min(940px, 100%); }
+.orders-detail-modal-head {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 12px; margin-bottom: 10px;
+}
+.orders-detail-modal-head h2 { margin: 0; font-size: 18px; }
+.orders-detail-close {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 34px; height: 34px; border-radius: 10px; flex-shrink: 0;
+  border: 1px solid var(--line); background: #fff; color: var(--ink); cursor: pointer;
+}
+.orders-detail-close:hover { background: #f4f8f6; }
 .orders-row-actions { display: flex; flex-wrap: wrap; gap: 6px; justify-content: flex-end; }
 .audit-action {
   font-size: 11px;
