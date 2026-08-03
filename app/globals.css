@@ -2126,6 +2126,11 @@ a.oauth-button { text-decoration: none; color: inherit; box-sizing: border-box; 
 .orders-history-mode button + button { border-left: 1px solid var(--line); }
 .orders-history-mode button.active { background: var(--ink); color: #fff; }
 .orders-history-date { padding: 8px 11px; border: 1px solid var(--line); border-radius: 10px; font: inherit; }
+.orders-history-range { display: inline-flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.orders-history-range label {
+  display: inline-flex; align-items: center; gap: 6px;
+  font-size: 13px; font-weight: 700; color: #52655f;
+}
 .orders-pagination {
   display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between;
   gap: 10px; margin-top: 14px;

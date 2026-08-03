@@ -14,7 +14,6 @@ import {
   PackageCheck,
   PackageOpen,
   Pencil,
-  Search,
   Truck,
   X,
   XCircle
@@ -683,10 +682,11 @@ export function OrdersManager({ orders }: { orders: StaffOrder[] }) {
    * Ngày filter cho mục đã hoàn tất / đã huỷ.
    * null = chưa chọn (dùng ngày gần nhất có đơn).
    */
-  const [historyQuery, setHistoryQuery] = useState("");
-  const [historyMode, setHistoryMode] = useState<"all" | "day" | "month">("all");
-  const [historyDay, setHistoryDay] = useState("");
-  const [historyMonth, setHistoryMonth] = useState("");
+  const [historyStatus, setHistoryStatus] = useState<"all" | "fulfilled" | "cancelled">("all");
+  const [dateMode, setDateMode] = useState<"day" | "range">("day");
+  const [historyDay, setHistoryDay] = useState<string | null>(null); // null = ngày gần nhất
+  const [rangeFrom, setRangeFrom] = useState("");
+  const [rangeTo, setRangeTo] = useState("");
   const [historyPage, setHistoryPage] = useState(1);
   const [emailingId, setEmailingId] = useState<string | null>(null);
   const [emailResult, setEmailResult] = useState<InboxActionState | null>(null);
@@ -712,29 +712,47 @@ export function OrdersManager({ orders }: { orders: StaffOrder[] }) {
 
   // Phần 1: chờ giao / ship / pickup (confirmed) — luôn hiện đủ.
   const openOrders = orders.filter((o) => o.status === "confirmed");
-  // Phần 2: đã hoàn tất + đã huỷ — search khách + lọc ngày/tháng + phân trang.
+  // Phần 2: đã hoàn tất + đã huỷ — lọc trạng thái + theo ngày (tới/lui) hoặc khoảng ngày.
   const allCompleted = useMemo(
     () => orders.filter((o) => o.status === "fulfilled" || o.status === "cancelled"),
     [orders]
   );
 
+  const statusFiltered = useMemo(
+    () =>
+      historyStatus === "all"
+        ? allCompleted
+        : allCompleted.filter((o) => o.status === historyStatus),
+    [allCompleted, historyStatus]
+  );
+
+  // Các ngày có đơn (theo trạng thái đang lọc), mới nhất trước.
+  const dayKeys = useMemo(() => {
+    const keys = new Set<string>();
+    for (const o of statusFiltered) {
+      const k = completedOrderDayKey(o);
+      if (k) keys.add(k);
+    }
+    return [...keys].sort((a, b) => (a < b ? 1 : a > b ? -1 : 0));
+  }, [statusFiltered]);
+  const defaultDay = dayKeys[0] ?? "";
+  const activeDay = historyDay && dayKeys.includes(historyDay) ? historyDay : defaultDay;
+  const dayIdx = dayKeys.indexOf(activeDay);
+  const canPrevDay = dayIdx >= 0 && dayIdx < dayKeys.length - 1; // cũ hơn
+  const canNextDay = dayIdx > 0; // mới hơn
+
   const filteredCompleted = useMemo(() => {
-    const q = historyQuery.trim().toLowerCase();
-    return allCompleted.filter((o) => {
-      if (q) {
-        const hay =
-          `${o.customer} ${o.customerCompany ?? ""} ${o.customerPhone ?? ""} ${o.number}`.toLowerCase();
-        if (!hay.includes(q)) return false;
-      }
-      if (historyMode === "day" && historyDay) {
-        return completedOrderDayKey(o) === historyDay;
-      }
-      if (historyMode === "month" && historyMonth) {
-        return completedOrderDayKey(o).startsWith(historyMonth);
-      }
-      return true;
-    });
-  }, [allCompleted, historyQuery, historyMode, historyDay, historyMonth]);
+    if (dateMode === "range") {
+      return statusFiltered.filter((o) => {
+        const k = completedOrderDayKey(o);
+        if (rangeFrom && k < rangeFrom) return false;
+        if (rangeTo && k > rangeTo) return false;
+        return true;
+      });
+    }
+    if (!activeDay) return [];
+    return statusFiltered.filter((o) => completedOrderDayKey(o) === activeDay);
+  }, [statusFiltered, dateMode, rangeFrom, rangeTo, activeDay]);
 
   const historyTotalPages = Math.max(1, Math.ceil(filteredCompleted.length / HISTORY_PAGE_SIZE));
   const historyPageClamped = Math.min(Math.max(1, historyPage), historyTotalPages);
@@ -1241,37 +1259,28 @@ export function OrdersManager({ orders }: { orders: StaffOrder[] }) {
               Đã hoàn tất / đã huỷ
               <span className="orders-section-count">{filteredCompleted.length}</span>
             </h2>
-            <p>Đơn đã hoàn tất hoặc đã huỷ. Tìm theo khách, lọc theo ngày / tháng.</p>
+            <p>
+              Xem theo <strong>ngày</strong> (bấm ‹ › tới/lui) hoặc <strong>khoảng ngày</strong>;
+              lọc riêng đơn <strong>Hoàn tất</strong> / <strong>Đã huỷ</strong>.
+            </p>
           </div>
         </div>
 
         <div className="orders-history-filters">
-          <label className="table-search">
-            <Search size={16} aria-hidden="true" />
-            <input
-              type="search"
-              value={historyQuery}
-              onChange={(e) => {
-                setHistoryQuery(e.target.value);
-                setHistoryPage(1);
-              }}
-              placeholder="Tìm khách (tên / SĐT / số đơn)…"
-            />
-          </label>
-          <div className="orders-history-mode" role="group" aria-label="Lọc thời gian">
+          <div className="orders-history-mode" role="group" aria-label="Lọc trạng thái">
             {(
               [
                 ["all", "Tất cả"],
-                ["day", "Theo ngày"],
-                ["month", "Theo tháng"]
+                ["fulfilled", "Hoàn tất"],
+                ["cancelled", "Đã huỷ"]
               ] as const
             ).map(([value, label]) => (
               <button
                 key={value}
                 type="button"
-                className={historyMode === value ? "active" : ""}
+                className={historyStatus === value ? "active" : ""}
                 onClick={() => {
-                  setHistoryMode(value);
+                  setHistoryStatus(value);
                   setHistoryPage(1);
                 }}
               >
@@ -1279,27 +1288,128 @@ export function OrdersManager({ orders }: { orders: StaffOrder[] }) {
               </button>
             ))}
           </div>
-          {historyMode === "day" ? (
-            <input
-              type="date"
-              className="orders-history-date"
-              value={historyDay}
-              onChange={(e) => {
-                setHistoryDay(e.target.value);
-                setHistoryPage(1);
-              }}
-            />
-          ) : historyMode === "month" ? (
-            <input
-              type="month"
-              className="orders-history-date"
-              value={historyMonth}
-              onChange={(e) => {
-                setHistoryMonth(e.target.value);
-                setHistoryPage(1);
-              }}
-            />
-          ) : null}
+
+          <div className="orders-history-mode" role="group" aria-label="Kiểu ngày">
+            {(
+              [
+                ["day", "Theo ngày"],
+                ["range", "Khoảng ngày"]
+              ] as const
+            ).map(([value, label]) => (
+              <button
+                key={value}
+                type="button"
+                className={dateMode === value ? "active" : ""}
+                onClick={() => {
+                  setDateMode(value);
+                  setHistoryPage(1);
+                }}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+
+          {dateMode === "day" ? (
+            dayKeys.length > 0 ? (
+              <div className="orders-day-picker" role="group" aria-label="Chọn ngày">
+                <button
+                  type="button"
+                  className="button secondary compact"
+                  disabled={!canPrevDay}
+                  aria-label="Ngày cũ hơn"
+                  onClick={() => {
+                    if (canPrevDay) {
+                      setHistoryDay(dayKeys[dayIdx + 1]!);
+                      setHistoryPage(1);
+                    }
+                  }}
+                >
+                  <ChevronLeft size={16} aria-hidden="true" />
+                </button>
+                <input
+                  type="date"
+                  className="orders-history-date"
+                  value={activeDay}
+                  onChange={(e) => {
+                    const next = e.target.value;
+                    if (!next) return;
+                    const pick = dayKeys.includes(next)
+                      ? next
+                      : dayKeys.find((k) => k <= next) ?? dayKeys[0]!;
+                    setHistoryDay(pick);
+                    setHistoryPage(1);
+                  }}
+                />
+                <button
+                  type="button"
+                  className="button secondary compact"
+                  disabled={!canNextDay}
+                  aria-label="Ngày mới hơn"
+                  onClick={() => {
+                    if (canNextDay) {
+                      setHistoryDay(dayKeys[dayIdx - 1]!);
+                      setHistoryPage(1);
+                    }
+                  }}
+                >
+                  <ChevronRight size={16} aria-hidden="true" />
+                </button>
+                {activeDay !== defaultDay ? (
+                  <button
+                    type="button"
+                    className="button secondary compact"
+                    onClick={() => {
+                      setHistoryDay(null);
+                      setHistoryPage(1);
+                    }}
+                  >
+                    Gần nhất
+                  </button>
+                ) : null}
+              </div>
+            ) : null
+          ) : (
+            <div className="orders-history-range">
+              <label>
+                Từ
+                <input
+                  type="date"
+                  className="orders-history-date"
+                  value={rangeFrom}
+                  onChange={(e) => {
+                    setRangeFrom(e.target.value);
+                    setHistoryPage(1);
+                  }}
+                />
+              </label>
+              <label>
+                Đến
+                <input
+                  type="date"
+                  className="orders-history-date"
+                  value={rangeTo}
+                  onChange={(e) => {
+                    setRangeTo(e.target.value);
+                    setHistoryPage(1);
+                  }}
+                />
+              </label>
+              {rangeFrom || rangeTo ? (
+                <button
+                  type="button"
+                  className="button secondary compact"
+                  onClick={() => {
+                    setRangeFrom("");
+                    setRangeTo("");
+                    setHistoryPage(1);
+                  }}
+                >
+                  Xoá
+                </button>
+              ) : null}
+            </div>
+          )}
         </div>
 
         {!allCompleted.length ? (
