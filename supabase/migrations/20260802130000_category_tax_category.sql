@@ -7,4 +7,8 @@ alter table public.categories
 comment on column public.categories.tax_category is
   'Sales-tax class applied to products in this category (grocery=exempt, general=taxable, prepared_food).';
 
+-- categories uses column-level grants: the new column needs an explicit SELECT
+-- grant so the storefront (anon) and admin (authenticated) clients can read it.
+grant select (tax_category) on public.categories to anon, authenticated;
+
 notify pgrst, 'reload schema';
