@@ -17,6 +17,7 @@ type DbAddressRow = {
   recipient_name: string | null;
   company_name: string | null;
   phone: string | null;
+  note: string | null;
   line1: string;
   line2: string | null;
   city: string;
@@ -28,7 +29,7 @@ type DbAddressRow = {
 };
 
 const ADDRESS_SELECT =
-  "id, customer_id, address_type, label, recipient_name, company_name, phone, line1, line2, city, state_region, postal_code, country_code, is_default, created_at";
+  "id, customer_id, address_type, label, recipient_name, company_name, phone, note, line1, line2, city, state_region, postal_code, country_code, is_default, created_at";
 
 function mapAddressRow(row: DbAddressRow): CustomerAddress {
   return {
@@ -39,6 +40,7 @@ function mapAddressRow(row: DbAddressRow): CustomerAddress {
     recipientName: row.recipient_name,
     companyName: row.company_name,
     phone: row.phone,
+    note: row.note,
     line1: row.line1,
     line2: row.line2,
     city: row.city,
@@ -63,6 +65,7 @@ type ParsedAddress = {
   recipientName: string;
   companyName: string | null;
   phone: string;
+  note: string | null;
   line1: string;
   line2: string | null;
   city: string;
@@ -76,6 +79,7 @@ function parseAddressFields(formData: FormData): ParsedAddress | AddressFormStat
   const recipientName = readField(formData, "recipientName", 120);
   const companyName = readField(formData, "companyName", 120) || null;
   const phoneRaw = readField(formData, "phone", 40);
+  const note = readField(formData, "note", 300) || null;
   const line1 = readField(formData, "line1", 160);
   const line2 = readField(formData, "line2", 160) || null;
   const city = readField(formData, "city", 80);
@@ -96,6 +100,7 @@ function parseAddressFields(formData: FormData): ParsedAddress | AddressFormStat
     recipientName,
     companyName,
     phone,
+    note,
     line1,
     line2,
     city,
@@ -164,6 +169,7 @@ export async function createShippingAddress(
       recipient_name: parsed.recipientName,
       company_name: parsed.companyName,
       phone: parsed.phone,
+      note: parsed.note,
       line1: parsed.line1,
       line2: parsed.line2,
       city: parsed.city,
@@ -229,6 +235,7 @@ export async function updateShippingAddress(
       recipient_name: parsed.recipientName,
       company_name: parsed.companyName,
       phone: parsed.phone,
+      note: parsed.note,
       line1: parsed.line1,
       line2: parsed.line2,
       city: parsed.city,

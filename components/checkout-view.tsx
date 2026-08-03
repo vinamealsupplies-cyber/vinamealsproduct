@@ -67,6 +67,7 @@ export function CheckoutView({
   const [customerName, setCustomerName] = useState("Customer");
   const [accountPhone, setAccountPhone] = useState<string | null>(null);
   const [phoneInput, setPhoneInput] = useState("");
+  const [deliveryNote, setDeliveryNote] = useState("");
   const [shippingAddressId, setShippingAddressId] = useState<string | null>(null);
   const [isBusiness, setIsBusiness] = useState(false);
   const [businessDiscountPercent, setBusinessDiscountPercent] = useState<number | null>(null);
@@ -325,6 +326,7 @@ export function CheckoutView({
             fulfillmentMethod: method,
             shippingAddressId: method === "ship" ? shippingAddressId : null,
             phone: needsPhone ? phoneInput.trim() : undefined,
+            deliveryNote: method === "ship" ? deliveryNote.trim() || null : null,
             paymentMethod: isBusiness && !forcePaidTest ? paymentMethod : undefined,
             paymentReference:
               isBusiness && !forcePaidTest ? paymentReference.trim() || null : null,
@@ -460,6 +462,19 @@ export function CheckoutView({
               onSelect={setShippingAddressId}
               onAddressesChange={setShippingAddresses}
             />
+            <label style={{ marginTop: 12, display: "block" }}>
+              Delivery note for this order (optional)
+              <textarea
+                value={deliveryNote}
+                onChange={(e) => setDeliveryNote(e.target.value)}
+                rows={2}
+                maxLength={500}
+                placeholder="Gate code, leave at back door, call on arrival…"
+              />
+              <span className="field-hint">
+                Staff see this with the order. Leave blank to use the note saved on your address.
+              </span>
+            </label>
           </div>
         ) : (
           <p className="field-hint" style={{ marginTop: 12 }}>

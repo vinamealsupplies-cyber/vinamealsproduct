@@ -10,6 +10,8 @@ export type CustomerAddress = {
   recipientName: string | null;
   companyName: string | null;
   phone: string | null;
+  /** Ghi chú giao hàng (mã cổng, chỉ dẫn…). */
+  note: string | null;
   line1: string;
   line2: string | null;
   city: string;

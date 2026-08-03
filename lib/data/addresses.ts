@@ -14,6 +14,7 @@ type DbAddress = {
   recipient_name: string | null;
   company_name: string | null;
   phone: string | null;
+  note: string | null;
   line1: string;
   line2: string | null;
   city: string;
@@ -25,7 +26,7 @@ type DbAddress = {
 };
 
 const SELECT =
-  "id, customer_id, address_type, label, recipient_name, company_name, phone, line1, line2, city, state_region, postal_code, country_code, is_default, created_at";
+  "id, customer_id, address_type, label, recipient_name, company_name, phone, note, line1, line2, city, state_region, postal_code, country_code, is_default, created_at";
 
 function mapAddress(row: DbAddress): CustomerAddress {
   return {
@@ -36,6 +37,7 @@ function mapAddress(row: DbAddress): CustomerAddress {
     recipientName: row.recipient_name,
     companyName: row.company_name,
     phone: row.phone,
+    note: row.note,
     line1: row.line1,
     line2: row.line2,
     city: row.city,

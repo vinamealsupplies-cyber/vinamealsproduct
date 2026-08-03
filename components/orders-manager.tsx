@@ -152,6 +152,11 @@ function OrderDetail({ order }: { order: StaffOrder }) {
               {order.shippingAddress.phone ? (
                 <p className="field-hint">SĐT giao: {order.shippingAddress.phone}</p>
               ) : null}
+              {order.shippingAddress.note ? (
+                <p className="order-delivery-note">
+                  <MessageSquareText size={13} aria-hidden="true" /> {order.shippingAddress.note}
+                </p>
+              ) : null}
             </div>
           ) : null}
           <p className="field-hint">Đặt lúc {formatDateTime(order.createdAt)}</p>
@@ -995,6 +1000,37 @@ export function OrdersManager({ orders }: { orders: StaffOrder[] }) {
               Đơn <strong>ship</strong>. Nhập hãng + tracking. Note thao tác{" "}
               <strong>tuỳ chọn</strong> — tên bạn vẫn được ghi lại.
             </p>
+            {shippingOrder.shippingAddress ? (
+              <div className="orders-ship-address-box">
+                <strong>Giao đến</strong>
+                {shippingOrder.shippingAddress.recipientName ? (
+                  <p className="order-ship-name">{shippingOrder.shippingAddress.recipientName}</p>
+                ) : null}
+                <p>
+                  {[shippingOrder.shippingAddress.line1, shippingOrder.shippingAddress.line2]
+                    .filter(Boolean)
+                    .join(", ")}
+                </p>
+                <p>
+                  {[
+                    shippingOrder.shippingAddress.city,
+                    shippingOrder.shippingAddress.state,
+                    shippingOrder.shippingAddress.zip
+                  ]
+                    .filter(Boolean)
+                    .join(", ")}
+                </p>
+                {shippingOrder.shippingAddress.phone ? (
+                  <p className="field-hint">SĐT: {shippingOrder.shippingAddress.phone}</p>
+                ) : null}
+                {shippingOrder.shippingAddress.note ? (
+                  <p className="order-delivery-note">
+                    <MessageSquareText size={13} aria-hidden="true" />{" "}
+                    {shippingOrder.shippingAddress.note}
+                  </p>
+                ) : null}
+              </div>
+            ) : null}
             <div className="form-grid two-columns">
               <label>
                 Hãng vận chuyển

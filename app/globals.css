@@ -1597,6 +1597,21 @@ a.oauth-button { text-decoration: none; color: inherit; box-sizing: border-box; 
   margin: 5px 0 2px; padding: 8px 11px; border-radius: 9px;
   background: #fff8e6; border: 1px solid #f0e2b8; font-size: 13px; white-space: pre-wrap;
 }
+.order-delivery-note {
+  display: flex; align-items: flex-start; gap: 6px;
+  margin: 5px 0 2px; padding: 7px 10px; border-radius: 8px;
+  background: #eef6ff; border: 1px solid #cfe4fb; color: #1b4a7a;
+  font-size: 13px; font-weight: 600; white-space: pre-wrap;
+}
+.orders-ship-address-box {
+  margin: 10px 0 14px; padding: 12px 14px;
+  border: 1px solid var(--line); border-radius: 12px; background: #f9fbfa;
+}
+.orders-ship-address-box > strong {
+  display: block; font-size: 12px; text-transform: uppercase; letter-spacing: .05em;
+  color: #52655f; margin-bottom: 4px;
+}
+.orders-ship-address-box p { margin: 1px 0; }
 .orders-row-actions { display: flex; flex-wrap: wrap; gap: 6px; justify-content: flex-end; }
 .audit-action {
   font-size: 11px;

@@ -191,6 +191,17 @@ export function AddressForm({
           />
         </label>
 
+        <label className="full-width">
+          Delivery note (optional)
+          <textarea
+            name="note"
+            rows={2}
+            defaultValue={address?.note ?? ""}
+            placeholder="Gate code, leave at back door, call on arrival…"
+            maxLength={300}
+          />
+        </label>
+
         <label>
           City *
           <input

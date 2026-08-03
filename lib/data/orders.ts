@@ -27,6 +27,7 @@ export type OrderShippingAddress = {
   recipientName: string | null;
   companyName: string | null;
   phone: string | null;
+  note: string | null;
   line1: string | null;
   line2: string | null;
   city: string | null;
@@ -189,6 +190,7 @@ function parseShippingAddress(
     recipientName: str("recipient_name"),
     companyName: str("company_name"),
     phone: str("phone"),
+    note: str("note"),
     line1: str("line1"),
     line2: str("line2"),
     city: str("city"),

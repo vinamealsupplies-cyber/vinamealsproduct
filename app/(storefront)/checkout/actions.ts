@@ -56,6 +56,8 @@ export type CheckoutOptions = {
    * it is stored back on the profile/customer for next time.
    */
   phone?: string | null;
+  /** Delivery note for THIS order (typed at checkout). Snapshotted on the order. */
+  deliveryNote?: string | null;
   /**
    * Test path: create invoice + payment succeeded immediately
    * (same as the old “test checkout” for Orders / Invoices / Reports).
@@ -446,7 +448,7 @@ async function placeOrderInner(
     const { data: address } = await supabase
       .from("customer_addresses")
       .select(
-        "id, customer_id, recipient_name, company_name, phone, line1, line2, city, state_region, postal_code, country_code"
+        "id, customer_id, recipient_name, company_name, phone, note, line1, line2, city, state_region, postal_code, country_code"
       )
       .eq("id", shippingAddressId)
       .eq("customer_id", customerId)
@@ -455,10 +457,14 @@ async function placeOrderInner(
       return { ok: false, error: "Invalid shipping address." };
     }
     shippingAmount = SHIPPING_FLAT_RATE;
+    // Ghi chú giao hàng: ưu tiên note khách nhập cho đơn này ở checkout,
+    // không có thì lấy note đã lưu trên địa chỉ.
+    const orderDeliveryNote = String(options.deliveryNote ?? "").trim().slice(0, 500);
     shippingSnapshot = {
       recipient_name: address.recipient_name,
       company_name: address.company_name,
       phone: address.phone,
+      note: orderDeliveryNote || (address.note as string | null) || null,
       line1: address.line1,
       line2: address.line2,
       city: address.city,
