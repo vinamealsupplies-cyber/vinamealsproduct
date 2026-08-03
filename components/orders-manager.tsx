@@ -4,7 +4,6 @@ import { Fragment, useMemo, useState, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import {
   AlertTriangle,
-  CalendarDays,
   CheckCircle2,
   ChevronDown,
   ChevronLeft,
@@ -14,6 +13,7 @@ import {
   PackageCheck,
   PackageOpen,
   Pencil,
+  Search,
   Truck,
   X,
   XCircle
@@ -75,11 +75,19 @@ function completedOrderDayKey(order: StaffOrder): string {
   return toDayKey(order.fulfilledAt || order.createdAt);
 }
 
-function formatDayKeyLabel(dayKey: string): string {
-  if (!dayKey) return "—";
-  const [y, m, d] = dayKey.split("-").map(Number);
-  if (!y || !m || !d) return dayKey;
-  return formatDate(new Date(y, m - 1, d));
+const HISTORY_PAGE_SIZE = 20;
+
+/** Danh sách số trang có "…" khi nhiều trang: 1 … 4 5 6 … 20. */
+function buildPageList(current: number, total: number): (number | "…")[] {
+  if (total <= 7) return Array.from({ length: total }, (_, i) => i + 1);
+  const pages: (number | "…")[] = [1];
+  const start = Math.max(2, current - 1);
+  const end = Math.min(total - 1, current + 1);
+  if (start > 2) pages.push("…");
+  for (let p = start; p <= end; p += 1) pages.push(p);
+  if (end < total - 1) pages.push("…");
+  pages.push(total);
+  return pages;
 }
 
 function fulfillmentLabel(order: StaffOrder) {
@@ -672,40 +680,48 @@ export function OrdersManager({ orders }: { orders: StaffOrder[] }) {
    * Ngày filter cho mục đã hoàn tất / đã huỷ.
    * null = chưa chọn (dùng ngày gần nhất có đơn).
    */
-  const [completedDay, setCompletedDay] = useState<string | null>(null);
+  const [historyQuery, setHistoryQuery] = useState("");
+  const [historyMode, setHistoryMode] = useState<"all" | "day" | "month">("all");
+  const [historyDay, setHistoryDay] = useState("");
+  const [historyMonth, setHistoryMonth] = useState("");
+  const [historyPage, setHistoryPage] = useState(1);
 
   // Phần 1: chờ giao / ship / pickup (confirmed) — luôn hiện đủ.
   const openOrders = orders.filter((o) => o.status === "confirmed");
-  // Phần 2: đã hoàn tất + đã huỷ — lọc theo ngày.
+  // Phần 2: đã hoàn tất + đã huỷ — search khách + lọc ngày/tháng + phân trang.
   const allCompleted = useMemo(
     () => orders.filter((o) => o.status === "fulfilled" || o.status === "cancelled"),
     [orders]
   );
 
-  /** Các ngày có đơn hoàn tất/huỷ, mới nhất trước. */
-  const completedDayKeys = useMemo(() => {
-    const keys = new Set<string>();
-    for (const o of allCompleted) {
-      const key = completedOrderDayKey(o);
-      if (key) keys.add(key);
-    }
-    return [...keys].sort((a, b) => (a < b ? 1 : a > b ? -1 : 0));
-  }, [allCompleted]);
+  const filteredCompleted = useMemo(() => {
+    const q = historyQuery.trim().toLowerCase();
+    return allCompleted.filter((o) => {
+      if (q) {
+        const hay =
+          `${o.customer} ${o.customerCompany ?? ""} ${o.customerPhone ?? ""} ${o.number}`.toLowerCase();
+        if (!hay.includes(q)) return false;
+      }
+      if (historyMode === "day" && historyDay) {
+        return completedOrderDayKey(o) === historyDay;
+      }
+      if (historyMode === "month" && historyMonth) {
+        return completedOrderDayKey(o).startsWith(historyMonth);
+      }
+      return true;
+    });
+  }, [allCompleted, historyQuery, historyMode, historyDay, historyMonth]);
 
-  const defaultCompletedDay = completedDayKeys[0] ?? "";
-  const activeCompletedDay =
-    completedDay && completedDayKeys.includes(completedDay)
-      ? completedDay
-      : defaultCompletedDay;
-
-  const completedOrders = useMemo(() => {
-    if (!activeCompletedDay) return [];
-    return allCompleted.filter((o) => completedOrderDayKey(o) === activeCompletedDay);
-  }, [allCompleted, activeCompletedDay]);
-
-  const dayIndex = completedDayKeys.indexOf(activeCompletedDay);
-  const canPrevDay = dayIndex >= 0 && dayIndex < completedDayKeys.length - 1; // older
-  const canNextDay = dayIndex > 0; // newer
+  const historyTotalPages = Math.max(1, Math.ceil(filteredCompleted.length / HISTORY_PAGE_SIZE));
+  const historyPageClamped = Math.min(Math.max(1, historyPage), historyTotalPages);
+  const pagedCompleted = useMemo(
+    () =>
+      filteredCompleted.slice(
+        (historyPageClamped - 1) * HISTORY_PAGE_SIZE,
+        historyPageClamped * HISTORY_PAGE_SIZE
+      ),
+    [filteredCompleted, historyPageClamped]
+  );
 
   const awaitingCount = openOrders.filter(
     (o) => o.awaitingPickupPrep || o.awaitingPickup || o.awaitingDelivery
@@ -1159,107 +1175,145 @@ export function OrdersManager({ orders }: { orders: StaffOrder[] }) {
       />
 
       <section className="orders-section orders-section-done">
-        <div className="orders-section-heading orders-section-heading-with-date">
+        <div className="orders-section-heading">
           <div>
             <h2>
               <PackageCheck size={20} aria-hidden="true" />
               Đã hoàn tất / đã huỷ
-              <span className="orders-section-count">{completedOrders.length}</span>
+              <span className="orders-section-count">{filteredCompleted.length}</span>
             </h2>
-            <p>
-              Chỉ hiện đơn hoàn tất hoặc huỷ trong{" "}
-              <strong>{activeCompletedDay ? formatDayKeyLabel(activeCompletedDay) : "—"}</strong>
-              {defaultCompletedDay && activeCompletedDay === defaultCompletedDay
-                ? " (ngày gần nhất có đơn)"
-                : ""}
-              . Chọn ngày khác để xem lịch sử.
-            </p>
+            <p>Đơn đã hoàn tất hoặc đã huỷ. Tìm theo khách, lọc theo ngày / tháng.</p>
           </div>
-          {completedDayKeys.length > 0 ? (
-            <div className="orders-day-picker" role="group" aria-label="Chọn ngày đơn hoàn tất">
+        </div>
+
+        <div className="orders-history-filters">
+          <label className="table-search">
+            <Search size={16} aria-hidden="true" />
+            <input
+              type="search"
+              value={historyQuery}
+              onChange={(e) => {
+                setHistoryQuery(e.target.value);
+                setHistoryPage(1);
+              }}
+              placeholder="Tìm khách (tên / SĐT / số đơn)…"
+            />
+          </label>
+          <div className="orders-history-mode" role="group" aria-label="Lọc thời gian">
+            {(
+              [
+                ["all", "Tất cả"],
+                ["day", "Theo ngày"],
+                ["month", "Theo tháng"]
+              ] as const
+            ).map(([value, label]) => (
               <button
+                key={value}
                 type="button"
-                className="button secondary compact"
-                disabled={!canPrevDay}
-                aria-label="Ngày cũ hơn có đơn"
+                className={historyMode === value ? "active" : ""}
                 onClick={() => {
-                  if (canPrevDay) setCompletedDay(completedDayKeys[dayIndex + 1]!);
+                  setHistoryMode(value);
+                  setHistoryPage(1);
                 }}
               >
-                <ChevronLeft size={16} aria-hidden="true" />
+                {label}
               </button>
-              <label className="orders-day-picker-field">
-                <CalendarDays size={15} aria-hidden="true" />
-                <span className="visually-hidden">Ngày</span>
-                <input
-                  type="date"
-                  value={activeCompletedDay}
-                  max={completedDayKeys[0]}
-                  min={completedDayKeys[completedDayKeys.length - 1]}
-                  onChange={(e) => {
-                    const next = e.target.value;
-                    if (!next) return;
-                    // Nếu chọn ngày không có đơn → nhảy về ngày có đơn gần nhất (≤ chọn).
-                    if (completedDayKeys.includes(next)) {
-                      setCompletedDay(next);
-                      return;
-                    }
-                    const olderOrSame = completedDayKeys.find((k) => k <= next);
-                    setCompletedDay(olderOrSame ?? completedDayKeys[0]!);
-                  }}
-                />
-              </label>
-              <button
-                type="button"
-                className="button secondary compact"
-                disabled={!canNextDay}
-                aria-label="Ngày mới hơn có đơn"
-                onClick={() => {
-                  if (canNextDay) setCompletedDay(completedDayKeys[dayIndex - 1]!);
-                }}
-              >
-                <ChevronRight size={16} aria-hidden="true" />
-              </button>
-              {activeCompletedDay !== defaultCompletedDay ? (
-                <button
-                  type="button"
-                  className="button secondary compact"
-                  onClick={() => setCompletedDay(null)}
-                >
-                  Ngày gần nhất
-                </button>
-              ) : null}
-            </div>
+            ))}
+          </div>
+          {historyMode === "day" ? (
+            <input
+              type="date"
+              className="orders-history-date"
+              value={historyDay}
+              onChange={(e) => {
+                setHistoryDay(e.target.value);
+                setHistoryPage(1);
+              }}
+            />
+          ) : historyMode === "month" ? (
+            <input
+              type="month"
+              className="orders-history-date"
+              value={historyMonth}
+              onChange={(e) => {
+                setHistoryMonth(e.target.value);
+                setHistoryPage(1);
+              }}
+            />
           ) : null}
         </div>
 
         {!allCompleted.length ? (
           <p className="field-hint orders-section-empty">Chưa có đơn hoàn tất hoặc đã huỷ.</p>
-        ) : !completedOrders.length ? (
-          <p className="field-hint orders-section-empty">
-            Không có đơn hoàn tất / huỷ trong ngày {formatDayKeyLabel(activeCompletedDay)}.
-          </p>
+        ) : !filteredCompleted.length ? (
+          <p className="field-hint orders-section-empty">Không có đơn khớp bộ lọc.</p>
         ) : (
-          <div className="orders-table-wrap">
-            <table className="orders-table">
-              <thead>
-                <tr>
-                  <th aria-label="Chi tiết" />
-                  <th>Đơn</th>
-                  <th>Khách</th>
-                  <th>Ngày</th>
-                  <th>Nhận hàng</th>
-                  <th className="num">Tổng</th>
-                  <th>Trạng thái</th>
-                  <th>Giao / Ship / Pickup</th>
-                  <th aria-label="Hành động" />
-                </tr>
-              </thead>
-              <tbody>
-                <OrderRows orders={completedOrders} handlers={handlers} />
-              </tbody>
-            </table>
-          </div>
+          <>
+            <div className="orders-table-wrap">
+              <table className="orders-table">
+                <thead>
+                  <tr>
+                    <th aria-label="Chi tiết" />
+                    <th>Đơn</th>
+                    <th>Khách</th>
+                    <th>Ngày</th>
+                    <th>Nhận hàng</th>
+                    <th className="num">Tổng</th>
+                    <th>Trạng thái</th>
+                    <th>Giao / Ship / Pickup</th>
+                    <th aria-label="Hành động" />
+                  </tr>
+                </thead>
+                <tbody>
+                  <OrderRows orders={pagedCompleted} handlers={handlers} />
+                </tbody>
+              </table>
+            </div>
+            {historyTotalPages > 1 ? (
+              <div className="orders-pagination" role="navigation" aria-label="Trang">
+                <span className="orders-pagination-info">
+                  Trang {historyPageClamped}/{historyTotalPages} · {filteredCompleted.length} đơn
+                </span>
+                <div className="orders-pagination-pages">
+                  <button
+                    type="button"
+                    className="orders-page-btn"
+                    disabled={historyPageClamped <= 1}
+                    aria-label="Trang trước"
+                    onClick={() => setHistoryPage(historyPageClamped - 1)}
+                  >
+                    <ChevronLeft size={16} aria-hidden="true" />
+                  </button>
+                  {buildPageList(historyPageClamped, historyTotalPages).map((p, i) =>
+                    p === "…" ? (
+                      <span key={`e${i}`} className="orders-page-ellipsis">
+                        …
+                      </span>
+                    ) : (
+                      <button
+                        key={p}
+                        type="button"
+                        className={p === historyPageClamped ? "orders-page-btn active" : "orders-page-btn"}
+                        aria-current={p === historyPageClamped ? "page" : undefined}
+                        onClick={() => setHistoryPage(p)}
+                      >
+                        {p}
+                      </button>
+                    )
+                  )}
+                  <button
+                    type="button"
+                    className="orders-page-btn"
+                    disabled={historyPageClamped >= historyTotalPages}
+                    aria-label="Trang sau"
+                    onClick={() => setHistoryPage(historyPageClamped + 1)}
+                  >
+                    <ChevronRight size={16} aria-hidden="true" />
+                  </button>
+                </div>
+              </div>
+            ) : null}
+          </>
         )}
       </section>
     </>
