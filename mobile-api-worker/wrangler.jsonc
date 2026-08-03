@@ -1,0 +1,13 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "vinameals-mobile-api",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-07-23",
+  "compatibility_flags": ["nodejs_compat"],
+  "workers_dev": true,
+  "routes": [
+    { "pattern": "vinamealsupplies.com/api/mobile/*", "zone_name": "vinamealsupplies.com" },
+    { "pattern": "www.vinamealsupplies.com/api/mobile/*", "zone_name": "vinamealsupplies.com" }
+  ],
+  "observability": { "enabled": true }
+}
