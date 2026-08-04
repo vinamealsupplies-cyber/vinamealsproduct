@@ -211,6 +211,10 @@ export default {
       if (path === "/api/mobile/v1/management/products" && req.method === "POST") {
         return handleProductCreate(req, env);
       }
+      if (path.match(/^\/api\/mobile\/v1\/management\/products\/[^/]+\/report$/) && req.method === "GET") {
+        const id = path.split("/")[6];
+        return handleProductSalesReport(req, env, id, url);
+      }
       if (path.match(/^\/api\/mobile\/v1\/management\/products\/[^/]+$/) && req.method === "PATCH") {
         const id = path.split("/")[6];
         return handleProductUpdate(req, env, id);
@@ -1236,6 +1240,166 @@ async function handleProducts(req: Request, env: Env, url: URL) {
     return row;
   });
   return json({ products });
+}
+
+async function handleProductSalesReport(req: Request, env: Env, productId: string, url: URL) {
+  const gate = await requireAdmin(req, env);
+  if ("error" in gate && gate.error) return gate.error;
+
+  const fromValue = url.searchParams.get("from");
+  const toValue = url.searchParams.get("to");
+  const grain = url.searchParams.get("grain") ?? "day";
+  if (!fromValue || !toValue || !["hour", "day", "month"].includes(grain)) {
+    return jsonErr("BAD_REQUEST", "from, to and a valid grain are required.", 400);
+  }
+
+  const from = new Date(fromValue);
+  const to = new Date(toValue);
+  const maximumRangeMs = 371 * 24 * 60 * 60 * 1000;
+  if (
+    Number.isNaN(from.getTime()) ||
+    Number.isNaN(to.getTime()) ||
+    to <= from ||
+    to.getTime() - from.getTime() > maximumRangeMs
+  ) {
+    return jsonErr("BAD_REQUEST", "Choose a valid range of no more than 371 days.", 400);
+  }
+
+  const sb = admin(env);
+  const { data: product, error: productError } = await sb
+    .from("products")
+    .select("id, name, product_variants ( sku, is_default )")
+    .eq("id", productId)
+    .maybeSingle();
+  if (productError) return jsonErr("LOAD_FAILED", productError.message);
+  if (!product) return jsonErr("NOT_FOUND", "Product not found.", 404);
+
+  const { data: orders, error: orderError } = await sb
+    .from("sales_orders")
+    .select("id, created_at")
+    .in("status", ["confirmed", "fulfilled"])
+    .gte("created_at", from.toISOString())
+    .lt("created_at", to.toISOString())
+    .order("created_at", { ascending: true })
+    .limit(10000);
+  if (orderError) return jsonErr("LOAD_FAILED", orderError.message);
+
+  type ReportOrder = { id: string; created_at: string };
+  type ReportItem = {
+    order_id: string;
+    quantity: unknown;
+    line_subtotal: unknown;
+    discount_amount: unknown;
+  };
+  const orderRows = (orders ?? []) as ReportOrder[];
+  const orderDateById = new Map(orderRows.map((order) => [order.id, order.created_at]));
+  const itemRows: ReportItem[] = [];
+  const chunkSize = 200;
+  for (let index = 0; index < orderRows.length; index += chunkSize) {
+    const orderIds = orderRows.slice(index, index + chunkSize).map((order) => order.id);
+    const { data: items, error: itemError } = await sb
+      .from("sales_order_items")
+      .select("order_id, quantity, line_subtotal, discount_amount")
+      .eq("product_id", productId)
+      .in("order_id", orderIds)
+      .limit(10000);
+    if (itemError) return jsonErr("LOAD_FAILED", itemError.message);
+    itemRows.push(...((items ?? []) as ReportItem[]));
+  }
+
+  const reportTimeZone = "America/Los_Angeles";
+  const bucketFormatter = new Intl.DateTimeFormat("en-US", {
+    timeZone: reportTimeZone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    hourCycle: "h23"
+  });
+  const labelFormatters = {
+    hour: new Intl.DateTimeFormat("en-US", { timeZone: reportTimeZone, hour: "numeric" }),
+    day: new Intl.DateTimeFormat("en-US", { timeZone: reportTimeZone, month: "short", day: "numeric" }),
+    month: new Intl.DateTimeFormat("en-US", { timeZone: reportTimeZone, month: "short" })
+  };
+  const bucketFor = (value: string) => {
+    const date = new Date(value);
+    const parts = Object.fromEntries(
+      bucketFormatter.formatToParts(date).map((part) => [part.type, part.value])
+    );
+    const key = grain === "hour"
+      ? `${parts.year}-${parts.month}-${parts.day}-${parts.hour}`
+      : grain === "month"
+        ? `${parts.year}-${parts.month}`
+        : `${parts.year}-${parts.month}-${parts.day}`;
+    return {
+      key,
+      label: labelFormatters[grain as keyof typeof labelFormatters].format(date)
+    };
+  };
+
+  type Bucket = {
+    key: string;
+    label: string;
+    unitsSold: number;
+    revenue: number;
+    orderIds: Set<string>;
+  };
+  const buckets = new Map<string, Bucket>();
+  const allOrderIds = new Set<string>();
+  let unitsSold = 0;
+  let revenue = 0;
+  for (const item of itemRows) {
+    const orderDate = orderDateById.get(item.order_id);
+    if (!orderDate) continue;
+    const units = num(item.quantity);
+    const itemRevenue = Math.max(0, num(item.line_subtotal) - num(item.discount_amount));
+    const bucketInfo = bucketFor(orderDate);
+    const bucket = buckets.get(bucketInfo.key) ?? {
+      ...bucketInfo,
+      unitsSold: 0,
+      revenue: 0,
+      orderIds: new Set<string>()
+    };
+    bucket.unitsSold += units;
+    bucket.revenue += itemRevenue;
+    bucket.orderIds.add(item.order_id);
+    buckets.set(bucket.key, bucket);
+    allOrderIds.add(item.order_id);
+    unitsSold += units;
+    revenue += itemRevenue;
+  }
+
+  const round = (value: number) => Math.round(value * 100) / 100;
+  const points = Array.from(buckets.values())
+    .sort((a, b) => a.key.localeCompare(b.key))
+    .map((bucket) => ({
+      key: bucket.key,
+      label: bucket.label,
+      unitsSold: round(bucket.unitsSold),
+      revenue: round(bucket.revenue),
+      orderCount: bucket.orderIds.size
+    }));
+  const bestPeriod = points.reduce<(typeof points)[number] | null>((best, point) => {
+    if (!best || point.unitsSold > best.unitsSold) return point;
+    if (point.unitsSold === best.unitsSold && point.revenue > best.revenue) return point;
+    return best;
+  }, null);
+
+  const rawVariants = (product as { product_variants?: unknown }).product_variants;
+  const variants = (Array.isArray(rawVariants) ? rawVariants : []) as { sku: string; is_default: boolean }[];
+  const variant = variants.find((item) => item.is_default) ?? variants[0];
+  return json({
+    product: { id: product.id, name: product.name, sku: variant?.sku ?? null },
+    range: { from: from.toISOString(), to: to.toISOString(), grain, timeZone: reportTimeZone },
+    summary: {
+      unitsSold: round(unitsSold),
+      revenue: round(revenue),
+      orderCount: allOrderIds.size,
+      averageUnitsPerOrder: allOrderIds.size ? round(unitsSold / allOrderIds.size) : 0
+    },
+    bestPeriod,
+    points
+  });
 }
 
 async function handleProductStatus(req: Request, env: Env, id: string) {
