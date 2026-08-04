@@ -271,6 +271,13 @@ export default {
       if (path === "/api/mobile/v1/management/customers" && req.method === "GET") {
         return handleCustomers(req, env, url);
       }
+      if (path === "/api/mobile/v1/management/customers" && req.method === "POST") {
+        return handleCustomerCreate(req, env);
+      }
+      if (path.match(/^\/api\/mobile\/v1\/management\/customers\/[^/]+$/) && req.method === "PATCH") {
+        const id = path.split("/")[6];
+        return handleCustomerUpdate(req, env, id);
+      }
       if (path === "/api/mobile/v1/management/products" && req.method === "GET") {
         return handleProducts(req, env, url);
       }
@@ -298,6 +305,9 @@ export default {
       if (path === "/api/mobile/v1/management/audit-log" && req.method === "GET") {
         return handleAuditLog(req, env);
       }
+      if (path === "/api/mobile/v1/management/activity" && req.method === "GET") {
+        return handleEntityActivity(req, env, url);
+      }
       if (path === "/api/mobile/v1/management/settings" && req.method === "GET") {
         return handleSettingsGet(req, env);
       }
@@ -314,8 +324,47 @@ export default {
       if (path === "/api/mobile/v1/management/invoices" && req.method === "GET") {
         return handleInvoices(req, env);
       }
+      if (path.match(/^\/api\/mobile\/v1\/management\/invoices\/[^/]+\/payments$/) && req.method === "POST") {
+        const id = path.split("/")[6];
+        return handleInvoicePayment(req, env, id);
+      }
+      if (path.match(/^\/api\/mobile\/v1\/management\/invoices\/[^/]+$/) && req.method === "GET") {
+        const id = path.split("/")[6];
+        return handleInvoiceDetail(req, env, id);
+      }
       if (path === "/api/mobile/v1/management/categories" && req.method === "GET") {
         return handleCategories(req, env);
+      }
+      if (path === "/api/mobile/v1/management/categories" && req.method === "POST") {
+        return handleCategoryCreate(req, env);
+      }
+      if (path.match(/^\/api\/mobile\/v1\/management\/categories\/[^/]+$/) && req.method === "PATCH") {
+        const id = path.split("/")[6];
+        return handleCategoryUpdate(req, env, id);
+      }
+      if (path.match(/^\/api\/mobile\/v1\/management\/categories\/[^/]+\/delete$/) && req.method === "POST") {
+        const id = path.split("/")[6];
+        return handleCategoryDelete(req, env, id);
+      }
+      if (path.match(/^\/api\/mobile\/v1\/management\/products\/[^/]+\/media$/) && req.method === "GET") {
+        const id = path.split("/")[6];
+        return handleProductMediaList(req, env, id);
+      }
+      if (path.match(/^\/api\/mobile\/v1\/management\/products\/[^/]+\/media$/) && req.method === "POST") {
+        const id = path.split("/")[6];
+        return handleProductMediaUpload(req, env, id);
+      }
+      if (path.match(/^\/api\/mobile\/v1\/management\/products\/[^/]+\/media\/[^/]+\/delete$/) && req.method === "POST") {
+        const parts = path.split("/");
+        return handleProductMediaDelete(req, env, parts[6], parts[8]);
+      }
+      if (path.match(/^\/api\/mobile\/v1\/management\/products\/[^/]+\/video\/presign$/) && req.method === "POST") {
+        const id = path.split("/")[6];
+        return handleProductVideoPresign(req, env, id);
+      }
+      if (path.match(/^\/api\/mobile\/v1\/management\/products\/[^/]+\/video\/complete$/) && req.method === "POST") {
+        const id = path.split("/")[6];
+        return handleProductVideoComplete(req, env, id);
       }
       if (path === "/api/mobile/v1/management/accounts" && req.method === "GET") {
         return handleAccounts(req, env);
@@ -338,6 +387,15 @@ export default {
       }
       if (path === "/api/mobile/v1/me" && req.method === "PATCH") {
         return handleMePatch(req, env);
+      }
+      if (path === "/api/mobile/v1/business-application" && req.method === "GET") {
+        return handleBusinessApplicationGet(req, env);
+      }
+      if (path === "/api/mobile/v1/business-application" && req.method === "POST") {
+        return handleBusinessApplicationPost(req, env);
+      }
+      if (path === "/api/mobile/v1/account/delete" && req.method === "POST") {
+        return handleAccountDelete(req, env);
       }
 
       return jsonErr("NOT_FOUND", `No route ${req.method} ${path}`, 404);
@@ -376,16 +434,36 @@ async function handleBootstrap(req: Request, env: Env) {
 async function handleMe(req: Request, env: Env) {
   const v = await getViewer(req, env);
   if (!v) return jsonErr("UNAUTHORIZED", "Sign in required.", 401);
+  const sb = admin(env);
+  const [profileRes, customerRes, appRes] = await Promise.all([
+    sb.from("profiles").select("phone").eq("id", v.id).maybeSingle(),
+    sb
+      .from("customers")
+      .select("company_name, customer_type, wholesale_status, tax_exempt_status")
+      .eq("auth_user_id", v.id)
+      .maybeSingle(),
+    sb
+      .from("business_applications")
+      .select("id", { count: "exact", head: true })
+      .eq("auth_user_id", v.id)
+  ]);
+  const customer = customerRes.data;
   return json({
     id: v.id,
     email: v.email,
     fullName: v.fullName,
+    phone: profileRes.data?.phone ?? null,
     role: v.role,
     isStaff: v.isStaff,
     isManager: v.isManager,
     isAdmin: v.isAdmin,
     isSeller: v.isSeller,
-    canAccessManagement: v.canAccessAdmin
+    canAccessManagement: v.canAccessAdmin,
+    companyName: customer?.company_name ?? null,
+    customerType: customer?.customer_type ?? null,
+    wholesaleStatus: customer?.wholesale_status ?? "not_requested",
+    taxExemptStatus: customer?.tax_exempt_status ?? "not_requested",
+    hasBusinessApplication: (appRes.count ?? 0) > 0
   });
 }
 
@@ -400,6 +478,870 @@ async function handleMePatch(req: Request, env: Env) {
   const sb = admin(env);
   await sb.from("profiles").update(patch).eq("id", v.id);
   return json({ ok: true, ...patch });
+}
+
+// ---- Customer: business / wholesale + tax-exemption application ----
+
+const BA_STATUS_LABELS: Record<string, string> = {
+  not_requested: "Not requested",
+  pending_review: "Pending review",
+  under_review: "Under review",
+  more_info_required: "More info required",
+  approved: "Approved",
+  rejected: "Rejected",
+  expired: "Expired",
+  suspended: "Suspended",
+  revoked: "Revoked"
+};
+
+async function handleBusinessApplicationGet(req: Request, env: Env) {
+  const v = await getViewer(req, env);
+  if (!v) return jsonErr("UNAUTHORIZED", "Sign in required.", 401);
+  const sb = admin(env);
+  const { data: customer } = await sb
+    .from("customers")
+    .select("company_name, customer_type, wholesale_status, tax_exempt_status")
+    .eq("auth_user_id", v.id)
+    .maybeSingle();
+  const { data: apps } = await sb
+    .from("business_applications")
+    .select(
+      "id, application_number, legal_business_name, wholesale_requested, tax_exemption_requested, wholesale_status, tax_exemption_status, customer_visible_message, submitted_at, created_at"
+    )
+    .eq("auth_user_id", v.id)
+    .order("submitted_at", { ascending: false })
+    .limit(20);
+  return json({
+    customer: {
+      companyName: customer?.company_name ?? null,
+      customerType: customer?.customer_type ?? null,
+      wholesaleStatus: customer?.wholesale_status ?? "not_requested",
+      taxExemptStatus: customer?.tax_exempt_status ?? "not_requested"
+    },
+    applications: (apps ?? []).map((a) => ({
+      id: a.id,
+      number: a.application_number,
+      company: a.legal_business_name,
+      wholesaleRequested: a.wholesale_requested,
+      taxRequested: a.tax_exemption_requested,
+      wholesaleStatus: a.wholesale_status,
+      wholesaleStatusLabel: BA_STATUS_LABELS[a.wholesale_status] ?? a.wholesale_status,
+      taxStatus: a.tax_exemption_status,
+      taxStatusLabel: BA_STATUS_LABELS[a.tax_exemption_status] ?? a.tax_exemption_status,
+      message: a.customer_visible_message ?? null,
+      submittedAt: a.submitted_at ?? a.created_at
+    }))
+  });
+}
+
+type IncomingDoc = {
+  base64?: string;
+  filename?: string;
+  contentType?: string;
+  documentType?: string;
+};
+
+async function handleBusinessApplicationPost(req: Request, env: Env) {
+  const v = await getViewer(req, env);
+  if (!v) return jsonErr("UNAUTHORIZED", "Sign in required.", 401);
+  const body = (await req.json()) as Record<string, unknown>;
+
+  const str = (k: string, max = 200) => String(body[k] ?? "").trim().slice(0, max);
+  const wholesaleRequested = Boolean(body.wholesaleRequested);
+  const taxExemptionRequested = Boolean(body.taxExemptionRequested);
+  if (!wholesaleRequested && !taxExemptionRequested) {
+    return jsonErr("BAD_REQUEST", "Request wholesale pricing, tax exemption, or both.");
+  }
+
+  // Required fields (mirror business_applications NOT NULL columns)
+  const required: Array<[string, string]> = [
+    ["applicantFullName", "Applicant full name"],
+    ["applicantJobTitle", "Job title"],
+    ["applicantEmail", "Applicant email"],
+    ["applicantPhone", "Applicant phone"],
+    ["legalBusinessName", "Legal business name"],
+    ["entityType", "Business entity type"],
+    ["businessCategory", "Business category"],
+    ["businessDescription", "Business description"],
+    ["businessStreet", "Business street"],
+    ["businessCity", "Business city"],
+    ["businessState", "Business state"],
+    ["businessZip", "Business ZIP"],
+    ["signerName", "Signer name"],
+    ["signerTitle", "Signer title"],
+    ["electronicSignature", "Electronic signature"]
+  ];
+  for (const [key, label] of required) {
+    if (!str(key)) return jsonErr("BAD_REQUEST", `${label} is required.`);
+  }
+
+  const docs = Array.isArray(body.documents) ? (body.documents as IncomingDoc[]) : [];
+  if (!docs.length) {
+    return jsonErr("DOC_REQUIRED", "Upload at least one supporting document (resale/exemption certificate or business license).");
+  }
+  if (docs.length > 5) return jsonErr("BAD_REQUEST", "Upload at most 5 files.");
+
+  const sb = admin(env);
+  // Find or create the customer row for this auth user.
+  let { data: customer } = await sb
+    .from("customers")
+    .select("id, company_name")
+    .eq("auth_user_id", v.id)
+    .maybeSingle();
+  if (!customer) {
+    const { data: created } = await sb
+      .from("customers")
+      .insert({ auth_user_id: v.id, email: v.email, customer_type: "retail", status: "active" })
+      .select("id, company_name")
+      .single();
+    customer = created;
+  }
+  if (!customer) return jsonErr("CUSTOMER_FAILED", "No customer profile could be created.");
+
+  const wholesaleStatus = wholesaleRequested ? "pending_review" : "not_requested";
+  const taxStatus = taxExemptionRequested ? "pending_review" : "not_requested";
+
+  const yearsRaw = num(body.yearsInBusiness);
+  const insertRow: Record<string, unknown> = {
+    customer_id: customer.id,
+    auth_user_id: v.id,
+    applicant_full_name: str("applicantFullName", 120),
+    applicant_job_title: str("applicantJobTitle", 120),
+    applicant_email: str("applicantEmail", 200),
+    applicant_phone: str("applicantPhone", 40),
+    preferred_contact_method: str("preferredContactMethod", 40) || null,
+    legal_business_name: str("legalBusinessName", 200),
+    dba_name: str("dbaName", 200) || null,
+    entity_type: str("entityType", 60),
+    business_category: str("businessCategory", 80),
+    business_description: str("businessDescription", 2000),
+    website_url: str("websiteUrl", 300) || null,
+    years_in_business: yearsRaw > 0 ? Math.floor(yearsRaw) : null,
+    estimated_monthly_volume: str("estimatedMonthlyVolume", 60) || null,
+    business_street: str("businessStreet", 200),
+    business_address_line_2: str("businessAddressLine2", 200) || null,
+    business_city: str("businessCity", 80),
+    business_state: str("businessState", 40),
+    business_zip: str("businessZip", 20),
+    business_country: str("businessCountry", 2) || "US",
+    wholesale_requested: wholesaleRequested,
+    tax_exemption_requested: taxExemptionRequested,
+    wholesale_status: wholesaleStatus,
+    tax_exemption_status: taxStatus,
+    intended_use: str("intendedUse", 200) || null,
+    wholesale_notes: str("wholesaleNotes", 1000) || null,
+    signer_name: str("signerName", 120),
+    signer_title: str("signerTitle", 120),
+    electronic_signature: str("electronicSignature", 200),
+    signed_at: new Date().toISOString(),
+    ip_address:
+      req.headers.get("cf-connecting-ip") ||
+      req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ||
+      null,
+    user_agent: req.headers.get("user-agent")?.slice(0, 500) ?? null
+  };
+  if (taxExemptionRequested) {
+    insertRow.exemption_type = str("exemptionType", 80) || null;
+    insertRow.issuing_state = str("issuingState", 40) || null;
+    insertRow.permit_number = str("permitNumber", 80) || null;
+    insertRow.resale_product_description = str("resaleProductDescription", 1000) || null;
+  }
+
+  const { data: application, error: insertError } = await sb
+    .from("business_applications")
+    .insert(insertRow)
+    .select("id, application_number, submitted_at, wholesale_status, tax_exemption_status")
+    .single();
+  if (insertError) {
+    if (insertError.code === "23505") {
+      return jsonErr("DUPLICATE", "You already have an application open for review.");
+    }
+    return jsonErr("INSERT_FAILED", insertError.message);
+  }
+
+  // Upload + record documents. Roll back the application if any doc fails.
+  try {
+    for (const doc of docs) {
+      if (!doc.base64) throw new Error("A document had no file data.");
+      const uploaded = await uploadBusinessDocR2(env, customer.id, doc.base64);
+      if ("error" in uploaded) throw new Error(uploaded.error);
+      const { error: docErr } = await sb.from("application_documents").insert({
+        application_id: application.id,
+        document_type: String(doc.documentType ?? "Supporting document").slice(0, 120),
+        original_filename: doc.filename ? String(doc.filename).slice(0, 200) : null,
+        storage_path: uploaded.key,
+        mime_type: uploaded.mime,
+        file_size: uploaded.bytes,
+        uploaded_by: v.id
+      });
+      if (docErr) throw new Error(docErr.message);
+    }
+  } catch (e) {
+    await sb.from("business_applications").delete().eq("id", application.id);
+    return jsonErr("DOC_UPLOAD_FAILED", e instanceof Error ? e.message : "Documents could not be stored.");
+  }
+
+  // Mirror pending status onto the customer record (runtime source of truth).
+  const customerPatch: Record<string, unknown> = { company_name: str("legalBusinessName", 200) };
+  if (wholesaleRequested) {
+    customerPatch.wholesale_status = "pending_review";
+    customerPatch.wholesale_application_id = application.id;
+  }
+  if (taxExemptionRequested) customerPatch.tax_exempt_status = "pending";
+  await sb.from("customers").update(customerPatch).eq("id", customer.id);
+
+  return json(
+    {
+      id: application.id,
+      applicationNumber: application.application_number,
+      wholesaleStatus: application.wholesale_status,
+      taxStatus: application.tax_exemption_status
+    },
+    201
+  );
+}
+
+async function uploadBusinessDocR2(
+  env: Env,
+  customerId: string,
+  base64: string
+): Promise<{ key: string; mime: string; bytes: number } | { error: string }> {
+  if (
+    !env.CLOUDFLARE_ACCOUNT_ID ||
+    !env.R2_ACCESS_KEY_ID ||
+    !env.R2_SECRET_ACCESS_KEY ||
+    !env.R2_DOCUMENTS_BUCKET
+  ) {
+    return { error: "Document storage is not configured on the mobile-api worker." };
+  }
+  const cleaned = base64.replace(/^data:[^;]+;base64,/, "");
+  let binary: Uint8Array;
+  try {
+    const raw = atob(cleaned);
+    binary = new Uint8Array(raw.length);
+    for (let i = 0; i < raw.length; i++) binary[i] = raw.charCodeAt(i);
+  } catch {
+    return { error: "Invalid file encoding." };
+  }
+  if (binary.byteLength <= 0) return { error: "Empty file." };
+  if (binary.byteLength > 10 * 1024 * 1024) return { error: "File larger than 10 MB." };
+  const detected = detectProofType(binary);
+  if (!detected) return { error: "Only real PDF, JPEG, PNG, or WebP files are accepted." };
+
+  const key = `business-applications/${customerId}/${crypto.randomUUID()}.${detected.extension}`;
+  const { AwsClient } = await import("aws4fetch");
+  const client = new AwsClient({
+    accessKeyId: env.R2_ACCESS_KEY_ID,
+    secretAccessKey: env.R2_SECRET_ACCESS_KEY
+  });
+  const url = `https://${env.CLOUDFLARE_ACCOUNT_ID}.r2.cloudflarestorage.com/${env.R2_DOCUMENTS_BUCKET}/${key}`;
+  const res = await client.fetch(url, {
+    method: "PUT",
+    headers: { "Content-Type": detected.contentType },
+    body: binary
+  });
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    return { error: `Document upload failed (${res.status}): ${text.slice(0, 160)}` };
+  }
+  return { key, mime: detected.contentType, bytes: binary.byteLength };
+}
+
+// ---- Customer: delete account (Apple 5.1.1(v)) ----
+// Anonymizes PII and removes the sign-in. customers.auth_user_id is ON DELETE SET NULL,
+// so order/invoice history stays intact for legal retention.
+async function handleAccountDelete(req: Request, env: Env) {
+  const v = await getViewer(req, env);
+  if (!v) return jsonErr("UNAUTHORIZED", "Sign in required.", 401);
+  const sb = admin(env);
+  const stamp = Date.now();
+  const anonEmail = `deleted+${v.id}@deleted.vinamealsupplies.com`;
+
+  // 1) Scrub customer PII but keep the row (orders reference it).
+  await sb
+    .from("customers")
+    .update({
+      email: anonEmail,
+      first_name: "Deleted",
+      last_name: "User",
+      phone: null,
+      company_name: null
+    })
+    .eq("auth_user_id", v.id);
+
+  // 2) Mark the profile disabled + scrub (in case auth delete is blocked).
+  await sb
+    .from("profiles")
+    .update({ status: "disabled", full_name: "Deleted user", phone: null, email: anonEmail })
+    .eq("id", v.id);
+
+  // 3) Remove the sign-in. Cascades to the user's own business_applications;
+  //    customers.auth_user_id is SET NULL so the customer + orders remain.
+  let authDeleted = false;
+  try {
+    const { error } = await sb.auth.admin.deleteUser(v.id);
+    authDeleted = !error;
+  } catch {
+    authDeleted = false;
+  }
+
+  return json({ ok: true, authDeleted, requestedAt: new Date(stamp).toISOString() });
+}
+
+// ---- Management: category create / update ----
+
+function normalizeCategory(body: Record<string, unknown>) {
+  const name = String(body.name ?? "").trim().slice(0, 120);
+  const slug = String(body.slug ?? "").trim().toLowerCase().slice(0, 120);
+  return { name, slug };
+}
+
+async function handleCategoryCreate(req: Request, env: Env) {
+  const gate = await requireAdmin(req, env);
+  if ("error" in gate && gate.error) return gate.error;
+  if (!gate.viewer!.isStaff) return jsonErr("FORBIDDEN", "Staff required.", 403);
+  const body = (await req.json()) as Record<string, unknown>;
+  const { name, slug } = normalizeCategory(body);
+  if (!name) return jsonErr("BAD_REQUEST", "Category name is required.");
+  if (!/^[a-z0-9-]+$/.test(slug)) {
+    return jsonErr("BAD_REQUEST", "Slug can use lowercase letters, numbers, and hyphens.");
+  }
+  const sb = admin(env);
+  const { data, error } = await sb
+    .from("categories")
+    .insert({
+      name,
+      slug,
+      parent_id: body.parentId ? String(body.parentId) : null,
+      sort_order: Number.isFinite(Number(body.sortOrder)) ? Math.trunc(Number(body.sortOrder)) : 0,
+      is_active: body.isActive === undefined ? true : Boolean(body.isActive),
+      tax_category: body.taxCategory ? String(body.taxCategory).slice(0, 60) : null
+    })
+    .select("id")
+    .single();
+  if (error) return jsonErr("CREATE_FAILED", error.message);
+  return json({ id: data?.id }, 201);
+}
+
+async function handleCategoryUpdate(req: Request, env: Env, id: string) {
+  const gate = await requireAdmin(req, env);
+  if ("error" in gate && gate.error) return gate.error;
+  if (!gate.viewer!.isStaff) return jsonErr("FORBIDDEN", "Staff required.", 403);
+  const body = (await req.json()) as Record<string, unknown>;
+  const { name, slug } = normalizeCategory(body);
+  if (!name) return jsonErr("BAD_REQUEST", "Category name is required.");
+  if (!/^[a-z0-9-]+$/.test(slug)) {
+    return jsonErr("BAD_REQUEST", "Slug can use lowercase letters, numbers, and hyphens.");
+  }
+  if (body.parentId && String(body.parentId) === id) {
+    return jsonErr("BAD_REQUEST", "A category cannot be its own parent.");
+  }
+  const patch: Record<string, unknown> = { name, slug };
+  if (body.parentId !== undefined) patch.parent_id = body.parentId ? String(body.parentId) : null;
+  if (body.sortOrder !== undefined) patch.sort_order = Math.trunc(Number(body.sortOrder)) || 0;
+  if (body.isActive !== undefined) patch.is_active = Boolean(body.isActive);
+  if (body.taxCategory !== undefined) patch.tax_category = body.taxCategory ? String(body.taxCategory).slice(0, 60) : null;
+  const sb = admin(env);
+  const { error } = await sb.from("categories").update(patch).eq("id", id);
+  if (error) return jsonErr("UPDATE_FAILED", error.message);
+  return json({ ok: true });
+}
+
+async function handleCategoryDelete(req: Request, env: Env, id: string) {
+  const gate = await requireAdmin(req, env);
+  if ("error" in gate && gate.error) return gate.error;
+  if (!gate.viewer!.isStaff) return jsonErr("FORBIDDEN", "Staff required.", 403);
+  const sb = admin(env);
+  // Products in a category block a hard delete (product_categories FK is RESTRICT)
+  // — return a clear message instead of a raw DB error.
+  const { count } = await sb
+    .from("product_categories")
+    .select("product_id", { count: "exact", head: true })
+    .eq("category_id", id);
+  if ((count ?? 0) > 0) {
+    return jsonErr("CATEGORY_IN_USE", `Move or archive the ${count} product(s) in this category first.`);
+  }
+  const { error } = await sb.from("categories").delete().eq("id", id);
+  if (error) return jsonErr("DELETE_FAILED", error.message);
+  return json({ ok: true });
+}
+
+// ---- Management: customer create / update ----
+
+function customerPatchFromBody(body: Record<string, unknown>) {
+  const s = (k: string, max = 200) =>
+    body[k] === undefined ? undefined : String(body[k] ?? "").trim().slice(0, max);
+  const patch: Record<string, unknown> = {};
+  const first = s("firstName", 120);
+  const last = s("lastName", 120);
+  const company = s("companyName", 160);
+  const email = s("email", 200);
+  const phone = s("phone", 40);
+  const notes = s("notes", 2000);
+  const customerType = s("customerType", 20);
+  const status = s("status", 20);
+  if (first !== undefined) patch.first_name = first || null;
+  if (last !== undefined) patch.last_name = last || null;
+  if (company !== undefined) patch.company_name = company || null;
+  if (email !== undefined) patch.email = email || null;
+  if (phone !== undefined) patch.phone = phone || null;
+  if (notes !== undefined) patch.notes = notes || null;
+  if (customerType !== undefined && customerType) patch.customer_type = customerType;
+  if (status !== undefined && status) patch.status = status;
+  return patch;
+}
+
+async function handleCustomerCreate(req: Request, env: Env) {
+  const gate = await requireAdmin(req, env);
+  if ("error" in gate && gate.error) return gate.error;
+  const body = (await req.json()) as Record<string, unknown>;
+  const patch = customerPatchFromBody(body);
+  const name = [patch.first_name, patch.last_name].filter(Boolean).join(" ");
+  if (!name && !patch.company_name && !patch.email) {
+    return jsonErr("BAD_REQUEST", "Enter a name, company, or email.");
+  }
+  if (!patch.customer_type) patch.customer_type = "retail";
+  if (!patch.status) patch.status = "active";
+  const sb = admin(env);
+  const { data, error } = await sb.from("customers").insert(patch).select("id").single();
+  if (error) return jsonErr("CREATE_FAILED", error.message);
+  return json({ id: data?.id }, 201);
+}
+
+async function handleCustomerUpdate(req: Request, env: Env, id: string) {
+  const gate = await requireAdmin(req, env);
+  if ("error" in gate && gate.error) return gate.error;
+  const body = (await req.json()) as Record<string, unknown>;
+  const patch = customerPatchFromBody(body);
+  if (!Object.keys(patch).length) return jsonErr("BAD_REQUEST", "Nothing to update.");
+  const sb = admin(env);
+  const { error } = await sb.from("customers").update(patch).eq("id", id);
+  if (error) return jsonErr("UPDATE_FAILED", error.message);
+  return json({ ok: true });
+}
+
+// ---- Management: invoice detail + record payment ----
+
+async function handleInvoiceDetail(req: Request, env: Env, id: string) {
+  const gate = await requireAdmin(req, env);
+  if ("error" in gate && gate.error) return gate.error;
+  const sb = admin(env);
+  const { data: inv, error } = await sb
+    .from("invoices")
+    .select(
+      "id, invoice_number, status, issue_date, due_date, subtotal, discount_amount, tax_amount, shipping_amount, total_amount, amount_paid, balance_due, notes, customers ( company_name, first_name, last_name, email, phone )"
+    )
+    .eq("id", id)
+    .maybeSingle();
+  if (error) return jsonErr("LOAD_FAILED", error.message);
+  if (!inv) return jsonErr("NOT_FOUND", "Invoice not found.", 404);
+  const [{ data: items }, { data: payments }] = await Promise.all([
+    sb
+      .from("invoice_items")
+      .select("id, product_name_snapshot, sku_snapshot, quantity, unit_price, line_total")
+      .eq("invoice_id", id),
+    sb
+      .from("payments")
+      .select("id, amount, payment_method, status, payment_kind, received_at, reference, notes")
+      .eq("invoice_id", id)
+      .order("created_at", { ascending: false })
+  ]);
+  const c = inv.customers as {
+    company_name?: string | null;
+    first_name?: string | null;
+    last_name?: string | null;
+    email?: string | null;
+    phone?: string | null;
+  } | null;
+  return json({
+    invoice: {
+      id: inv.id,
+      number: inv.invoice_number,
+      status: inv.status,
+      issueDate: inv.issue_date,
+      dueDate: inv.due_date,
+      subtotal: num(inv.subtotal),
+      discount: num(inv.discount_amount),
+      tax: num(inv.tax_amount),
+      shipping: num(inv.shipping_amount),
+      total: num(inv.total_amount),
+      paid: num(inv.amount_paid),
+      balanceDue: num(inv.balance_due),
+      notes: inv.notes,
+      customer:
+        c?.company_name ||
+        [c?.first_name, c?.last_name].filter(Boolean).join(" ") ||
+        "Customer",
+      customerEmail: c?.email ?? null,
+      customerPhone: c?.phone ?? null
+    },
+    items: (items ?? []).map((i) => ({
+      id: i.id,
+      name: i.product_name_snapshot,
+      sku: i.sku_snapshot,
+      quantity: num(i.quantity),
+      unitPrice: num(i.unit_price),
+      lineTotal: num(i.line_total)
+    })),
+    payments: (payments ?? []).map((p) => ({
+      id: p.id,
+      amount: num(p.amount),
+      method: p.payment_method,
+      status: p.status,
+      kind: p.payment_kind,
+      receivedAt: p.received_at,
+      reference: p.reference,
+      notes: p.notes
+    }))
+  });
+}
+
+async function handleInvoicePayment(req: Request, env: Env, id: string) {
+  const gate = await requireAdmin(req, env);
+  if ("error" in gate && gate.error) return gate.error;
+  const body = (await req.json()) as {
+    amount?: number;
+    method?: string;
+    reference?: string;
+    notes?: string;
+  };
+  const sb = admin(env);
+  const { data: inv } = await sb
+    .from("invoices")
+    .select("id, balance_due, status")
+    .eq("id", id)
+    .maybeSingle();
+  if (!inv) return jsonErr("NOT_FOUND", "Invoice not found.", 404);
+  if (inv.status === "void") return jsonErr("BAD_STATE", "This invoice is void.");
+  const balance = num(inv.balance_due);
+  let amount = Number(body.amount);
+  if (!Number.isFinite(amount) || amount <= 0) amount = balance; // default: pay full balance
+  if (amount <= 0) return jsonErr("BAD_REQUEST", "Nothing left to pay on this invoice.");
+  if (amount > balance + 0.001) return jsonErr("BAD_REQUEST", "Amount is more than the balance due.");
+
+  // The payments trigger recomputes amount_paid + invoice status automatically.
+  const { error } = await sb.from("payments").insert({
+    invoice_id: id,
+    payment_kind: "payment",
+    status: "succeeded",
+    amount: Math.round(amount * 100) / 100,
+    currency: "USD",
+    payment_method: String(body.method ?? "offline").slice(0, 40),
+    reference: body.reference ? String(body.reference).slice(0, 120) : null,
+    notes: body.notes ? String(body.notes).slice(0, 500) : null,
+    received_at: new Date().toISOString(),
+    created_by: gate.viewer!.id
+  });
+  if (error) return jsonErr("PAYMENT_FAILED", error.message);
+  const { data: after } = await sb
+    .from("invoices")
+    .select("amount_paid, balance_due, status")
+    .eq("id", id)
+    .maybeSingle();
+  return json({
+    ok: true,
+    paid: num(after?.amount_paid),
+    balanceDue: num(after?.balance_due),
+    status: after?.status
+  });
+}
+
+// ---- Management: product image upload (public R2 bucket) ----
+
+async function handleProductMediaUpload(req: Request, env: Env, productId: string) {
+  const gate = await requireAdmin(req, env);
+  if ("error" in gate && gate.error) return gate.error;
+  if (!gate.viewer!.isManager) return jsonErr("FORBIDDEN", "Manager required to add product images.", 403);
+  const body = (await req.json()) as { base64?: string; filename?: string; altText?: string };
+  if (!body.base64) return jsonErr("BAD_REQUEST", "No image data.");
+  const sb = admin(env);
+  const { count } = await sb
+    .from("product_media")
+    .select("id", { count: "exact", head: true })
+    .eq("product_id", productId)
+    .eq("media_type", "image");
+  const existing = count ?? 0;
+  if (existing >= 10) return jsonErr("IMAGE_LIMIT_REACHED", "A product can have at most 10 images.");
+
+  const uploaded = await uploadProductImageR2(env, productId, body.base64, String(body.filename ?? "image.jpg"));
+  if ("error" in uploaded) return jsonErr("UPLOAD_FAILED", uploaded.error);
+
+  const { data, error } = await sb
+    .rpc("admin_complete_product_image", {
+      p_product_id: productId,
+      p_object_key: uploaded.key,
+      p_public_url: uploaded.publicUrl,
+      p_content_type: uploaded.mime,
+      p_bytes: uploaded.bytes,
+      p_width: null,
+      p_height: null,
+      p_alt_text: String(body.altText ?? "").slice(0, 240),
+      p_position: existing + 1,
+      p_is_primary: existing === 0,
+      p_created_by: gate.viewer!.id
+    })
+    .single();
+  if (error) return jsonErr("DB_ERROR", error.message);
+  await writeMobileAudit(sb, gate.viewer!, {
+    action: "product.media_upload",
+    entityType: "product",
+    entityId: productId,
+    after: { filename: String(body.filename ?? "image.jpg"), mediaType: "image" }
+  });
+  return json({ media: data, publicUrl: uploaded.publicUrl }, 201);
+}
+
+async function handleProductMediaList(req: Request, env: Env, productId: string) {
+  const gate = await requireAdmin(req, env);
+  if ("error" in gate && gate.error) return gate.error;
+  const sb = admin(env);
+  const { data, error } = await sb
+    .from("product_media")
+    .select("id, media_type, provider, status, object_key, public_url, stream_uid, poster_url, position, is_primary")
+    .eq("product_id", productId)
+    .order("media_type", { ascending: true })
+    .order("position", { ascending: true });
+  if (error) return jsonErr("LOAD_FAILED", error.message);
+  return json({
+    media: (data ?? []).map((m) => ({
+      id: m.id,
+      mediaType: m.media_type,
+      provider: m.provider,
+      status: m.status,
+      url:
+        m.public_url ??
+        (m.provider === "r2" && m.object_key ? r2PublicUrl(env, m.object_key) : null),
+      streamUid: m.stream_uid,
+      posterUrl: m.poster_url,
+      position: m.position,
+      isPrimary: m.is_primary
+    }))
+  });
+}
+
+async function handleProductMediaDelete(req: Request, env: Env, productId: string, mediaId: string) {
+  const gate = await requireAdmin(req, env);
+  if ("error" in gate && gate.error) return gate.error;
+  if (!gate.viewer!.isManager) return jsonErr("FORBIDDEN", "Manager required.", 403);
+  const sb = admin(env);
+  const { data: m } = await sb
+    .from("product_media")
+    .select("id, object_key, provider")
+    .eq("id", mediaId)
+    .eq("product_id", productId)
+    .maybeSingle();
+  if (!m) return jsonErr("NOT_FOUND", "Media not found.", 404);
+  const { error } = await sb.from("product_media").delete().eq("id", mediaId);
+  if (error) return jsonErr("DELETE_FAILED", error.message);
+  // Best-effort: remove the underlying R2 object so storage doesn't leak.
+  if (m.provider === "r2" && m.object_key) {
+    try {
+      await deleteR2Object(env, m.object_key);
+    } catch {
+      /* ignore — the DB row is already gone */
+    }
+  }
+  await writeMobileAudit(sb, gate.viewer!, {
+    action: "product.media_delete",
+    entityType: "product",
+    entityId: productId,
+    after: { mediaId, provider: m.provider }
+  });
+  return json({ ok: true });
+}
+
+async function deleteR2Object(env: Env, key: string): Promise<void> {
+  if (
+    !env.CLOUDFLARE_ACCOUNT_ID ||
+    !env.R2_ACCESS_KEY_ID ||
+    !env.R2_SECRET_ACCESS_KEY ||
+    !env.R2_BUCKET
+  ) {
+    return;
+  }
+  const { AwsClient } = await import("aws4fetch");
+  const client = new AwsClient({
+    accessKeyId: env.R2_ACCESS_KEY_ID,
+    secretAccessKey: env.R2_SECRET_ACCESS_KEY,
+    service: "s3",
+    region: "auto"
+  });
+  const url = `https://${env.CLOUDFLARE_ACCOUNT_ID}.r2.cloudflarestorage.com/${env.R2_BUCKET}/${key}`;
+  await client.fetch(url, { method: "DELETE" });
+}
+
+async function uploadProductImageR2(
+  env: Env,
+  productId: string,
+  base64: string,
+  filename: string
+): Promise<{ key: string; publicUrl: string; mime: string; bytes: number } | { error: string }> {
+  if (
+    !env.CLOUDFLARE_ACCOUNT_ID ||
+    !env.R2_ACCESS_KEY_ID ||
+    !env.R2_SECRET_ACCESS_KEY ||
+    !env.R2_BUCKET ||
+    !env.R2_PUBLIC_BASE_URL
+  ) {
+    return {
+      error: "Product image storage is not configured on the mobile-api worker (set R2_BUCKET and R2_PUBLIC_BASE_URL)."
+    };
+  }
+  const cleaned = base64.replace(/^data:[^;]+;base64,/, "");
+  let binary: Uint8Array;
+  try {
+    const raw = atob(cleaned);
+    binary = new Uint8Array(raw.length);
+    for (let i = 0; i < raw.length; i++) binary[i] = raw.charCodeAt(i);
+  } catch {
+    return { error: "Invalid image encoding." };
+  }
+  if (binary.byteLength <= 0) return { error: "Empty image." };
+  if (binary.byteLength > 8 * 1024 * 1024) return { error: "Image larger than 8 MB." };
+  const detected = detectProofType(binary);
+  if (!detected || detected.extension === "pdf") {
+    return { error: "Use a JPEG, PNG, or WebP image." };
+  }
+  const safeBase = filename
+    .replace(/\.[^.]*$/, "")
+    .normalize("NFKD")
+    .replace(/[^a-zA-Z0-9-_]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 60) || "image";
+  const key = `products/${productId}/images/${crypto.randomUUID()}-${safeBase}.${detected.extension}`;
+
+  const { AwsClient } = await import("aws4fetch");
+  const client = new AwsClient({
+    accessKeyId: env.R2_ACCESS_KEY_ID,
+    secretAccessKey: env.R2_SECRET_ACCESS_KEY
+  });
+  const url = `https://${env.CLOUDFLARE_ACCOUNT_ID}.r2.cloudflarestorage.com/${env.R2_BUCKET}/${key}`;
+  const res = await client.fetch(url, {
+    method: "PUT",
+    headers: {
+      "Content-Type": detected.contentType,
+      "Cache-Control": "public, max-age=31536000, immutable"
+    },
+    body: binary
+  });
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    return { error: `Image upload failed (${res.status}): ${text.slice(0, 160)}` };
+  }
+  const base = env.R2_PUBLIC_BASE_URL.replace(/\/$/, "");
+  const publicUrl = `${base}/${key.split("/").map(encodeURIComponent).join("/")}`;
+  return { key, publicUrl, mime: detected.contentType, bytes: binary.byteLength };
+}
+
+// ---- Management: product video stored in R2 (no Cloudflare Stream needed) ----
+// Free path: presign a PUT straight to the same public R2 bucket as images, the
+// app uploads the file directly (streamed from disk), then /complete records a
+// product_media row (provider=r2, media_type=video). Served from R2_PUBLIC_BASE_URL.
+
+const VIDEO_EXTS: Record<string, string> = {
+  mp4: "video/mp4",
+  mov: "video/quicktime",
+  m4v: "video/x-m4v",
+  webm: "video/webm"
+};
+
+function r2Configured(env: Env): boolean {
+  return Boolean(
+    env.CLOUDFLARE_ACCOUNT_ID &&
+      env.R2_ACCESS_KEY_ID &&
+      env.R2_SECRET_ACCESS_KEY &&
+      env.R2_BUCKET &&
+      env.R2_PUBLIC_BASE_URL
+  );
+}
+
+function r2PublicUrl(env: Env, key: string): string {
+  const base = env.R2_PUBLIC_BASE_URL!.replace(/\/$/, "");
+  return `${base}/${key.split("/").map(encodeURIComponent).join("/")}`;
+}
+
+async function handleProductVideoPresign(req: Request, env: Env, productId: string) {
+  const gate = await requireAdmin(req, env);
+  if ("error" in gate && gate.error) return gate.error;
+  if (!gate.viewer!.isManager) return jsonErr("FORBIDDEN", "Manager required to add product video.", 403);
+  if (!r2Configured(env)) {
+    return jsonErr("R2_NOT_CONFIGURED", "Video storage is not configured (set R2_BUCKET + R2_PUBLIC_BASE_URL).");
+  }
+  const body = (await req.json()) as { filename?: string };
+  const rawExt = String(body.filename ?? "video.mp4").split(".").pop()?.toLowerCase() ?? "mp4";
+  const ext = VIDEO_EXTS[rawExt] ? rawExt : "mp4";
+  const contentType = VIDEO_EXTS[ext];
+
+  const sb = admin(env);
+  const { count } = await sb
+    .from("product_media")
+    .select("id", { count: "exact", head: true })
+    .eq("product_id", productId)
+    .eq("media_type", "video");
+  if ((count ?? 0) >= 1) {
+    return jsonErr("VIDEO_LIMIT_REACHED", "Remove or replace the existing product video first.");
+  }
+
+  const key = `products/${productId}/videos/${crypto.randomUUID()}.${ext}`;
+  const { AwsClient } = await import("aws4fetch");
+  const client = new AwsClient({
+    accessKeyId: env.R2_ACCESS_KEY_ID!,
+    secretAccessKey: env.R2_SECRET_ACCESS_KEY!,
+    service: "s3",
+    region: "auto"
+  });
+  const url = new URL(`https://${env.CLOUDFLARE_ACCOUNT_ID}.r2.cloudflarestorage.com/${env.R2_BUCKET}/${key}`);
+  url.searchParams.set("X-Amz-Expires", "3600");
+  const signed = await client.sign(url.toString(), { method: "PUT", aws: { signQuery: true } });
+
+  return json({
+    uploadUrl: signed.url,
+    key,
+    publicUrl: r2PublicUrl(env, key),
+    contentType
+  });
+}
+
+async function handleProductVideoComplete(req: Request, env: Env, productId: string) {
+  const gate = await requireAdmin(req, env);
+  if ("error" in gate && gate.error) return gate.error;
+  if (!gate.viewer!.isManager) return jsonErr("FORBIDDEN", "Manager required.", 403);
+  const body = (await req.json()) as {
+    key?: string;
+    contentType?: string;
+    bytes?: number;
+    filename?: string;
+  };
+  const key = String(body.key ?? "");
+  if (!key.startsWith(`products/${productId}/videos/`)) {
+    return jsonErr("BAD_REQUEST", "The object key does not belong to this product.");
+  }
+  const sb = admin(env);
+  const { data: media, error } = await sb
+    .from("product_media")
+    .insert({
+      product_id: productId,
+      media_type: "video",
+      provider: "r2",
+      status: "ready",
+      object_key: key,
+      public_url: r2PublicUrl(env, key),
+      content_type: String(body.contentType ?? "video/mp4").slice(0, 120),
+      bytes: Number.isFinite(Number(body.bytes)) ? Math.trunc(Number(body.bytes)) : null,
+      alt_text: `${String(body.filename ?? "product").slice(0, 120)} product video`,
+      position: 1,
+      created_by: gate.viewer!.id
+    })
+    .select("id, public_url, status")
+    .single();
+  if (error) return jsonErr("DB_ERROR", error.message);
+  await writeMobileAudit(sb, gate.viewer!, {
+    action: "product.video_upload",
+    entityType: "product",
+    entityId: productId,
+    after: { filename: String(body.filename ?? "product video"), mediaType: "video" }
+  });
+  return json({ media, publicUrl: r2PublicUrl(env, key) }, 201);
 }
 
 async function handleCheckout(req: Request, env: Env) {
@@ -894,6 +1836,36 @@ async function requireAdmin(req: Request, env: Env) {
   return { viewer: v };
 }
 
+async function writeMobileAudit(
+  sb: SupabaseClient,
+  viewer: Viewer,
+  input: {
+    action: string;
+    entityType: string;
+    entityId: string;
+    before?: unknown;
+    after?: unknown;
+    metadata?: Record<string, unknown>;
+  }
+) {
+  const { error } = await sb.from("audit_log").insert({
+    actor_user_id: viewer.id,
+    action: input.action,
+    entity_type: input.entityType,
+    entity_id: input.entityId,
+    before_data: input.before ?? null,
+    after_data: input.after ?? null,
+    metadata: {
+      source: "mobile",
+      actorName: viewer.fullName || viewer.email || viewer.id.slice(0, 8),
+      actorEmail: viewer.email,
+      actorRole: viewer.role,
+      ...(input.metadata ?? {})
+    }
+  });
+  if (error) console.error("[mobile audit]", error.message, input.action, input.entityId);
+}
+
 async function handleDashboard(req: Request, env: Env) {
   const gate = await requireAdmin(req, env);
   if ("error" in gate && gate.error) return gate.error;
@@ -1290,6 +2262,31 @@ async function handleOrderAction(req: Request, env: Env, orderId: string) {
     return jsonErr("BAD_REQUEST", `Unknown action: ${action}`);
   }
 
+  await writeMobileAudit(sb, viewer, {
+    action: `order.${action}`,
+    entityType: "sales_order",
+    entityId: orderId,
+    before: {
+      status: order.status,
+      fulfillmentMethod: order.fulfillment_method,
+      pickupReadyAt: order.pickup_ready_at,
+      pickedUpAt: order.picked_up_at
+    },
+    after: {
+      note: body.note?.slice(0, 1000) || null,
+      reason: body.reason?.slice(0, 500) || null,
+      carrier: body.carrier?.slice(0, 40) || null,
+      trackingNumber: body.trackingNumber?.slice(0, 80) || null,
+      proofFilename: body.proofFilename?.slice(0, 200) || null
+    },
+    metadata: {
+      orderNumber: order.order_number,
+      message: responseMessage,
+      note: body.note?.slice(0, 1000) || null,
+      reason: body.reason?.slice(0, 500) || null
+    }
+  });
+
   return json({ ok: true, action, message: responseMessage });
 }
 
@@ -1364,6 +2361,14 @@ async function handleInventoryAdjust(req: Request, env: Env) {
     created_by: viewer.id
   });
   if (error) return jsonErr("ADJUST_FAILED", error.message);
+  await writeMobileAudit(sb, viewer, {
+    action: "inventory.adjust",
+    entityType: "product_variant",
+    entityId: variantId,
+    before: { onHand: current },
+    after: { delta, mode: body.mode ?? "delta", reason, locationId },
+    metadata: { sku: body.sku ?? "", reason }
+  });
   const sign = delta > 0 ? "+" : "";
   return json({ message: `Adjusted ${body.sku || "item"} by ${sign}${delta}.` });
 }
@@ -1377,23 +2382,37 @@ async function handleInventoryHistory(req: Request, env: Env, url: URL) {
   const sb = admin(env);
   const { data, error } = await sb
     .from("inventory_movements")
-    .select("id, created_at, movement_type, quantity_change, reason")
+    .select("id, created_at, movement_type, quantity_change, reason, created_by")
     .eq("variant_id", variantId)
     .eq("location_id", locationId)
     .order("created_at", { ascending: false })
     .limit(50);
   if (error) return jsonErr("LOAD_FAILED", error.message);
+  const actorIds = Array.from(
+    new Set((data ?? []).map((movement) => movement.created_by).filter((id): id is string => Boolean(id)))
+  );
+  const actorById = new Map<string, { full_name: string | null; email: string | null }>();
+  if (actorIds.length) {
+    const { data: profiles } = await sb
+      .from("profiles")
+      .select("id, full_name, email")
+      .in("id", actorIds);
+    for (const profile of profiles ?? []) actorById.set(profile.id, profile);
+  }
   return json({
-    movements: (data ?? []).map((m) => ({
-      id: m.id,
-      createdAt: m.created_at,
-      movementType: m.movement_type,
-      quantityChange: num(m.quantity_change),
-      reason: m.reason,
-      sku: "",
-      productName: "",
-      changedBy: ""
-    }))
+    movements: (data ?? []).map((m) => {
+      const actor = m.created_by ? actorById.get(m.created_by) : null;
+      return {
+        id: m.id,
+        createdAt: m.created_at,
+        movementType: m.movement_type,
+        quantityChange: num(m.quantity_change),
+        reason: m.reason,
+        sku: "",
+        productName: "",
+        changedBy: actor?.full_name || actor?.email || "System"
+      };
+    })
   });
 }
 
@@ -1632,11 +2651,18 @@ async function handleProductSalesReport(req: Request, env: Env, productId: strin
 async function handleProductStatus(req: Request, env: Env, id: string) {
   const gate = await requireAdmin(req, env);
   if ("error" in gate && gate.error) return gate.error;
+  const viewer = gate.viewer!;
   const body = (await req.json()) as { action?: string };
   const action = body.action ?? "";
   const sb = admin(env);
   if (action === "archive") {
     await sb.from("products").update({ status: "archived", featured: false }).eq("id", id);
+    await writeMobileAudit(sb, viewer, {
+      action: "product.archive",
+      entityType: "product",
+      entityId: id,
+      after: { status: "archived", featured: false }
+    });
     return json({ message: "Archived." });
   }
   if (action === "restore") {
@@ -1644,12 +2670,23 @@ async function handleProductStatus(req: Request, env: Env, id: string) {
       .from("products")
       .update({ status: "active", published_at: new Date().toISOString() })
       .eq("id", id);
+    await writeMobileAudit(sb, viewer, {
+      action: "product.restore",
+      entityType: "product",
+      entityId: id,
+      after: { status: "active" }
+    });
     return json({ message: "Restored." });
   }
   if (action === "delete_forever") {
     if (!gate.viewer!.isAdmin) return jsonErr("FORBIDDEN", "Admin only.", 403);
     const { error } = await sb.rpc("admin_delete_product_forever", { p_product_id: id });
     if (error) return jsonErr("DELETE_FAILED", error.message);
+    await writeMobileAudit(sb, viewer, {
+      action: "product.delete_forever",
+      entityType: "product",
+      entityId: id
+    });
     return json({ message: "Deleted forever." });
   }
   return jsonErr("BAD_REQUEST", `Unknown action: ${action}`);
@@ -2546,13 +3583,11 @@ async function handleProductCreate(req: Request, env: Env) {
     }
   }
 
-  await sb.from("audit_log").insert({
-    actor_user_id: viewer.id,
+  await writeMobileAudit(sb, viewer, {
     action: "product.create",
-    entity_type: "product",
-    entity_id: product.id,
-    after_data: { name, slug, sku, retail, cost },
-    metadata: { source: "mobile" }
+    entityType: "product",
+    entityId: product.id,
+    after: { name, slug, sku, retail, cost, barcode: body.barcode ?? null, status }
   });
 
   return json({ id: product.id, slug, sku }, 201);
@@ -2565,6 +3600,32 @@ async function handleProductUpdate(req: Request, env: Env, id: string) {
   const body = (await req.json()) as Record<string, unknown>;
   const sb = admin(env);
 
+  const [{ data: beforeProduct }, { data: beforeVariants }] = await Promise.all([
+    sb
+      .from("products")
+      .select("name, short_description, description, status, featured")
+      .eq("id", id)
+      .maybeSingle(),
+    sb
+      .from("product_variants")
+      .select("id, sku, barcode, retail_price, cost_price")
+      .eq("product_id", id)
+      .eq("is_default", true)
+      .limit(1)
+  ]);
+  const beforeVariant = beforeVariants?.[0];
+  const beforeAudit = {
+    name: beforeProduct?.name,
+    shortDescription: beforeProduct?.short_description ?? "",
+    description: beforeProduct?.description ?? "",
+    status: beforeProduct?.status,
+    featured: beforeProduct?.featured,
+    sku: beforeVariant?.sku,
+    barcode: beforeVariant?.barcode ?? "",
+    retailPrice: beforeVariant ? num(beforeVariant.retail_price) : null,
+    costPrice: beforeVariant ? num(beforeVariant.cost_price) : null
+  };
+
   const productPatch: Record<string, unknown> = { updated_by: viewer.id, updated_at: new Date().toISOString() };
   if (body.name != null) productPatch.name = String(body.name).trim();
   if (body.shortDescription != null) productPatch.short_description = String(body.shortDescription);
@@ -2575,13 +3636,7 @@ async function handleProductUpdate(req: Request, env: Env, id: string) {
   const { error: pErr } = await sb.from("products").update(productPatch).eq("id", id);
   if (pErr) return jsonErr("UPDATE_FAILED", pErr.message);
 
-  const { data: variants } = await sb
-    .from("product_variants")
-    .select("id")
-    .eq("product_id", id)
-    .eq("is_default", true)
-    .limit(1);
-  const variantId = variants?.[0]?.id;
+  const variantId = beforeVariant?.id;
   if (variantId) {
     const vp: Record<string, unknown> = {};
     if (body.retailPrice != null) vp.retail_price = num(body.retailPrice);
@@ -2597,13 +3652,12 @@ async function handleProductUpdate(req: Request, env: Env, id: string) {
     }
   }
 
-  await sb.from("audit_log").insert({
-    actor_user_id: viewer.id,
+  await writeMobileAudit(sb, viewer, {
     action: "product.update",
-    entity_type: "product",
-    entity_id: id,
-    after_data: body,
-    metadata: { source: "mobile" }
+    entityType: "product",
+    entityId: id,
+    before: beforeAudit,
+    after: body
   });
 
   return json({ ok: true, id });
@@ -2711,6 +3765,133 @@ async function handleAuditLog(req: Request, env: Env) {
   });
 }
 
+function activityLabel(action: string) {
+  const labels: Record<string, string> = {
+    "order.mark_pickup_ready": "Marked ready for pickup",
+    "order.pickup_ready": "Marked ready for pickup",
+    "order.confirm_pickup": "Confirmed customer pickup",
+    "order.cancel_pickup": "Cancelled pickup",
+    "order.cancel": "Cancelled order",
+    "order.save_tracking": "Saved tracking / shipping proof",
+    "order.confirm_shipped": "Confirmed shipment",
+    "order.confirm_delivered": "Confirmed shipped / delivered",
+    "order.update_notes": "Updated order notes",
+    "order.confirm_payment": "Confirmed payment",
+    "order.send_order_email": "Sent customer email",
+    "product.create": "Created product",
+    "product.update": "Updated product",
+    "product.archive": "Archived product",
+    "product.restore": "Restored product",
+    "product.delete_forever": "Deleted product permanently",
+    "product.media_upload": "Added product photo",
+    "product.media_delete": "Removed product media",
+    "product.video_upload": "Added product video"
+  };
+  return labels[action] ?? action.replaceAll("_", " ").replaceAll(".", " · ");
+}
+
+function auditObject(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : {};
+}
+
+function activityDetail(
+  action: string,
+  beforeValue: unknown,
+  afterValue: unknown,
+  metadataValue: unknown
+) {
+  const before = auditObject(beforeValue);
+  const after = auditObject(afterValue);
+  const metadata = auditObject(metadataValue);
+  const firstText = (...values: unknown[]) =>
+    values.find((value) => typeof value === "string" && value.trim()) as string | undefined;
+  const explicit = firstText(metadata.reason, after.reason, metadata.note, after.note);
+  if (explicit) return explicit.slice(0, 500);
+
+  if (action.includes("tracking") || action.includes("shipped") || action.includes("delivered")) {
+    const tracking = firstText(after.trackingNumber, after.tracking_number);
+    const carrier = firstText(after.carrier, after.shipping_carrier);
+    if (tracking) return [carrier?.toUpperCase(), tracking].filter(Boolean).join(" · ");
+  }
+  if (action === "product.update") {
+    const names: Record<string, string> = {
+      name: "name",
+      sku: "SKU",
+      barcode: "barcode",
+      retailPrice: "retail price",
+      costPrice: "unit cost",
+      shortDescription: "short description",
+      description: "description",
+      featured: "featured status",
+      status: "availability"
+    };
+    const changed = Object.keys(after)
+      .filter((key) => key in names && JSON.stringify(before[key]) !== JSON.stringify(after[key]))
+      .map((key) => names[key]);
+    if (changed.length) return `Changed ${changed.join(", ")}.`;
+  }
+  const message = firstText(metadata.message);
+  if (message) return message.slice(0, 500);
+  const beforeStatus = firstText(before.status);
+  const afterStatus = firstText(after.status);
+  if (beforeStatus || afterStatus) {
+    return [beforeStatus, afterStatus].filter(Boolean).join(" → ");
+  }
+  return null;
+}
+
+async function handleEntityActivity(req: Request, env: Env, url: URL) {
+  const gate = await requireAdmin(req, env);
+  if ("error" in gate && gate.error) return gate.error;
+  const entityType = url.searchParams.get("entityType") ?? "";
+  const entityId = url.searchParams.get("entityId") ?? "";
+  if (!entityId || !["sales_order", "product"].includes(entityType)) {
+    return jsonErr("BAD_REQUEST", "A valid entityType and entityId are required.");
+  }
+
+  const sb = admin(env);
+  const { data, error } = await sb
+    .from("audit_log")
+    .select("id, actor_user_id, action, before_data, after_data, metadata, created_at")
+    .eq("entity_type", entityType)
+    .eq("entity_id", entityId)
+    .order("created_at", { ascending: false })
+    .limit(100);
+  if (error) return jsonErr("LOAD_FAILED", error.message);
+
+  const actorIds = Array.from(
+    new Set((data ?? []).map((entry) => entry.actor_user_id).filter((id): id is string => Boolean(id)))
+  );
+  const actorById = new Map<string, { full_name: string | null; email: string | null }>();
+  if (actorIds.length) {
+    const { data: profiles } = await sb
+      .from("profiles")
+      .select("id, full_name, email")
+      .in("id", actorIds);
+    for (const profile of profiles ?? []) actorById.set(profile.id, profile);
+  }
+
+  return json({
+    entries: (data ?? []).map((entry) => {
+      const profile = entry.actor_user_id ? actorById.get(entry.actor_user_id) : null;
+      const metadata = auditObject(entry.metadata);
+      const metadataName = typeof metadata.actorName === "string" ? metadata.actorName : null;
+      const metadataEmail = typeof metadata.actorEmail === "string" ? metadata.actorEmail : null;
+      return {
+        id: String(entry.id),
+        actorName: profile?.full_name || metadataName || profile?.email || metadataEmail || "System",
+        actorEmail: profile?.email || metadataEmail,
+        action: entry.action,
+        actionLabel: activityLabel(entry.action),
+        detail: activityDetail(entry.action, entry.before_data, entry.after_data, entry.metadata),
+        createdAt: entry.created_at
+      };
+    })
+  });
+}
+
 async function handleSettingsGet(req: Request, env: Env) {
   const gate = await requireAdmin(req, env);
   if ("error" in gate && gate.error) return gate.error;
@@ -2721,6 +3902,7 @@ async function handleSettingsGet(req: Request, env: Env) {
     settings: (data ?? []).map((s) => ({
       key: s.key,
       value: s.value,
+      valueText: JSON.stringify(s.value),
       isPublic: s.is_public,
       description: s.description,
       updatedAt: s.updated_at
