@@ -1210,7 +1210,7 @@ async function handleProducts(req: Request, env: Env, url: URL) {
   let query = sb
     .from("products")
     .select(
-      "id, slug, name, status, featured, short_description, product_variants ( sku, retail_price, sale_price, cost_price, is_default )"
+      "id, slug, name, status, featured, short_description, product_variants ( sku, barcode, retail_price, sale_price, cost_price, is_default )"
     )
     .order("name")
     .limit(150);
@@ -1219,7 +1219,7 @@ async function handleProducts(req: Request, env: Env, url: URL) {
   if (error) return jsonErr("LOAD_FAILED", error.message);
   const viewer = gate.viewer!;
   const products = (data ?? []).map((p) => {
-    const variants = (p.product_variants as { sku: string; retail_price: number; sale_price: number | null; cost_price: number; is_default: boolean }[] | null) ?? [];
+    const variants = (p.product_variants as { sku: string; barcode: string | null; retail_price: number; sale_price: number | null; cost_price: number; is_default: boolean }[] | null) ?? [];
     const v = variants.find((x) => x.is_default) ?? variants[0];
     const row: Record<string, unknown> = {
       id: p.id,
@@ -1228,6 +1228,7 @@ async function handleProducts(req: Request, env: Env, url: URL) {
       status: p.status,
       featured: p.featured,
       sku: v?.sku ?? null,
+      barcode: v?.barcode ?? null,
       retailPrice: v ? num(v.retail_price) : null,
       salePrice: v?.sale_price != null ? num(v.sale_price) : null
     };
@@ -1813,6 +1814,7 @@ async function handleProductCreate(req: Request, env: Env) {
       product_id: product.id,
       variant_name: String(body.variantName ?? "Default"),
       sku,
+      barcode: body.barcode ? String(body.barcode).trim() : null,
       retail_price: retail,
       sale_price: body.salePrice != null ? num(body.salePrice) : null,
       wholesale_price: body.wholesalePrice != null ? num(body.wholesalePrice) : null,
@@ -1899,6 +1901,10 @@ async function handleProductUpdate(req: Request, env: Env, id: string) {
     if (body.retailPrice != null) vp.retail_price = num(body.retailPrice);
     if (body.salePrice !== undefined) vp.sale_price = body.salePrice == null ? null : num(body.salePrice);
     if (body.sku != null) vp.sku = String(body.sku);
+    if (body.barcode !== undefined) {
+      const barcode = String(body.barcode ?? "").trim();
+      vp.barcode = barcode || null;
+    }
     if (!viewer.isSeller && body.costPrice != null) vp.cost_price = num(body.costPrice);
     if (Object.keys(vp).length) {
       await sb.from("product_variants").update(vp).eq("id", variantId);
