@@ -4,6 +4,18 @@ import { getStoreBusinessProfile } from "@/lib/data/store-settings";
 import { sendEmail } from "@/lib/email/send";
 import { createAdminClient } from "@/lib/supabase/admin";
 
+function siteOrigin() {
+  return process.env.NEXT_PUBLIC_SITE_ORIGIN?.replace(/\/$/, "") || "https://vinamealsupplies.com";
+}
+
+function escapeHtml(value: string) {
+  return value
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;");
+}
+
 /** Email khách của một đơn: ưu tiên email đăng nhập (profiles), fallback customers.email. */
 async function resolveCustomerEmail(customerId: string): Promise<string | null> {
   const supabase = createAdminClient();
@@ -48,6 +60,9 @@ export async function sendOrderStatusEmail(opts: {
     const store = await getStoreBusinessProfile().catch(() => null);
     const storeName = store?.displayName || store?.legalName || "Vinameals";
     const orderNo = opts.orderNumber || "";
+    const orderUrl = orderNo
+      ? `${siteOrigin()}/account/orders/${encodeURIComponent(orderNo)}`
+      : `${siteOrigin()}/account/orders`;
     const storeAddress = store
       ? [store.addressLine1, store.city, store.state, store.postalCode].filter(Boolean).join(", ")
       : "";
@@ -80,8 +95,10 @@ export async function sendOrderStatusEmail(opts: {
         html.push(`<p>Địa chỉ: ${storeAddress}</p>`);
       }
       text.push(`Mang theo số đơn ${orderNo} và giấy tờ tuỳ thân.`);
-      html.push(`<p>Mang theo số đơn <strong>${orderNo}</strong> và giấy tờ tuỳ thân.</p>`);
+      html.push(`<p>Mang theo số đơn <strong>${escapeHtml(orderNo)}</strong> và giấy tờ tuỳ thân.</p>`);
     }
+    text.push(`Xem đơn hàng: ${orderUrl}`);
+    html.push(`<p><a href="${orderUrl}">Xem đơn hàng ${escapeHtml(orderNo)}</a></p>`);
     text.push(`\n— ${storeName}`);
 
     await sendEmail({

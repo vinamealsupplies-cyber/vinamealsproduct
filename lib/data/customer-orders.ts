@@ -267,6 +267,36 @@ export async function getOwnOrders(authUserId: string): Promise<CustomerOrder[]>
   return ((data ?? []) as unknown as DbOrder[]).map(mapOrder);
 }
 
+/** One non-draft order owned by this account, addressed by UUID or order number. */
+export async function getOwnOrderByIdentifier(
+  authUserId: string,
+  identifier: string
+): Promise<CustomerOrder | null> {
+  const customerId = await getCustomerId(authUserId);
+  const value = identifier.trim();
+  if (!customerId || !value) return null;
+
+  const supabase = createAdminClient();
+  let query = supabase
+    .from("sales_orders")
+    .select(
+      `id, order_number, status, fulfillment_method, total_amount, currency, placed_at, created_at, notes, pickup_ready_at, picked_up_at, fulfilled_at,
+       items:sales_order_items ( id, product_name_snapshot, variant_name_snapshot, sku_snapshot, quantity, unit_price, line_total, line_note ),
+       invoices ( id, amount_paid, total_amount, status, payments ( received_at, status, amount, payment_method, created_at ) )`
+    )
+    .eq("customer_id", customerId)
+    .neq("status", "draft");
+
+  const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
+  query = isUuid
+    ? query.or(`id.eq.${value},order_number.eq.${value}`)
+    : query.eq("order_number", value);
+
+  const { data, error } = await query.maybeSingle();
+  if (error) throw new Error(`Failed to load order: ${error.message}`);
+  return data ? mapOrder(data as unknown as DbOrder) : null;
+}
+
 /** Số đơn chưa hoàn tất (confirmed) — badge đỏ trên Account / Orders. */
 export async function getOwnOpenOrderCount(authUserId: string): Promise<number> {
   const customerId = await getCustomerId(authUserId);

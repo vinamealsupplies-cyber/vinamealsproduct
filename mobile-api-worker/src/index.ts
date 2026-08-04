@@ -9,6 +9,19 @@ type Env = {
   SUPABASE_URL: string;
   SUPABASE_PUBLISHABLE_KEY: string;
   SUPABASE_SERVICE_ROLE_KEY: string;
+  RESEND_API_KEY?: string;
+  EMAIL_FROM?: string;
+  /** Optional — for shipping proof upload to private documents bucket */
+  CLOUDFLARE_ACCOUNT_ID?: string;
+  R2_ACCESS_KEY_ID?: string;
+  R2_SECRET_ACCESS_KEY?: string;
+  R2_DOCUMENTS_BUCKET?: string;
+  /** Optional — public product-image bucket (same names the website uses) */
+  R2_BUCKET?: string;
+  R2_PUBLIC_BASE_URL?: string;
+  /** Optional — Cloudflare Stream for product video (same names the website uses) */
+  CLOUDFLARE_STREAM_API_TOKEN?: string;
+  CLOUDFLARE_STREAM_CUSTOMER_CODE?: string;
 };
 
 type Viewer = {
@@ -142,6 +155,59 @@ function num(v: unknown) {
   return Number.isFinite(n) ? n : 0;
 }
 
+function escapeEmailHtml(value: string) {
+  return value
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;");
+}
+
+async function sendMobileEmail(
+  env: Env,
+  input: { to: string; subject: string; text: string; html: string }
+): Promise<{ sent: boolean; error?: string }> {
+  if (!env.RESEND_API_KEY) return { sent: false, error: "Email service is not configured." };
+  try {
+    const response = await fetch("https://api.resend.com/emails", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${env.RESEND_API_KEY}`,
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        from: env.EMAIL_FROM || "Vinameals <support@vinamealsupplies.com>",
+        to: [input.to],
+        reply_to: "support@vinamealsupplies.com",
+        subject: input.subject,
+        text: input.text,
+        html: input.html
+      })
+    });
+    if (!response.ok) {
+      const payload = (await response.json().catch(() => null)) as { message?: string } | null;
+      return { sent: false, error: payload?.message || `Email service returned ${response.status}.` };
+    }
+    return { sent: true };
+  } catch (error) {
+    return { sent: false, error: error instanceof Error ? error.message : "Could not send email." };
+  }
+}
+
+function customerOrderUrl(orderNumber: string | null | undefined, orderId: string) {
+  const identifier = (orderNumber || orderId).trim();
+  return `https://vinamealsupplies.com/account/orders/${encodeURIComponent(identifier)}`;
+}
+
+function trackingUrlFor(carrier: string, tracking: string): string | null {
+  const code = encodeURIComponent(tracking);
+  if (carrier === "usps") return `https://tools.usps.com/go/TrackConfirmAction?tLabels=${code}`;
+  if (carrier === "ups") return `https://www.ups.com/track?tracknum=${code}`;
+  if (carrier === "fedex") return `https://www.fedex.com/fedextrack/?trknbr=${code}`;
+  if (carrier === "dhl") return `https://www.dhl.com/us-en/home/tracking.html?tracking-id=${code}`;
+  return null;
+}
+
 export default {
   async fetch(req: Request, env: Env): Promise<Response> {
     if (req.method === "OPTIONS") {
@@ -240,6 +306,10 @@ export default {
       }
       if (path === "/api/mobile/v1/management/applications/decide" && req.method === "POST") {
         return handleApplicationDecide(req, env);
+      }
+      if (path.match(/^\/api\/mobile\/v1\/management\/applications\/[^/]+\/[^/]+$/) && req.method === "GET") {
+        const parts = path.split("/");
+        return handleApplicationDetail(req, env, parts[6], parts[7]);
       }
       if (path === "/api/mobile/v1/management/invoices" && req.method === "GET") {
         return handleInvoices(req, env);
@@ -963,6 +1033,90 @@ async function handleStaffOrders(req: Request, env: Env, url: URL) {
   return json({ orders: mapped });
 }
 
+type OrderEmailContext = {
+  id: string;
+  order_number: string | null;
+  customer_id: string;
+};
+
+async function orderEmailRecipient(sb: SupabaseClient, customerId: string) {
+  const { data: customer } = await sb
+    .from("customers")
+    .select("auth_user_id, email, first_name, last_name, company_name")
+    .eq("id", customerId)
+    .maybeSingle();
+  if (!customer) return null;
+  let email = String(customer.email ?? "").trim();
+  if (customer.auth_user_id) {
+    const { data: profile } = await sb
+      .from("profiles")
+      .select("email")
+      .eq("id", customer.auth_user_id)
+      .maybeSingle();
+    const loginEmail = String(profile?.email ?? "").trim();
+    if (loginEmail) email = loginEmail;
+  }
+  if (!email) return null;
+  const name = [customer.first_name, customer.last_name].filter(Boolean).join(" ") ||
+    customer.company_name ||
+    "Customer";
+  return { email, name: String(name) };
+}
+
+async function sendOrderPaymentStatusEmail(env: Env, sb: SupabaseClient, order: OrderEmailContext) {
+  const [{ data: invoice }, recipient] = await Promise.all([
+    sb
+      .from("invoices")
+      .select("invoice_number, status, total_amount, amount_paid, balance_due")
+      .eq("order_id", order.id)
+      .maybeSingle(),
+    orderEmailRecipient(sb, order.customer_id)
+  ]);
+  if (!invoice) return { sent: false, error: "This order does not have an invoice." };
+  if (!recipient) return { sent: false, error: "The customer does not have an email address." };
+
+  const orderNumber = order.order_number || order.id.slice(0, 8).toUpperCase();
+  const orderUrl = customerOrderUrl(order.order_number, order.id);
+  const balance = num(invoice.balance_due);
+  const isPaid = invoice.status === "paid" || balance <= 0;
+  const money = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" });
+  const subject = isPaid
+    ? `Payment received for order ${orderNumber}`
+    : `Payment reminder for order ${orderNumber}`;
+  const statusText = isPaid
+    ? `We received your payment for invoice ${invoice.invoice_number}. Thank you.`
+    : `Invoice ${invoice.invoice_number} has an outstanding balance of ${money.format(balance)}. Please complete payment.`;
+  return sendMobileEmail(env, {
+    to: recipient.email,
+    subject,
+    text: `Hello ${recipient.name},\n\n${statusText}\n\nView order ${orderNumber}: ${orderUrl}\n\nVinameals Supplies`,
+    html: `<p>Hello ${escapeEmailHtml(recipient.name)},</p><p>${escapeEmailHtml(statusText)}</p><p><a href="${orderUrl}">View order ${escapeEmailHtml(orderNumber)}</a></p><p>Vinameals Supplies</p>`
+  });
+}
+
+async function sendOrderShipmentEmail(
+  env: Env,
+  sb: SupabaseClient,
+  order: OrderEmailContext,
+  carrier: string,
+  tracking: string | null
+) {
+  const recipient = await orderEmailRecipient(sb, order.customer_id);
+  if (!recipient) return { sent: false, error: "The customer does not have an email address." };
+  const orderNumber = order.order_number || order.id.slice(0, 8).toUpperCase();
+  const orderUrl = customerOrderUrl(order.order_number, order.id);
+  const trackingUrl = tracking ? trackingUrlFor(carrier, tracking) : null;
+  const trackingText = tracking
+    ? `\nTracking: ${tracking}${trackingUrl ? `\nTrack package: ${trackingUrl}` : ""}`
+    : "";
+  return sendMobileEmail(env, {
+    to: recipient.email,
+    subject: `Order ${orderNumber} has shipped`,
+    text: `Hello ${recipient.name},\n\nYour Vinameals order ${orderNumber} has shipped.${trackingText}\n\nView your order: ${orderUrl}\n\nVinameals Supplies`,
+    html: `<p>Hello ${escapeEmailHtml(recipient.name)},</p><p>Your Vinameals order <strong>${escapeEmailHtml(orderNumber)}</strong> has shipped.</p>${tracking ? `<p><strong>Tracking:</strong> ${escapeEmailHtml(tracking)}${trackingUrl ? `<br><a href="${trackingUrl}">Track your package</a>` : ""}</p>` : ""}<p><a href="${orderUrl}">View order ${escapeEmailHtml(orderNumber)}</a></p><p>Vinameals Supplies</p>`
+  });
+}
+
 async function handleOrderAction(req: Request, env: Env, orderId: string) {
   const gate = await requireAdmin(req, env);
   if ("error" in gate && gate.error) return gate.error;
@@ -973,6 +1127,9 @@ async function handleOrderAction(req: Request, env: Env, orderId: string) {
     reason?: string;
     carrier?: string;
     trackingNumber?: string;
+    proofBase64?: string;
+    proofFilename?: string;
+    proofContentType?: string;
   };
   const action = body.action ?? "";
   const sb = admin(env);
@@ -980,16 +1137,25 @@ async function handleOrderAction(req: Request, env: Env, orderId: string) {
 
   const { data: order } = await sb
     .from("sales_orders")
-    .select("id, status, fulfillment_method, pickup_ready_at, picked_up_at")
+    .select(
+      "id, order_number, customer_id, status, fulfillment_method, pickup_ready_at, picked_up_at, shipping_address_snapshot"
+    )
     .eq("id", orderId)
     .maybeSingle();
   if (!order) return jsonErr("NOT_FOUND", "Order not found.", 404);
+  const orderEmailContext: OrderEmailContext = {
+    id: order.id,
+    order_number: order.order_number,
+    customer_id: order.customer_id
+  };
+  let responseMessage = "Order updated.";
 
   if (action === "mark_pickup_ready") {
     await sb
       .from("sales_orders")
       .update({ pickup_ready_at: now, updated_at: now })
       .eq("id", orderId);
+    responseMessage = "Order marked ready for pickup.";
   } else if (action === "confirm_pickup") {
     await sb
       .from("sales_orders")
@@ -1002,6 +1168,7 @@ async function handleOrderAction(req: Request, env: Env, orderId: string) {
         updated_at: now
       })
       .eq("id", orderId);
+    responseMessage = "Pickup confirmed.";
   } else if (action === "cancel") {
     await sb
       .from("sales_orders")
@@ -1013,27 +1180,79 @@ async function handleOrderAction(req: Request, env: Env, orderId: string) {
         updated_at: now
       })
       .eq("id", orderId);
+    responseMessage = "Order cancelled.";
   } else if (action === "confirm_delivered" || action === "save_tracking") {
-    const tracking = (body.trackingNumber ?? "").trim();
+    const tracking = (body.trackingNumber ?? "").trim().slice(0, 80);
     const carrier = (body.carrier ?? "other").trim().toLowerCase();
+    const proofBase64 = typeof body.proofBase64 === "string" ? body.proofBase64 : "";
+    const proofFilename = String(body.proofFilename ?? "shipping-proof").slice(0, 200);
+    const proofContentType = String(body.proofContentType ?? "").slice(0, 120);
+
+    const { data: beforeShip } = await sb
+      .from("sales_orders")
+      .select("tracking_number, shipping_proof_object_key, status, fulfillment_method, shipping_address_snapshot")
+      .eq("id", orderId)
+      .maybeSingle();
+
+    if (beforeShip?.fulfillment_method !== "ship") {
+      return jsonErr("NOT_SHIPPING_ORDER", "This is not a shipping order.");
+    }
+    if (action === "confirm_delivered" && beforeShip.status !== "confirmed") {
+      return jsonErr("BAD_STATE", "Only a confirmed order can be marked shipped.");
+    }
+    if (action === "confirm_delivered" && !beforeShip.shipping_address_snapshot) {
+      return jsonErr("SHIPPING_ADDRESS_REQUIRED", "A shipping address is required before confirming shipment.");
+    }
+
+    let proofKey: string | null = null;
+    if (proofBase64) {
+      const uploaded = await uploadShippingProofR2(env, orderId, proofBase64, proofFilename, proofContentType);
+      if ("error" in uploaded) return jsonErr("PROOF_UPLOAD_FAILED", uploaded.error);
+      proofKey = uploaded.key;
+    }
+
+    const hasTracking = Boolean(tracking || beforeShip?.tracking_number);
+    const hasProof = Boolean(proofKey || beforeShip?.shipping_proof_object_key);
+    if (!hasTracking && !hasProof) {
+      return jsonErr(
+        "SHIP_PROOF_REQUIRED",
+        "Nhập mã tracking hoặc tải lên PDF/ảnh chứng từ ship."
+      );
+    }
+
     const patch: Record<string, unknown> = {
       shipping_carrier: carrier,
-      updated_at: now
+      updated_at: now,
+      shipped_at: now
     };
-    if (tracking) {
-      patch.tracking_number = tracking;
-      patch.shipped_at = now;
+    const effectiveTracking = tracking || beforeShip?.tracking_number || null;
+    if (tracking) patch.tracking_number = tracking;
+    if (effectiveTracking) patch.tracking_url = trackingUrlFor(carrier, effectiveTracking);
+    if (proofKey) {
+      patch.shipping_proof_object_key = proofKey;
+      patch.shipping_proof_filename = proofFilename;
+      patch.shipping_proof_content_type = proofContentType || "application/octet-stream";
     }
-    if (action === "confirm_delivered" || body.note === "ship") {
+    if (action === "confirm_delivered") {
       patch.status = "fulfilled";
       patch.fulfilled_at = now;
     }
-    await sb.from("sales_orders").update(patch).eq("id", orderId);
+    const { error: shipErr } = await sb.from("sales_orders").update(patch).eq("id", orderId);
+    if (shipErr) return jsonErr("UPDATE_FAILED", shipErr.message);
+    if (action === "confirm_delivered") {
+      const email = await sendOrderShipmentEmail(env, sb, orderEmailContext, carrier, effectiveTracking);
+      responseMessage = email.sent
+        ? "Shipment confirmed and the customer was emailed."
+        : `Shipment confirmed, but email could not be sent: ${email.error}`;
+    } else {
+      responseMessage = "Shipping details saved.";
+    }
   } else if (action === "update_notes") {
     await sb
       .from("sales_orders")
       .update({ notes: (body.note ?? "").slice(0, 1000), updated_at: now })
       .eq("id", orderId);
+    responseMessage = "Notes saved.";
   } else if (action === "confirm_payment") {
     // best-effort: mark related invoice paid
     const { data: inv } = await sb
@@ -1059,11 +1278,19 @@ async function handleOrderAction(req: Request, env: Env, orderId: string) {
         })
         .eq("id", inv.id);
     }
+    const email = await sendOrderPaymentStatusEmail(env, sb, orderEmailContext);
+    responseMessage = email.sent
+      ? "Payment confirmed and the customer was emailed."
+      : `Payment confirmed, but email could not be sent: ${email.error}`;
+  } else if (action === "send_order_email") {
+    const email = await sendOrderPaymentStatusEmail(env, sb, orderEmailContext);
+    if (!email.sent) return jsonErr("EMAIL_FAILED", email.error || "Email could not be sent.");
+    responseMessage = "The order email was sent to the customer.";
   } else {
     return jsonErr("BAD_REQUEST", `Unknown action: ${action}`);
   }
 
-  return json({ ok: true, action });
+  return json({ ok: true, action, message: responseMessage });
 }
 
 async function handleInventory(req: Request, env: Env) {
@@ -1609,6 +1836,294 @@ async function handleApplications(req: Request, env: Env) {
   });
 }
 
+function applicationDisplayValue(value: unknown): string | null {
+  if (value == null || value === "") return null;
+  if (typeof value === "boolean") return value ? "Yes" : "No";
+  if (typeof value === "number") return String(value);
+  if (Array.isArray(value)) {
+    const items = value.map(applicationDisplayValue).filter((item): item is string => Boolean(item));
+    return items.length ? items.join(", ") : null;
+  }
+  if (typeof value === "object") {
+    const address = value as Record<string, unknown>;
+    const parts = [
+      address.recipientName ?? address.recipient_name,
+      address.companyName ?? address.company_name,
+      address.line1 ?? address.street,
+      address.line2,
+      [address.city, address.state ?? address.stateRegion ?? address.state_region, address.postalCode ?? address.postal_code ?? address.zip]
+        .filter(Boolean)
+        .join(" "),
+      address.country ?? address.countryCode ?? address.country_code
+    ]
+      .map(applicationDisplayValue)
+      .filter((item): item is string => Boolean(item));
+    return parts.length ? parts.join(", ") : JSON.stringify(value);
+  }
+  return String(value);
+}
+
+function applicationRows(
+  source: Record<string, unknown>,
+  fields: Array<[string, string]>
+) {
+  return fields
+    .map(([key, label]) => ({ label, value: applicationDisplayValue(source[key]) }))
+    .filter((row): row is { label: string; value: string } => Boolean(row.value));
+}
+
+async function signedPrivateDocumentUrl(env: Env, objectKey: string): Promise<string | null> {
+  if (
+    !env.CLOUDFLARE_ACCOUNT_ID ||
+    !env.R2_ACCESS_KEY_ID ||
+    !env.R2_SECRET_ACCESS_KEY ||
+    !env.R2_DOCUMENTS_BUCKET
+  ) {
+    return null;
+  }
+  try {
+    const { AwsClient } = await import("aws4fetch");
+    const client = new AwsClient({
+      accessKeyId: env.R2_ACCESS_KEY_ID,
+      secretAccessKey: env.R2_SECRET_ACCESS_KEY,
+      service: "s3",
+      region: "auto"
+    });
+    const encodedKey = objectKey.split("/").map(encodeURIComponent).join("/");
+    const url = `https://${env.CLOUDFLARE_ACCOUNT_ID}.r2.cloudflarestorage.com/${env.R2_DOCUMENTS_BUCKET}/${encodedKey}?X-Amz-Expires=900`;
+    const request = await client.sign(url, { method: "GET", aws: { signQuery: true } });
+    return request.url;
+  } catch {
+    return null;
+  }
+}
+
+async function handleApplicationDetail(req: Request, env: Env, type: string, id: string) {
+  const v = await getViewer(req, env);
+  if (!v) return jsonErr("UNAUTHORIZED", "Sign in required.", 401);
+  if (!v.isManager) return jsonErr("FORBIDDEN", "Manager required.", 403);
+  const sb = admin(env);
+
+  if (type === "tax_exemption") {
+    const { data, error } = await sb
+      .from("tax_exemption_applications")
+      .select(
+        `id, customer_id, contact_name, business_name, email, phone, status, review_note,
+         reviewed_at, created_at,
+         tax_exemption_documents ( id, object_key, content_type, bytes, original_filename )`
+      )
+      .eq("id", id)
+      .maybeSingle();
+    if (error) return jsonErr("LOAD_FAILED", error.message);
+    if (!data) return jsonErr("NOT_FOUND", "Application not found.", 404);
+
+    const row = data as unknown as Record<string, unknown>;
+    const rawDocuments = Array.isArray(row.tax_exemption_documents)
+      ? (row.tax_exemption_documents as Record<string, unknown>[])
+      : [];
+    const documents = await Promise.all(
+      rawDocuments.map(async (doc) => ({
+        id: String(doc.id),
+        name: applicationDisplayValue(doc.original_filename) || "Tax exemption document",
+        type: applicationDisplayValue(doc.content_type) || "Document",
+        size: num(doc.bytes),
+        url: await signedPrivateDocumentUrl(env, String(doc.object_key ?? ""))
+      }))
+    );
+    return json({
+      application: {
+        id: String(row.id),
+        type,
+        title: applicationDisplayValue(row.business_name) || "Tax exemption application",
+        number: String(row.id).slice(0, 8).toUpperCase(),
+        email: applicationDisplayValue(row.email),
+        status: applicationDisplayValue(row.status),
+        wholesaleRequested: false,
+        taxRequested: true,
+        sections: [
+          {
+            title: "Applicant",
+            rows: applicationRows(row, [
+              ["contact_name", "Contact name"],
+              ["business_name", "Business name"],
+              ["email", "Email"],
+              ["phone", "Phone"]
+            ])
+          },
+          {
+            title: "Review",
+            rows: applicationRows(row, [
+              ["status", "Status"],
+              ["review_note", "Decision reason"],
+              ["reviewed_at", "Reviewed at"],
+              ["created_at", "Submitted at"]
+            ])
+          }
+        ].filter((section) => section.rows.length),
+        documents
+      }
+    });
+  }
+
+  if (type !== "business") return jsonErr("BAD_REQUEST", "Unknown application type.");
+  const { data, error } = await sb
+    .from("business_applications")
+    .select(
+      `id, application_number, customer_id, applicant_full_name, applicant_job_title,
+       applicant_email, applicant_phone, preferred_contact_method, legal_business_name, dba_name,
+       entity_type, business_category, business_description, website_url, social_media_url,
+       years_in_business, estimated_monthly_volume, business_street, business_address_line_2,
+       business_city, business_state, business_zip, business_country, mailing_same_as_business,
+       mailing_address_json, shipping_same_as_business, shipping_address_json, wholesale_requested,
+       tax_exemption_requested, wholesale_status, tax_exemption_status, products_interested_json,
+       intended_use, sales_channels_json, expected_first_order_amount, wholesale_notes, exemption_type,
+       issuing_state, permit_number, certificate_effective_date, certificate_expiration_date,
+       certificate_business_name, certificate_same_as_business, certificate_address_json,
+       resale_product_description, no_permit_reason, verification_reference, signer_name, signer_title,
+       electronic_signature, signed_at, submitted_at, risk_flag, internal_notes,
+       customer_visible_message, wholesale_decided_at, wholesale_decision_reason, tax_decided_at,
+       tax_decision_reason, tax_verification_source, tax_verification_date, created_at, updated_at,
+       application_documents ( id, document_type, original_filename, storage_path, mime_type, file_size, uploaded_at, status, admin_note )`
+    )
+    .eq("id", id)
+    .maybeSingle();
+  if (error) return jsonErr("LOAD_FAILED", error.message);
+  if (!data) return jsonErr("NOT_FOUND", "Application not found.", 404);
+
+  const row = data as unknown as Record<string, unknown>;
+  const rawDocuments = Array.isArray(row.application_documents)
+    ? (row.application_documents as Record<string, unknown>[])
+    : [];
+  const documents = await Promise.all(
+    rawDocuments.map(async (doc) => ({
+      id: String(doc.id),
+      name: applicationDisplayValue(doc.original_filename) || applicationDisplayValue(doc.document_type) || "Supporting document",
+      type: applicationDisplayValue(doc.document_type) || applicationDisplayValue(doc.mime_type) || "Document",
+      size: num(doc.file_size),
+      status: applicationDisplayValue(doc.status),
+      note: applicationDisplayValue(doc.admin_note),
+      url: await signedPrivateDocumentUrl(env, String(doc.storage_path ?? ""))
+    }))
+  );
+
+  const sections = [
+    {
+      title: "Applicant",
+      rows: applicationRows(row, [
+        ["applicant_full_name", "Full name"],
+        ["applicant_job_title", "Job title"],
+        ["applicant_email", "Email"],
+        ["applicant_phone", "Phone"],
+        ["preferred_contact_method", "Preferred contact"]
+      ])
+    },
+    {
+      title: "Business",
+      rows: applicationRows(row, [
+        ["legal_business_name", "Legal business name"],
+        ["dba_name", "DBA"],
+        ["entity_type", "Entity type"],
+        ["business_category", "Business category"],
+        ["business_description", "Business description"],
+        ["website_url", "Website"],
+        ["social_media_url", "Social media"],
+        ["years_in_business", "Years in business"],
+        ["estimated_monthly_volume", "Estimated monthly volume"]
+      ])
+    },
+    {
+      title: "Addresses",
+      rows: [
+        {
+          label: "Business address",
+          value: [
+            row.business_street,
+            row.business_address_line_2,
+            [row.business_city, row.business_state, row.business_zip].filter(Boolean).join(" "),
+            row.business_country
+          ].filter(Boolean).join(", ")
+        },
+        ...applicationRows(row, [
+          ["mailing_same_as_business", "Mailing same as business"],
+          ["mailing_address_json", "Mailing address"],
+          ["shipping_same_as_business", "Shipping same as business"],
+          ["shipping_address_json", "Shipping address"]
+        ])
+      ].filter((item) => item.value)
+    },
+    {
+      title: "Wholesale request",
+      rows: applicationRows(row, [
+        ["wholesale_requested", "Wholesale requested"],
+        ["wholesale_status", "Wholesale status"],
+        ["products_interested_json", "Products interested"],
+        ["intended_use", "Intended use"],
+        ["sales_channels_json", "Sales channels"],
+        ["expected_first_order_amount", "Expected first order"],
+        ["wholesale_notes", "Notes"],
+        ["wholesale_decision_reason", "Decision reason"],
+        ["wholesale_decided_at", "Decided at"]
+      ])
+    },
+    {
+      title: "Tax exemption request",
+      rows: applicationRows(row, [
+        ["tax_exemption_requested", "Tax exemption requested"],
+        ["tax_exemption_status", "Tax status"],
+        ["exemption_type", "Exemption type"],
+        ["issuing_state", "Issuing state"],
+        ["permit_number", "Permit number"],
+        ["certificate_effective_date", "Effective date"],
+        ["certificate_expiration_date", "Expiration date"],
+        ["certificate_business_name", "Certificate business name"],
+        ["certificate_same_as_business", "Certificate same as business"],
+        ["certificate_address_json", "Certificate address"],
+        ["resale_product_description", "Products for resale"],
+        ["no_permit_reason", "No permit reason"],
+        ["verification_reference", "Verification reference"],
+        ["tax_verification_source", "Verification source"],
+        ["tax_verification_date", "Verification date"],
+        ["tax_decision_reason", "Decision reason"],
+        ["tax_decided_at", "Decided at"]
+      ])
+    },
+    {
+      title: "Signature",
+      rows: applicationRows(row, [
+        ["signer_name", "Signer name"],
+        ["signer_title", "Signer title"],
+        ["electronic_signature", "Electronic signature"],
+        ["signed_at", "Signed at"],
+        ["submitted_at", "Submitted at"]
+      ])
+    },
+    {
+      title: "Internal review",
+      rows: applicationRows(row, [
+        ["risk_flag", "Risk flag"],
+        ["internal_notes", "Internal notes"],
+        ["customer_visible_message", "Customer-visible message"]
+      ])
+    }
+  ].filter((section) => section.rows.length);
+
+  return json({
+    application: {
+      id: String(row.id),
+      type,
+      title: applicationDisplayValue(row.legal_business_name) || "Business application",
+      number: applicationDisplayValue(row.application_number) || String(row.id).slice(0, 8).toUpperCase(),
+      email: applicationDisplayValue(row.applicant_email),
+      wholesaleRequested: Boolean(row.wholesale_requested),
+      taxRequested: Boolean(row.tax_exemption_requested),
+      wholesaleStatus: applicationDisplayValue(row.wholesale_status),
+      taxStatus: applicationDisplayValue(row.tax_exemption_status),
+      sections,
+      documents
+    }
+  });
+}
+
 async function handleAddressesGet(req: Request, env: Env) {
   const v = await getViewer(req, env);
   if (!v) return jsonErr("UNAUTHORIZED", "Sign in required.", 401);
@@ -1792,7 +2307,9 @@ async function handleStaffOrderDetail(req: Request, env: Env, orderId: string) {
     .from("sales_orders")
     .select(
       `id, order_number, status, fulfillment_method, total_amount, subtotal, tax_amount, shipping_amount, discount_amount, currency, created_at, notes,
-       pickup_ready_at, picked_up_at, fulfilled_at, tracking_number, shipping_carrier, tracking_url, payment_method, payment_reference, shipping_address_snapshot, cancelled_at, cancel_note, cancelled_by_name, picked_up_by_name, shipped_at,
+       pickup_ready_at, picked_up_at, fulfilled_at, tracking_number, shipping_carrier, tracking_url,
+       shipping_proof_object_key, shipping_proof_filename, shipping_proof_content_type,
+       payment_method, payment_reference, shipping_address_snapshot, cancelled_at, cancel_note, cancelled_by_name, picked_up_by_name, shipped_at,
        customers ( first_name, last_name, company_name, phone, email, notes ),
        items:sales_order_items ( id, product_name_snapshot, variant_name_snapshot, sku_snapshot, quantity, unit_price, line_total, line_note ),
        invoices ( id, invoice_number, amount_paid, total_amount, balance_due, status )`
@@ -1876,6 +2393,11 @@ async function handleStaffOrderDetail(req: Request, env: Env, orderId: string) {
       trackingNumber: order.tracking_number,
       shippingCarrier: order.shipping_carrier,
       trackingUrl: order.tracking_url,
+      hasShippingProof: Boolean(
+        (order as { shipping_proof_object_key?: string | null }).shipping_proof_object_key
+      ),
+      shippingProofFilename:
+        (order as { shipping_proof_filename?: string | null }).shipping_proof_filename ?? null,
       shippingAddress: order.shipping_address_snapshot,
       paymentMethod: order.payment_method,
       paymentReference: order.payment_reference,
@@ -2237,40 +2759,240 @@ async function handleApplicationDecide(req: Request, env: Env) {
   const id = body.id ?? "";
   const decision = body.decision ?? "";
   if (!id || !decision) return jsonErr("BAD_REQUEST", "id and decision required.");
+  if (decision !== "approved" && decision !== "rejected") {
+    return jsonErr("BAD_REQUEST", "Choose approve or reject.");
+  }
+  const reason = (body.reason ?? "").trim().slice(0, 1000);
+  if (decision === "rejected" && !reason) {
+    return jsonErr("REASON_REQUIRED", "A rejection reason is required.");
+  }
   const sb = admin(env);
   const now = new Date().toISOString();
 
   if (body.type === "tax_exemption") {
-    if (decision !== "approved" && decision !== "rejected") {
-      return jsonErr("BAD_REQUEST", "Tax exemption decision must be approved or rejected.");
-    }
+    const { data: application, error: loadError } = await sb
+      .from("tax_exemption_applications")
+      .select("id, customer_id, contact_name, business_name, email, status")
+      .eq("id", id)
+      .maybeSingle();
+    if (loadError) return jsonErr("LOAD_FAILED", loadError.message);
+    if (!application) return jsonErr("NOT_FOUND", "Application not found.", 404);
     const { error } = await sb
       .from("tax_exemption_applications")
       .update({
         status: decision,
         reviewed_at: now,
         reviewed_by: v.id,
-        review_note: (body.reason ?? "").slice(0, 500) || null
+        review_note: reason || null
       })
       .eq("id", id);
     if (error) return jsonErr("DECIDE_FAILED", error.message);
-    return json({ ok: true });
+    const { error: customerError } = await sb
+      .from("customers")
+      .update({
+        tax_exempt_status: decision,
+        tax_exempt_reason: reason || null,
+        tax_exempt_verified_by: v.id,
+        tax_exempt_verified_at: now
+      })
+      .eq("id", application.customer_id);
+    if (customerError) return jsonErr("CUSTOMER_UPDATE_FAILED", customerError.message);
+
+    const heading = decision === "approved" ? "Your tax exemption application was approved" : "Your tax exemption application was not approved";
+    const reasonText = decision === "rejected" ? `\n\nReason: ${reason}` : "";
+    const email = await sendMobileEmail(env, {
+      to: application.email,
+      subject: `Vinameals tax exemption application — ${decision}`,
+      text: `Hello ${application.contact_name},\n\n${heading} for ${application.business_name}.${reasonText}\n\nYou can review your account at https://vinamealsupplies.com/account/tax-exemption\n\nVinameals Supplies`,
+      html: `<p>Hello ${escapeEmailHtml(application.contact_name)},</p><p>${escapeEmailHtml(heading)} for <strong>${escapeEmailHtml(application.business_name)}</strong>.</p>${decision === "rejected" ? `<p><strong>Reason:</strong> ${escapeEmailHtml(reason)}</p>` : ""}<p><a href="https://vinamealsupplies.com/account/tax-exemption">Review your application</a></p><p>Vinameals Supplies</p>`
+    });
+    return json({
+      ok: true,
+      emailSent: email.sent,
+      message: email.sent
+        ? `${decision === "approved" ? "Approved" : "Rejected"}; the applicant was emailed.`
+        : `${decision === "approved" ? "Approved" : "Rejected"}, but email could not be sent: ${email.error}`
+    });
   }
 
-  // business_applications tracks
+  if (body.type !== "business_wholesale" && body.type !== "business_tax") {
+    return jsonErr("BAD_REQUEST", "Unknown application decision type.");
+  }
+  const { data: application, error: loadError } = await sb
+    .from("business_applications")
+    .select(
+      `id, customer_id, applicant_full_name, applicant_email, legal_business_name,
+       application_number, wholesale_requested, tax_exemption_requested, wholesale_status,
+       tax_exemption_status, permit_number, issuing_state, certificate_effective_date,
+       certificate_expiration_date`
+    )
+    .eq("id", id)
+    .maybeSingle();
+  if (loadError) return jsonErr("LOAD_FAILED", loadError.message);
+  if (!application) return jsonErr("NOT_FOUND", "Application not found.", 404);
+  if (body.type === "business_wholesale" && !application.wholesale_requested) {
+    return jsonErr("NOT_REQUESTED", "Wholesale was not requested on this application.");
+  }
+  if (body.type === "business_tax" && !application.tax_exemption_requested) {
+    return jsonErr("NOT_REQUESTED", "Tax exemption was not requested on this application.");
+  }
+
   const patch: Record<string, unknown> = {};
+  const previousStatus = body.type === "business_tax"
+    ? application.tax_exemption_status
+    : application.wholesale_status;
   if (body.type === "business_tax") {
     patch.tax_exemption_status = decision;
     patch.tax_decided_by = v.id;
     patch.tax_decided_at = now;
-    patch.tax_decision_reason = (body.reason ?? "").slice(0, 500) || null;
+    patch.tax_decision_reason = reason || null;
   } else {
     patch.wholesale_status = decision;
     patch.wholesale_decided_by = v.id;
     patch.wholesale_decided_at = now;
-    patch.wholesale_decision_reason = (body.reason ?? "").slice(0, 500) || null;
+    patch.wholesale_decision_reason = reason || null;
   }
   const { error } = await sb.from("business_applications").update(patch).eq("id", id);
   if (error) return jsonErr("DECIDE_FAILED", error.message);
-  return json({ ok: true });
+
+  if (body.type === "business_wholesale") {
+    const customerPatch: Record<string, unknown> = {
+      company_name: application.legal_business_name,
+      wholesale_status: decision,
+      wholesale_application_id: id
+    };
+    if (decision === "approved") {
+      customerPatch.customer_type = "wholesale";
+      customerPatch.wholesale_approved_at = now;
+      customerPatch.wholesale_approved_by = v.id;
+    }
+    const { error: customerError } = await sb
+      .from("customers")
+      .update(customerPatch)
+      .eq("id", application.customer_id);
+    if (customerError) return jsonErr("CUSTOMER_UPDATE_FAILED", customerError.message);
+  } else {
+    const taxPatch: Record<string, unknown> = {
+      tax_exempt_status: decision,
+      tax_exempt_reason: reason || null,
+      tax_exempt_verified_by: v.id,
+      tax_exempt_verified_at: now
+    };
+    if (decision === "approved") {
+      taxPatch.tax_exempt_certificate_number = application.permit_number;
+      taxPatch.tax_exempt_issuing_state = application.issuing_state;
+      taxPatch.tax_exempt_effective_at = application.certificate_effective_date;
+      taxPatch.tax_exempt_expires_at = application.certificate_expiration_date;
+    }
+    const { error: customerError } = await sb
+      .from("customers")
+      .update(taxPatch)
+      .eq("id", application.customer_id);
+    if (customerError) return jsonErr("CUSTOMER_UPDATE_FAILED", customerError.message);
+  }
+
+  await sb.from("application_reviews").insert({
+    application_id: id,
+    reviewer_id: v.id,
+    review_type: body.type === "business_tax" ? "tax_exemption" : "wholesale",
+    previous_status: previousStatus,
+    new_status: decision,
+    decision,
+    reason: reason || null
+  });
+
+  const track = body.type === "business_tax" ? "tax exemption" : "wholesale";
+  const statusUrl = `https://vinamealsupplies.com/account/business-application/${encodeURIComponent(id)}`;
+  const email = await sendMobileEmail(env, {
+    to: application.applicant_email,
+    subject: `Vinameals ${track} application ${application.application_number} — ${decision}`,
+    text: `Hello ${application.applicant_full_name},\n\nYour ${track} application ${application.application_number} for ${application.legal_business_name} was ${decision}.${decision === "rejected" ? `\n\nReason: ${reason}` : ""}\n\nView your application: ${statusUrl}\n\nVinameals Supplies`,
+    html: `<p>Hello ${escapeEmailHtml(application.applicant_full_name)},</p><p>Your ${escapeEmailHtml(track)} application <strong>${escapeEmailHtml(application.application_number)}</strong> for ${escapeEmailHtml(application.legal_business_name)} was <strong>${escapeEmailHtml(decision)}</strong>.</p>${decision === "rejected" ? `<p><strong>Reason:</strong> ${escapeEmailHtml(reason)}</p>` : ""}<p><a href="${statusUrl}">View your application</a></p><p>Vinameals Supplies</p>`
+  });
+  return json({
+    ok: true,
+    emailSent: email.sent,
+    message: email.sent
+      ? `${track === "wholesale" ? "Wholesale" : "Tax exemption"} ${decision}; the applicant was emailed.`
+      : `${track === "wholesale" ? "Wholesale" : "Tax exemption"} ${decision}, but email could not be sent: ${email.error}`
+  });
+}
+
+/** Detect PDF/JPEG/PNG/WebP from magic bytes. */
+function detectProofType(bytes: Uint8Array): { contentType: string; extension: string } | null {
+  const s = (...sig: number[]) =>
+    sig.length <= bytes.length && sig.every((b, i) => bytes[i] === b);
+  if (s(0x25, 0x50, 0x44, 0x46, 0x2d)) return { contentType: "application/pdf", extension: "pdf" };
+  if (s(0xff, 0xd8, 0xff)) return { contentType: "image/jpeg", extension: "jpg" };
+  if (s(0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a))
+    return { contentType: "image/png", extension: "png" };
+  if (
+    s(0x52, 0x49, 0x46, 0x46) &&
+    bytes.length >= 12 &&
+    bytes[8] === 0x57 &&
+    bytes[9] === 0x45 &&
+    bytes[10] === 0x42 &&
+    bytes[11] === 0x50
+  ) {
+    return { contentType: "image/webp", extension: "webp" };
+  }
+  return null;
+}
+
+async function uploadShippingProofR2(
+  env: Env,
+  orderId: string,
+  base64: string,
+  filename: string,
+  declaredType: string
+): Promise<{ key: string } | { error: string }> {
+  if (
+    !env.CLOUDFLARE_ACCOUNT_ID ||
+    !env.R2_ACCESS_KEY_ID ||
+    !env.R2_SECRET_ACCESS_KEY ||
+    !env.R2_DOCUMENTS_BUCKET
+  ) {
+    return {
+      error:
+        "R2 documents storage is not configured on mobile-api worker. Set CLOUDFLARE_ACCOUNT_ID, R2_* secrets."
+    };
+  }
+
+  const cleaned = base64.replace(/^data:[^;]+;base64,/, "");
+  let binary: Uint8Array;
+  try {
+    const raw = atob(cleaned);
+    binary = new Uint8Array(raw.length);
+    for (let i = 0; i < raw.length; i++) binary[i] = raw.charCodeAt(i);
+  } catch {
+    return { error: "Invalid proof file encoding." };
+  }
+  if (binary.byteLength <= 0) return { error: "Empty file." };
+  if (binary.byteLength > 5 * 1024 * 1024) return { error: "File larger than 5 MB." };
+
+  const detected = detectProofType(binary);
+  if (!detected) {
+    return { error: "Only real PDF, JPEG, PNG, or WebP files are accepted." };
+  }
+
+  const key = `shipping-proof/${orderId}/${crypto.randomUUID()}.${detected.extension}`;
+  const { AwsClient } = await import("aws4fetch");
+  const client = new AwsClient({
+    accessKeyId: env.R2_ACCESS_KEY_ID,
+    secretAccessKey: env.R2_SECRET_ACCESS_KEY
+  });
+  const url = `https://${env.CLOUDFLARE_ACCOUNT_ID}.r2.cloudflarestorage.com/${env.R2_DOCUMENTS_BUCKET}/${key}`;
+  const res = await client.fetch(url, {
+    method: "PUT",
+    headers: {
+      "Content-Type": detected.contentType || declaredType || "application/octet-stream",
+      "Content-Disposition": `inline; filename="${filename.replace(/[^A-Za-z0-9._-]+/g, "-").slice(0, 80)}"`
+    },
+    body: binary
+  });
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    return { error: `R2 upload failed (${res.status}): ${text.slice(0, 200)}` };
+  }
+  return { key };
 }

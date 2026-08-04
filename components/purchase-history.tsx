@@ -34,9 +34,10 @@ function paymentLine(order: CustomerOrder) {
   return "Payment not recorded";
 }
 
-function OrderCard({ order }: { order: CustomerOrder }) {
+function OrderCard({ order, defaultOpen = false }: { order: CustomerOrder; defaultOpen?: boolean }) {
   return (
     <details
+      open={defaultOpen}
       className={`purchase-order-card ${order.isOpen ? "is-open" : ""}${
         order.pickupReadyAt && order.status === "confirmed" ? " is-pickup-ready" : ""
       }`}
@@ -139,7 +140,13 @@ function OrderCard({ order }: { order: CustomerOrder }) {
   );
 }
 
-export function PurchaseHistory({ orders }: { orders: CustomerOrder[] }) {
+export function PurchaseHistory({
+  orders,
+  expandAll = false
+}: {
+  orders: CustomerOrder[];
+  expandAll?: boolean;
+}) {
   const openOrders = orders.filter((o) => o.isOpen);
   const pastOrders = orders.filter((o) => !o.isOpen);
   const openCount = openOrders.length;
@@ -185,7 +192,7 @@ export function PurchaseHistory({ orders }: { orders: CustomerOrder[] }) {
           </h3>
           <div className="purchase-order-list">
             {openOrders.map((order) => (
-              <OrderCard key={order.id} order={order} />
+              <OrderCard key={order.id} order={order} defaultOpen={expandAll} />
             ))}
           </div>
         </div>
@@ -196,7 +203,7 @@ export function PurchaseHistory({ orders }: { orders: CustomerOrder[] }) {
           <h3>Past orders ({pastOrders.length})</h3>
           <div className="purchase-order-list">
             {pastOrders.map((order) => (
-              <OrderCard key={order.id} order={order} />
+              <OrderCard key={order.id} order={order} defaultOpen={expandAll} />
             ))}
           </div>
         </div>
