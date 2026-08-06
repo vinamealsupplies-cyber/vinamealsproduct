@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { ArrowLeft } from "lucide-react";
-import { PurchaseHistory } from "@/components/purchase-history";
+import { CustomerOrderDetails } from "@/components/customer-order-details";
 import { getViewer } from "@/lib/auth";
 import { getOwnOrderByIdentifier } from "@/lib/data/customer-orders";
 
@@ -30,10 +30,10 @@ export default async function CustomerOrderDetailPage({
         </Link>
         <span className="kicker">My account</span>
         <h1>Order {order.number}</h1>
-        <p>This private page shows the latest status, payment information, items, and invoice.</p>
+        <p>Review delivery, payment, tracking, order status, items, and totals.</p>
       </header>
 
-      <PurchaseHistory orders={[order]} expandAll />
+      <CustomerOrderDetails order={order} />
     </div>
   );
 }

@@ -33,7 +33,7 @@ export default async function AccountOrdersPage() {
           {orders.length
             ? `${openCount > 0 ? `${openCount} order${openCount === 1 ? "" : "s"} in progress` : "No open orders right now"}${
                 pastCount > 0 ? ` · ${pastCount} completed or cancelled` : ""
-              }. Open any order to view or print its invoice.`
+              }. Select an order to see its full delivery, payment, status, and item details.`
             : "Your orders and invoices appear here after you place an order."}
         </p>
       </header>

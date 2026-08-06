@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { ChevronDown, FileText, Package, PackageOpen, ShoppingBag } from "lucide-react";
+import { ChevronRight, Package, PackageOpen, ShoppingBag } from "lucide-react";
 import type { CustomerOrder } from "@/lib/data/customer-orders";
 import { formatDate, formatDateTime, usd } from "@/lib/format";
 
@@ -34,16 +34,16 @@ function paymentLine(order: CustomerOrder) {
   return "Payment not recorded";
 }
 
-function OrderCard({ order, defaultOpen = false }: { order: CustomerOrder; defaultOpen?: boolean }) {
+function OrderCard({ order }: { order: CustomerOrder }) {
   return (
-    <details
-      open={defaultOpen}
+    <Link
+      href={`/account/orders/${encodeURIComponent(order.number || order.id)}`}
       className={`purchase-order-card ${order.isOpen ? "is-open" : ""}${
         order.pickupReadyAt && order.status === "confirmed" ? " is-pickup-ready" : ""
-      }`}
+      } purchase-order-link`}
+      aria-label={`View details for order ${order.number}`}
     >
-      {/* Thu gọn: mỗi đơn 1 hàng — bấm mới xổ chi tiết. */}
-      <summary className="purchase-order-summary">
+      <div className="purchase-order-summary">
         <div className="purchase-order-summary-main">
           <p className="purchase-order-number">
             Order {order.number}
@@ -58,94 +58,24 @@ function OrderCard({ order, defaultOpen = false }: { order: CustomerOrder; defau
             {" · "}
             {order.itemCount} item{order.itemCount === 1 ? "" : "s"}
           </p>
+          <p className={`purchase-order-payment ${order.paymentStatus === "paid" ? "is-paid" : ""}`}>
+            {paymentLine(order)}
+          </p>
         </div>
         <div className="purchase-order-summary-side">
           <span className={`status-badge ${statusClass(order)}`}>{order.statusLabel}</span>
           <strong className="purchase-order-summary-total">{usd.format(order.total)}</strong>
         </div>
-        <ChevronDown className="purchase-order-chevron" size={18} aria-hidden="true" />
-      </summary>
-
-      <div className="purchase-order-detail">
-        <p className={`purchase-payment-line ${order.paidAt ? "is-paid" : "is-pending"}`}>
-          {paymentLine(order)}
-        </p>
-        {order.statusDetail ? (
-          <p className="purchase-status-detail field-hint">{order.statusDetail}</p>
-        ) : null}
-        {order.pickupReadyAt && order.status === "confirmed" ? (
-          <p className="purchase-ready-banner" role="status">
-            Ready for pickup — bring order number <strong>{order.number}</strong> and photo ID.
-          </p>
-        ) : null}
-
-      <div className="table-scroll">
-        <table className="data-table purchase-items-table">
-          <thead>
-            <tr>
-              <th>Item</th>
-              <th className="num">Qty</th>
-              <th className="num">Price</th>
-              <th className="num">Total</th>
-              <th>Note</th>
-            </tr>
-          </thead>
-          <tbody>
-            {order.items.map((item) => (
-              <tr key={item.id}>
-                <td>
-                  <strong>{item.productName}</strong>
-                  {item.variantName ? (
-                    <span className="field-hint">{item.variantName}</span>
-                  ) : null}
-                  {item.sku ? <span className="field-hint">SKU {item.sku}</span> : null}
-                </td>
-                <td className="num">{item.quantity}</td>
-                <td className="num">{usd.format(item.unitPrice)}</td>
-                <td className="num">{usd.format(item.lineTotal)}</td>
-                <td>
-                  {item.lineNote ? (
-                    <span className="line-note-text">{item.lineNote}</span>
-                  ) : (
-                    <span className="muted">—</span>
-                  )}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+        <ChevronRight className="purchase-order-chevron" size={19} aria-hidden="true" />
       </div>
-
-      <footer className="purchase-order-foot">
-        <div className="purchase-order-foot-left">
-          <span>
-            {order.fulfilledAt
-              ? `Completed ${formatDate(order.fulfilledAt)}`
-              : order.pickedUpAt
-                ? `Picked up ${formatDate(order.pickedUpAt)}`
-                : order.isOpen
-                  ? "We’ll update this status as your order moves."
-                  : null}
-          </span>
-          <Link
-            className="button secondary compact"
-            href={`/account/orders/${order.id}/invoice`}
-          >
-            <FileText size={14} aria-hidden="true" /> View invoice
-          </Link>
-        </div>
-      </footer>
-      </div>
-    </details>
+    </Link>
   );
 }
 
 export function PurchaseHistory({
-  orders,
-  expandAll = false
+  orders
 }: {
   orders: CustomerOrder[];
-  expandAll?: boolean;
 }) {
   const openOrders = orders.filter((o) => o.isOpen);
   const pastOrders = orders.filter((o) => !o.isOpen);
@@ -192,7 +122,7 @@ export function PurchaseHistory({
           </h3>
           <div className="purchase-order-list">
             {openOrders.map((order) => (
-              <OrderCard key={order.id} order={order} defaultOpen={expandAll} />
+              <OrderCard key={order.id} order={order} />
             ))}
           </div>
         </div>
@@ -203,7 +133,7 @@ export function PurchaseHistory({
           <h3>Past orders ({pastOrders.length})</h3>
           <div className="purchase-order-list">
             {pastOrders.map((order) => (
-              <OrderCard key={order.id} order={order} defaultOpen={expandAll} />
+              <OrderCard key={order.id} order={order} />
             ))}
           </div>
         </div>
