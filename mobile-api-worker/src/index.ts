@@ -3608,7 +3608,7 @@ async function handleProductUpdate(req: Request, env: Env, id: string) {
       .maybeSingle(),
     sb
       .from("product_variants")
-      .select("id, sku, barcode, retail_price, cost_price")
+      .select("id, sku, barcode, retail_price, sale_price, wholesale_price, cost_price")
       .eq("product_id", id)
       .eq("is_default", true)
       .limit(1)
@@ -3623,6 +3623,8 @@ async function handleProductUpdate(req: Request, env: Env, id: string) {
     sku: beforeVariant?.sku,
     barcode: beforeVariant?.barcode ?? "",
     retailPrice: beforeVariant ? num(beforeVariant.retail_price) : null,
+    salePrice: beforeVariant?.sale_price == null ? null : num(beforeVariant.sale_price),
+    wholesalePrice: beforeVariant?.wholesale_price == null ? null : num(beforeVariant.wholesale_price),
     costPrice: beforeVariant ? num(beforeVariant.cost_price) : null
   };
 
@@ -3796,6 +3798,108 @@ function auditObject(value: unknown): Record<string, unknown> {
     : {};
 }
 
+// Log product.update cũ (từ web) ghi before dạng lồng { product, variant } với
+// khoá snake_case. Log mới (web + mobile) ghi phẳng camelCase. Hàm này đưa cả
+// hai về một dạng phẳng camelCase để so sánh, nên diff hoạt động với log cũ lẫn
+// mới — không phải viết lại lịch sử.
+function flattenProductAudit(value: unknown): Record<string, unknown> {
+  const obj = auditObject(value);
+  const product = obj.product;
+  const variant = obj.variant;
+  if (product === undefined && variant === undefined) return obj;
+  const p = auditObject(product);
+  const v = auditObject(variant);
+  return {
+    name: p.name,
+    slug: p.slug,
+    status: p.status,
+    shortDescription: p.short_description,
+    description: p.description,
+    featured: p.featured,
+    sku: v.sku,
+    barcode: v.barcode,
+    retailPrice: v.retail_price,
+    salePrice: v.sale_price,
+    wholesalePrice: v.wholesale_price,
+    costPrice: v.cost_price
+  };
+}
+
+const PRODUCT_AUDIT_FIELDS: {
+  key: string;
+  label: string;
+  kind: "money" | "text" | "bool" | "longtext";
+}[] = [
+  { key: "name", label: "name", kind: "text" },
+  { key: "sku", label: "SKU", kind: "text" },
+  { key: "barcode", label: "barcode", kind: "text" },
+  { key: "status", label: "availability", kind: "text" },
+  { key: "featured", label: "featured status", kind: "bool" },
+  { key: "retailPrice", label: "retail price", kind: "money" },
+  { key: "salePrice", label: "sale price", kind: "money" },
+  { key: "wholesalePrice", label: "wholesale price", kind: "money" },
+  { key: "costPrice", label: "unit cost", kind: "money" },
+  { key: "shortDescription", label: "short description", kind: "longtext" },
+  { key: "description", label: "description", kind: "longtext" }
+];
+
+const AUDIT_MONEY = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" });
+
+function quoteText(value: unknown): string {
+  const text = String(value ?? "").trim();
+  if (!text) return '""';
+  return `"${text.length > 40 ? `${text.slice(0, 40)}…` : text}"`;
+}
+
+// Một field đã đổi -> câu mô tả gọn, ưu tiên hiện old → new.
+function describeProductChange(
+  field: (typeof PRODUCT_AUDIT_FIELDS)[number],
+  beforeVal: unknown,
+  afterVal: unknown
+): string {
+  switch (field.kind) {
+    case "money":
+      return `${field.label} from ${AUDIT_MONEY.format(num(beforeVal))} to ${AUDIT_MONEY.format(num(afterVal))}`;
+    case "bool": {
+      const from = beforeVal ? "on" : "off";
+      const to = afterVal ? "on" : "off";
+      return `${field.label} from ${from} to ${to}`;
+    }
+    case "text": {
+      const from = String(beforeVal ?? "").trim();
+      const to = String(afterVal ?? "").trim();
+      if (!from) return `set ${field.label} to ${quoteText(to)}`;
+      if (!to) return `cleared ${field.label}`;
+      return `${field.label} from ${quoteText(from)} to ${quoteText(to)}`;
+    }
+    case "longtext":
+    default:
+      // Mô tả dài (description) không hiện giá trị cho gọn — chỉ nêu tên field.
+      // Wrapper ngoài đã có "Changed " nên chỉ trả nhãn: "Changed description."
+      return field.label;
+  }
+}
+
+function changedProductFields(beforeValue: unknown, afterValue: unknown): string[] {
+  const before = flattenProductAudit(beforeValue);
+  const after = flattenProductAudit(afterValue);
+  const clauses: string[] = [];
+  for (const field of PRODUCT_AUDIT_FIELDS) {
+    // Chỉ xét field thực sự có trong after (client có thể chỉ gửi field đã sửa).
+    if (!(field.key in after)) continue;
+    const b = before[field.key];
+    const a = after[field.key];
+    const changed =
+      field.kind === "money"
+        ? num(b) !== num(a)
+        : field.kind === "bool"
+          ? Boolean(b) !== Boolean(a)
+          : String(b ?? "").trim() !== String(a ?? "").trim();
+    if (changed) clauses.push(describeProductChange(field, b, a));
+  }
+  return clauses;
+}
+
 function activityDetail(
   action: string,
   beforeValue: unknown,
@@ -3816,21 +3920,10 @@ function activityDetail(
     if (tracking) return [carrier?.toUpperCase(), tracking].filter(Boolean).join(" · ");
   }
   if (action === "product.update") {
-    const names: Record<string, string> = {
-      name: "name",
-      sku: "SKU",
-      barcode: "barcode",
-      retailPrice: "retail price",
-      costPrice: "unit cost",
-      shortDescription: "short description",
-      description: "description",
-      featured: "featured status",
-      status: "availability"
-    };
-    const changed = Object.keys(after)
-      .filter((key) => key in names && JSON.stringify(before[key]) !== JSON.stringify(after[key]))
-      .map((key) => names[key]);
-    if (changed.length) return `Changed ${changed.join(", ")}.`;
+    // Diff chi tiết old → new (giá format USD). Dùng before/after gốc (không
+    // phải object đã ép qua auditObject) để giữ đúng cấu trúc lồng của log cũ.
+    const changed = changedProductFields(beforeValue, afterValue);
+    if (changed.length) return `Changed ${changed.join("; ")}.`;
   }
   const message = firstText(metadata.message);
   if (message) return message.slice(0, 500);

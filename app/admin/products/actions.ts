@@ -243,14 +243,14 @@ export async function updateProductAction(_prev: AdminFormState, formData: FormD
   const supabase = createAdminClient();
   const { data: current } = await supabase
     .from("products")
-    .select("status, published_at, name, slug, short_description")
+    .select("status, published_at, name, slug, short_description, description, featured")
     .eq("id", id)
     .maybeSingle();
 
   const { data: currentVariant } = variantId
     ? await supabase
         .from("product_variants")
-        .select("sku, retail_price, sale_price, wholesale_price, cost_price")
+        .select("sku, barcode, retail_price, sale_price, wholesale_price, cost_price")
         .eq("id", variantId)
         .maybeSingle()
     : { data: null };
@@ -310,19 +310,40 @@ export async function updateProductAction(_prev: AdminFormState, formData: FormD
       .insert({ product_id: id, category_id: input.categoryId, is_primary: true });
   }
 
+  // before/after phẳng, cùng khoá camelCase với luồng mobile, để Activity log
+  // diff được old → new. (Log cũ ghi before lồng { product, variant } vẫn hiển
+  // thị đúng nhờ flattenProductAudit ở phía đọc.)
   await writeAuditLog({
     actorUserId: viewer!.id,
     action: "product.update",
     entityType: "product",
     entityId: id,
-    before: { product: current, variant: currentVariant },
+    before: {
+      name: current?.name,
+      slug: current?.slug,
+      status: current?.status,
+      shortDescription: current?.short_description ?? "",
+      description: current?.description ?? "",
+      featured: current?.featured,
+      sku: currentVariant?.sku,
+      barcode: currentVariant?.barcode ?? "",
+      retailPrice: currentVariant ? Number(currentVariant.retail_price) : null,
+      salePrice: currentVariant?.sale_price == null ? null : Number(currentVariant.sale_price),
+      wholesalePrice: currentVariant?.wholesale_price == null ? null : Number(currentVariant.wholesale_price),
+      costPrice: currentVariant ? Number(currentVariant.cost_price) : null
+    },
     after: {
       name: input.name,
       slug: input.slug,
       status: input.status,
+      shortDescription: input.shortDescription,
+      description: input.description || "",
+      featured: input.featured,
       sku: input.sku,
+      barcode: input.barcode ?? "",
       retailPrice: input.retailPrice,
       salePrice: input.salePrice,
+      wholesalePrice: input.wholesalePrice,
       costPrice: input.costPrice
     },
     metadata: actorAuditMeta(viewer!)
